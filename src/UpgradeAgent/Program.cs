@@ -25,6 +25,7 @@ var agentOption = new Option<string?>("--agent") { Description = "Agent that fix
 var recordOption = new Option<string?>("--record") { Description = "Record the agent's sessions under recordings/<name> for later replay." };
 var replayOption = new Option<string?>("--replay") { Description = "Replay recordings/<name> instead of calling the agent. Builds, tests and guardrails still run live." };
 var replayGapOption = new Option<double>("--replay-max-gap") { Description = "Longest pause between replayed agent lines, in seconds.", DefaultValueFactory = _ => 0.8 };
+var adoOption = new Option<bool>("--ado") { Description = "Publish for real: push the branch and open a draft PR in Azure DevOps (default: dry run)." };
 var nonInteractiveOption = new Option<bool>("--non-interactive") { Description = "Never prompt; anything that needs approval is declined. Implied when output is redirected." };
 
 var planCommand = new Command("plan", "Detect outdated packages and print the upgrade plan. Changes nothing.")
@@ -49,6 +50,7 @@ var runCommand = new Command("run", "Upgrade packages on a new branch in a workt
     recordOption,
     replayOption,
     replayGapOption,
+    adoOption,
 };
 runCommand.SetAction((parseResult, cancellationToken) => RunUpgradeAsync(
     parseResult.GetValue(configOption),
@@ -57,12 +59,38 @@ runCommand.SetAction((parseResult, cancellationToken) => RunUpgradeAsync(
     parseResult.GetValue(agentOption),
     parseResult.GetValue(nonInteractiveOption),
     new RecordReplay(parseResult.GetValue(recordOption), parseResult.GetValue(replayOption), parseResult.GetValue(replayGapOption)),
+    parseResult.GetValue(adoOption),
     cancellationToken));
+
+var yesOption = new Option<bool>("--yes") { Description = "Don't ask for confirmation." };
+var cleanupCommand = new Command("ado-cleanup", "Abandon UpgradeAgent's labelled draft PRs and delete its agent/nuget-updates-* branches in Azure DevOps (demo reset).")
+{
+    configOption,
+    yesOption,
+};
+var seedCommand = new Command("ado-seed", "One-time demo setup: push the target repo's main branch into an EMPTY Azure DevOps repository.")
+{
+    configOption,
+};
+seedCommand.SetAction((parseResult, cancellationToken) =>
+{
+    var console = ConsoleFactory.Create();
+    return HandleErrorsAsync(console, async () =>
+    {
+        var config = ConfigLoader.Load(parseResult.GetValue(configOption)?.FullName);
+        var message = await new AzureDevOpsPublisher(config.Options.AzureDevOps, new ProcessRunner()).SeedAsync(config.RepoPath, "main", cancellationToken);
+        console.MarkupLine($"[green]{Markup.Escape(message)}[/]");
+        return ExitCodes.Success;
+    });
+});
+cleanupCommand.SetAction((parseResult, cancellationToken) => AdoCleanupAsync(parseResult.GetValue(configOption), parseResult.GetValue(yesOption), cancellationToken));
 
 var root = new RootCommand("UpgradeAgent: keeps a .NET repo's NuGet packages up to date, with an AI agent fixing breaking changes.")
 {
     planCommand,
     runCommand,
+    cleanupCommand,
+    seedCommand,
 };
 
 // Ctrl+C cancels the run; the current group is then reverted and the report written. The default
@@ -98,7 +126,7 @@ static async Task<int> RunPlanAsync(FileInfo? configFile, string[] only, FileInf
 }
 
 static async Task<int> RunUpgradeAsync(
-    FileInfo? configFile, string[] only, FileInfo? planFile, string? agent, bool nonInteractive, RecordReplay recordReplay, CancellationToken cancellationToken)
+    FileInfo? configFile, string[] only, FileInfo? planFile, string? agent, bool nonInteractive, RecordReplay recordReplay, bool ado, CancellationToken cancellationToken)
 {
     var console = ConsoleFactory.Create();
     return await HandleErrorsAsync(console, async () =>
@@ -108,6 +136,23 @@ static async Task<int> RunUpgradeAsync(
         if (!await PreflightAsync(console, config, processRunner, requireCleanRepo: true, cancellationToken))
         {
             return ExitCodes.PreflightFailed;
+        }
+
+        // The Azure DevOps credential must never reach the agent, whatever the env var is called.
+        config.Options.Agent.RemoveEnvironmentVariables.AddRange([config.Options.AzureDevOps.PatEnvVar, config.Options.AzureDevOps.AccessTokenEnvVar]);
+
+        AzureDevOpsPublisher? azureDevOps = null;
+        if (ado)
+        {
+            if (!config.Options.AzureDevOps.IsConfigured)
+            {
+                throw new ConfigurationException("--ado needs AzureDevOps:OrganizationUrl, AzureDevOps:Project and AzureDevOps:Repository.");
+            }
+
+            azureDevOps = new AzureDevOpsPublisher(config.Options.AzureDevOps, processRunner);
+            var repository = await azureDevOps.VerifyAsync(cancellationToken);
+            console.MarkupLine($"  [green]✓[/] Azure DevOps [grey]{Markup.Escape(repository)}[/]");
+            console.WriteLine();
         }
 
         var consoleLock = new object();
@@ -175,7 +220,9 @@ static async Task<int> RunUpgradeAsync(
         PushResult? push = null;
         if (report.Ledger.Count > 0 && !cancellationToken.IsCancellationRequested)
         {
-            var tool = new PushBranchTool(git, report, dryRun: true);
+            var tool = azureDevOps is null
+                ? new PushBranchTool(git, report, dryRun: true)
+                : new PushBranchTool(git, report, dryRun: false, ct => azureDevOps.PushAsync(report, ct), azureDevOps.Destination);
             renderer.PublishHeader(copilot is not null ? "the agent must call push_branch; you approve it" : "push_branch needs your approval");
             push = copilot is not null
                 ? await copilot.PublishAsync(tool, report, cancellationToken)
@@ -183,6 +230,12 @@ static async Task<int> RunUpgradeAsync(
         }
 
         renderer.Published(Path.Combine(config.OutputDirectory, "pr-description.md"), push);
+        if (azureDevOps is not null && push is { Pushed: true })
+        {
+            var url = await azureDevOps.CreatePullRequestAsync(report, PrDescription.Title(report), description, CancellationToken.None);
+            console.MarkupLine($"  [green]✓[/] Draft PR with label [blue]{Markup.Escape(config.Options.AzureDevOps.Label)}[/]: [link]{Markup.Escape(url)}[/]");
+            console.WriteLine();
+        }
 
         if (recordReplay.Record is { } name)
         {
@@ -210,6 +263,47 @@ static IGroupFixer CreateFixer(
         default:
             throw new ConfigurationException($"Unknown agent provider '{provider}'. Use 'copilot' or 'none'.");
     }
+}
+
+static async Task<int> AdoCleanupAsync(FileInfo? configFile, bool yes, CancellationToken cancellationToken)
+{
+    var console = ConsoleFactory.Create();
+    return await HandleErrorsAsync(console, async () =>
+    {
+        var config = ConfigLoader.Load(configFile?.FullName);
+        if (!config.Options.AzureDevOps.IsConfigured)
+        {
+            throw new ConfigurationException("AzureDevOps:OrganizationUrl, Project and Repository must be set.");
+        }
+
+        var publisher = new AzureDevOpsPublisher(config.Options.AzureDevOps, new ProcessRunner());
+        var (pullRequests, branches, apply) = await publisher.PlanCleanupAsync(cancellationToken);
+        if (pullRequests.Count == 0 && branches.Count == 0)
+        {
+            console.MarkupLine("[green]Nothing to clean up.[/]");
+            return ExitCodes.Success;
+        }
+
+        foreach (var pullRequest in pullRequests)
+        {
+            console.MarkupLine($"  abandon PR [blue]!{pullRequest.PullRequestId}[/] {Markup.Escape(pullRequest.Title)}");
+        }
+
+        foreach (var branch in branches)
+        {
+            console.MarkupLine($"  delete branch [blue]{Markup.Escape(branch.Name.Replace("refs/heads/", "", StringComparison.Ordinal))}[/]");
+        }
+
+        if (!yes && !(console.Profile.Capabilities.Interactive && console.Confirm($"Clean up {publisher.Destination}?", defaultValue: false)))
+        {
+            console.MarkupLine("[yellow]Nothing changed.[/]");
+            return ExitCodes.Success;
+        }
+
+        await apply(cancellationToken);
+        console.MarkupLine($"[green]Abandoned {pullRequests.Count} PR(s) and deleted {branches.Count} branch(es).[/]");
+        return ExitCodes.Success;
+    });
 }
 
 static async Task<bool> PreflightAsync(IAnsiConsole console, ResolvedConfig config, IProcessRunner processRunner, bool requireCleanRepo, CancellationToken cancellationToken)

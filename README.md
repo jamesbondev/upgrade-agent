@@ -2,7 +2,7 @@
 
 A .NET 10 console tool that keeps a repo's NuGet packages up to date. It detects and applies version bumps deterministically, uses a Microsoft Agent Framework harness agent to fix breaking changes, checks the result with deterministic guardrails, and opens a draft PR in Azure DevOps.
 
-See [PLAN.md](PLAN.md) for the design and milestones. **Current status: M5 (dry-run publishing).** Detection, deterministic bumps, guardrails and commits work, and a GitHub Copilot agent fixes groups that break the build. The app re-verifies every fix itself.
+See [PLAN.md](PLAN.md) for the design and milestones. **Current status: M6.** The full pipeline works, including publishing to Azure DevOps. Detection, deterministic bumps, guardrails and commits work, and a GitHub Copilot agent fixes groups that break the build. The app re-verifies every fix itself.
 
 ## Try it on the fixture
 
@@ -25,6 +25,22 @@ dotnet test tests/UpgradeAgent.IntegrationTests   # replays both recordings end 
 - Your Copilot plan decides which models are available. The run prints the model that actually served each group.
 - At the end, the run writes `out/pr-description.md` and asks to publish. Copilot must call `push_branch`, and you approve it at the prompt. In replay or `--agent none`, the app asks directly. Publishing is a dry run until the Azure DevOps integration (M6): it prints what it would push and nothing leaves the machine.
 - `--record <name>` saves each agent session (its activity, a patch of its changes and its outcome) under `recordings/<name>/`. `--replay <name>` plays those back instead of calling the model, and still does the bump, build, tests, guardrails and commit for real. Replays only work at the same target commit. Recordings of real repos are gitignored because they contain your code.
+
+## Publish to Azure DevOps
+
+1. Create an **empty** repo in Azure DevOps, and a PAT with **Code (Read & write)**.
+2. Store the PAT so it never lands in a file in this repo. Use either:
+   - `dotnet user-secrets set "AzureDevOps:Pat" "<pat>" --project src/UpgradeAgent`, or
+   - the environment variable `ADO_PAT`. In pipelines, `SYSTEM_ACCESSTOKEN` works, as does `az login` (Entra).
+3. Copy `fixtures/appsettings.ado.example.json` to `fixtures/appsettings.ado.json` (gitignored) and fill in the org URL, project and repo.
+4. One-time seed (this refuses a non-empty repo): `dotnet run --project src/UpgradeAgent -- ado-seed --config fixtures/appsettings.ado.json`
+5. Run: `dotnet run --project src/UpgradeAgent -- run --config fixtures/appsettings.ado.json --ado`
+   - The credential and repo are checked before any work starts.
+   - At the end, the agent calls `push_branch` and you approve it.
+   - The branch is pushed, and a **draft** PR is opened with the `agent-generated` label.
+6. Reset: `./scripts/reset-demo.ps1 -RepoPath artifacts/fixture/SampleRepo -Ado -Config fixtures/appsettings.ado.json`
+   - This abandons the labelled agent PRs and deletes the `agent/nuget-updates-*` branches, after listing them and asking.
+   - The default branch is never touched.
 
 ## Point it at another repo
 

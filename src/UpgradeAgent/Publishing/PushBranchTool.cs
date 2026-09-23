@@ -11,7 +11,8 @@ public sealed record PushResult(bool Pushed, bool Refused, string Message);
 /// tool, and it checks for itself that what it pushes is exactly what the guardrails verified:
 /// HEAD must be the last commit in the ledger and the worktree must be clean.
 /// </summary>
-public sealed class PushBranchTool(GitCli git, RunReport report, bool dryRun, Func<CancellationToken, Task<PushResult>>? push = null)
+/// <param name="destination">Where a real push goes (shown in the approval prompt); null means the repo's origin.</param>
+public sealed class PushBranchTool(GitCli git, RunReport report, bool dryRun, Func<CancellationToken, Task<PushResult>>? push = null, string? destination = null)
 {
     public const string Name = "push_branch";
 
@@ -31,8 +32,8 @@ public sealed class PushBranchTool(GitCli git, RunReport report, bool dryRun, Fu
 
     public async Task<string> DescribeAsync(CancellationToken cancellationToken)
     {
-        var remote = await RemoteAsync(cancellationToken);
-        return $"{Name}: {report.Branch} → {remote ?? "(no remote)"} · {report.Ledger.Count} verified commit(s)";
+        var remote = destination ?? await RemoteAsync(cancellationToken);
+        return $"{Name}: {report.Branch} → {remote ?? "(no remote)"} · {report.Ledger.Count} verified commit(s){(dryRun ? " · dry run" : "")}";
     }
 
     private async Task<PushResult> ExecuteAsync(CancellationToken cancellationToken)
@@ -55,7 +56,7 @@ public sealed class PushBranchTool(GitCli git, RunReport report, bool dryRun, Fu
             return new PushResult(false, true, $"Refused: the worktree has {changes} uncommitted change(s).");
         }
 
-        var remote = await RemoteAsync(cancellationToken);
+        var remote = destination ?? await RemoteAsync(cancellationToken);
         if (dryRun || push is null)
         {
             return new PushResult(false, false,

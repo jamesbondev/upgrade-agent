@@ -11,6 +11,34 @@ public sealed class UpgradeAgentOptions
     public OutputOptions Output { get; set; } = new();
 
     public AgentOptions Agent { get; set; } = new();
+
+    public AzureDevOpsOptions AzureDevOps { get; set; } = new();
+}
+
+public sealed class AzureDevOpsOptions
+{
+    /// <summary>For example https://dev.azure.com/contoso.</summary>
+    public string OrganizationUrl { get; set; } = "";
+
+    public string Project { get; set; } = "";
+
+    public string Repository { get; set; } = "";
+
+    /// <summary>Environment variable holding a PAT (scope: Code read &amp; write).</summary>
+    public string PatEnvVar { get; set; } = "ADO_PAT";
+
+    /// <summary>Environment variable holding a bearer token, e.g. a pipeline's System.AccessToken.</summary>
+    public string AccessTokenEnvVar { get; set; } = "SYSTEM_ACCESSTOKEN";
+
+    /// <summary>A PAT from user secrets (<c>dotnet user-secrets set AzureDevOps:Pat ...</c>). Never put it in appsettings.json.</summary>
+    public string? Pat { get; set; }
+
+    /// <summary>Fall back to Azure CLI / DefaultAzureCredential (Entra) when no PAT or token is set.</summary>
+    public bool UseAzureIdentity { get; set; } = true;
+
+    public string Label { get; set; } = "agent-generated";
+
+    public bool IsConfigured => OrganizationUrl.Length > 0 && Project.Length > 0 && Repository.Length > 0;
 }
 
 public sealed class AgentOptions

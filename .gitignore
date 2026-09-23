@@ -10,3 +10,6 @@ TestResults/
 recordings/*
 !recordings/fixture*/
 !recordings/.gitkeep
+
+# Personal Azure DevOps demo settings (copy of appsettings.ado.example.json)
+fixtures/appsettings.ado.json

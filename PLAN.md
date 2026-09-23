@@ -543,6 +543,16 @@ Status (2026-09-23):
   - **The tool itself refuses** when there is nothing accepted, when HEAD isn't the last ledger commit, or when the worktree is dirty. It runs at most once.
   - A spinner now covers detection, so the terminal doesn't look hung (the user saw arrow keys echoed during the silent pause).
   - 201 unit tests and 2 integration tests.
+- **M6 done** (Azure DevOps, verified against a real org: `jamesbond312/argus/LoanLedger-Demo`).
+  - `run --ado` checks the credential and repo **before** the run, then publishes only through the approved `push_branch`, then creates a draft PR with the `agent-generated` label.
+    - Verified two ways: with a replay (the app calls the tool), and live (Copilot calls the tool). Both created PRs (!2887, !2888), and both were then cleaned up.
+  - **Credential sources:** `$ADO_PAT`, `$SYSTEM_ACCESSTOKEN` (bearer), user secrets `AzureDevOps:Pat`, or `DefaultAzureCredential` (az login).
+    - Git gets the credential only through `GIT_CONFIG_COUNT/KEY/VALUE` (a host-scoped `http.extraheader`, with `credential.helper` blanked).
+    - Verified: no auth config in the repo, and nothing written to `~/.git-credentials` even though the user's global helper is `store`.
+    - The PAT and token env vars are always stripped from the agent's environment.
+  - PR descriptions over 4,000 characters drop the `<details>` blocks, then truncate with the full text posted as the first comment.
+  - `ado-seed` refuses a non-empty repo (verified). `ado-cleanup` (and `reset-demo.ps1 -Ado -Config`) lists first, only acts with a terminal confirmation or `--yes`, and never touches the default branch.
+  - The `Microsoft.TeamFoundationServer.Client` NU1605/NU1902 errors are fixed by pinning `System.Configuration.ConfigurationManager` and `System.Security.Cryptography.Xml` to 10.0.12.
 
 - **M0: detection.** Parsing, classification, policy, TFM check and plan table against the fixture.
 - **M1: bumping and guardrails, no AI.** Worktree, baseline cache, bump, restore, guardrails, and a commit for the patch group. Also the `fixture-cheat`-style guardrail tests, using scripted diffs.
@@ -550,7 +560,7 @@ Status (2026-09-23):
 - **M3: hardening from live runs (done).** Ctrl+C, operator prompt, public-API and summary/diff reviewer notes.
 - **M4: record/replay (done).** Group-level (see section 9). The `fixture` and `fixture-cheat` recordings are committed; the integration tests are green with no model.
 - **M5: publishing in dry-run (done).** `push_branch` approval, ledger check and PR description. **This is the full rehearsal target.**
-- **M6: Azure DevOps.** Draft PR, labels, PAT and Entra auth.
+- **M6: Azure DevOps (done).** Draft PR, labels, PAT/token/Entra auth, seed and cleanup.
 - **M7: `interest_accrual`.** Config only. Work through the checklist, record the demo, rehearse.
 - **M8: finishing.** Reset script, README, optional pipeline.
 

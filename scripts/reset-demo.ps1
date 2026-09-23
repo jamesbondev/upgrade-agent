@@ -12,13 +12,20 @@
 
 .EXAMPLE
     ./scripts/reset-demo.ps1 -RepoPath artifacts/fixture/SampleRepo
+
+.EXAMPLE
+    ./scripts/reset-demo.ps1 -RepoPath artifacts/fixture/SampleRepo -Ado -Config fixtures/appsettings.ado.json
+    Also abandons UpgradeAgent's labelled draft PRs and deletes its agent/nuget-updates-* branches in Azure DevOps
+    (lists them and asks first). The remote's default branch is never touched.
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)] [string] $RepoPath,
     [string] $WorkRoot,
     [string] $OutputDirectory = (Join-Path (Get-Location) 'out'),
-    [switch] $ClearBaseline
+    [switch] $ClearBaseline,
+    [switch] $Ado,
+    [string] $Config
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,6 +69,13 @@ if (Test-Path $WorkRoot) {
 if (Test-Path $OutputDirectory) {
     Get-ChildItem $OutputDirectory -Directory -Filter 'run-*' |
         ForEach-Object { if ($PSCmdlet.ShouldProcess($_.FullName, 'delete')) { Remove-Item $_.FullName -Recurse -Force } }
+}
+
+if ($Ado) {
+    if (-not $Config) { throw '-Ado needs -Config <file> with the AzureDevOps settings.' }
+    $project = Join-Path $PSScriptRoot '..' 'src' 'UpgradeAgent'
+    dotnet run --project $project -- ado-cleanup --config (Resolve-Path $Config).Path
+    if ($LASTEXITCODE -ne 0) { throw "ado-cleanup failed with exit code $LASTEXITCODE." }
 }
 
 Write-Host "Reset complete: $(@($worktrees).Count) worktree(s), $(@($branches).Count) branch(es) removed."

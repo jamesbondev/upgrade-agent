@@ -60,3 +60,32 @@ public sealed class TargetPreflightTests : IDisposable
         File.WriteAllText(path, content);
     }
 }
+
+public sealed class UncommittedConfigTests : IDisposable
+{
+    private readonly UpgradeAgent.Tests.TestSupport.TempRepo _repo = new();
+
+    [Fact]
+    public async Task PassesWhenConfigFilesAreCommitted()
+    {
+        _repo.Write("nuget.config", "<configuration />").Write("src/App/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />").Commit();
+
+        var check = await new TargetPreflight(new UpgradeAgent.Infrastructure.ProcessRunner()).CheckUncommittedConfigAsync(_repo.Path, CancellationToken.None);
+
+        Assert.True(check.Passed, check.Detail);
+    }
+
+    [Fact]
+    public async Task FailsForALocalUncommittedNuGetConfig()
+    {
+        _repo.Write(".gitignore", "nuget.config\n").Write("src/App/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />").Commit();
+        _repo.Write("nuget.config", "<configuration />").Write("src/Directory.Build.props", "<Project />");
+
+        var check = await new TargetPreflight(new UpgradeAgent.Infrastructure.ProcessRunner()).CheckUncommittedConfigAsync(_repo.Path, CancellationToken.None);
+
+        Assert.False(check.Passed);
+        Assert.StartsWith("nuget.config, src/Directory.Build.props exist(s) but aren't committed", check.Detail, StringComparison.Ordinal);
+    }
+
+    public void Dispose() => _repo.Dispose();
+}

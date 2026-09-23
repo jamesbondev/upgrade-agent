@@ -76,6 +76,12 @@ public sealed class TargetOptions
     /// <summary>Folder for run worktrees and the baseline cache. Default: <c>.ua-work</c> beside the repo. Relative paths resolve against the repo.</summary>
     public string? WorkRoot { get; set; }
 
+    /// <summary>
+    /// Run the repository's git hooks (e.g. ggshield) on agent commits. On by default: a hook that fails, or
+    /// that rewrites files, rejects the group rather than being bypassed.
+    /// </summary>
+    public bool RunGitHooks { get; set; } = true;
+
     /// <summary>Extra arguments passed through to <c>dotnet test</c>, e.g. a filter.</summary>
     public List<string> TestArgs { get; set; } = [];
 }

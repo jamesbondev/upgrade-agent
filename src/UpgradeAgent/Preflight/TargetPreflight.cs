@@ -24,9 +24,45 @@ public sealed class TargetPreflight(IProcessRunner processRunner)
         if (requireCleanRepo)
         {
             checks.Add(await CheckGitAsync(config.RepoPath, cancellationToken));
+            checks.Add(await CheckUncommittedConfigAsync(config.RepoPath, cancellationToken));
         }
 
         return checks;
+    }
+
+    private static readonly HashSet<string> BuildConfigNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "nuget.config", "Directory.Build.props", "Directory.Build.targets", "Directory.Build.rsp", "Directory.Packages.props", "global.json",
+    };
+
+    /// <summary>
+    /// A run works in a git worktree, which only contains committed files. A local, uncommitted nuget.config
+    /// (common for private feeds) would silently be missing there and restores would fail.
+    /// </summary>
+    internal async Task<PreflightCheck> CheckUncommittedConfigAsync(string repoPath, CancellationToken cancellationToken)
+    {
+        const string Name = "Build config in worktree";
+        var git = new GitCli(processRunner);
+        var listing = await git.TryRunAsync(repoPath, ["ls-files"], cancellationToken);
+        if (!listing.Succeeded)
+        {
+            return new PreflightCheck(Name, false, "could not list tracked files");
+        }
+
+        var tracked = GitCli.SplitLines(listing.StandardOutput).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var missing = EnumerateRepoFiles(repoPath)
+            .Where(f => BuildConfigNames.Contains(Path.GetFileName(f)))
+            .Select(f => Path.GetRelativePath(repoPath, f).Replace('\\', '/'))
+            .Where(f => !tracked.Contains(f))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        return missing.Count == 0
+            ? new PreflightCheck(Name, true, "all build and NuGet config files are committed")
+            : new PreflightCheck(Name, false,
+                $"{string.Join(", ", missing)} exist(s) but aren't committed, so the run's worktree won't have them. " +
+                "Commit them, or move them to the folder above the repo (the repo and .ua-work both inherit from there), " +
+                "or put feeds in your user-level NuGet config.");
     }
 
     private async Task<PreflightCheck> CheckGitAsync(string repoPath, CancellationToken cancellationToken)

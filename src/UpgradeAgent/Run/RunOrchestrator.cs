@@ -145,8 +145,15 @@ public sealed class RunOrchestrator(
                 return Result(GroupStatus.Rejected, reason, bump, guardrails, fix);
             }
 
-            var commit = await CommitAsync(workspace, group, bump, cancellationToken);
-            return Result(GroupStatus.Accepted, null, bump, guardrails, fix, commit) with { BuildWarnings = WarningSummary(build) };
+            var message = CommitMessage.Create(group.Name, bump.Edits, workspace.RunId);
+            var committed = await new GroupCommitter(_git, config.Options.Target.RunGitHooks).CommitAsync(worktree, start, message, cancellationToken);
+            if (committed.Commit is null)
+            {
+                await RevertAsync(worktree, start);
+                return Result(GroupStatus.Rejected, committed.Error, bump, guardrails, fix);
+            }
+
+            return Result(GroupStatus.Accepted, null, bump, guardrails, fix, committed.Commit) with { BuildWarnings = WarningSummary(build) };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -219,30 +226,6 @@ public sealed class RunOrchestrator(
     private static UpgradePlan LoadPlan(string planFile) =>
         JsonSerializer.Deserialize<UpgradePlan>(File.ReadAllText(planFile), JsonDefaults.Options)
         ?? throw new RunAbortedException($"Could not read plan file {planFile}.");
-
-    private async Task<string> CommitAsync(RunWorkspace workspace, UpdateGroup group, BumpResult bump, CancellationToken cancellationToken)
-    {
-        var worktree = workspace.WorktreePath;
-
-        // Tracked changes plus new source files only. Anything else new is dropped, never committed blindly.
-        await _git.RunAsync(worktree, ["add", "--update"], cancellationToken);
-        var newSources = (await _git.ListUntrackedAsync(worktree, cancellationToken))
-            .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".cs" or ".fs" or ".vb")
-            .ToList();
-        if (newSources.Count > 0)
-        {
-            await _git.RunAsync(worktree, ["add", "--", .. newSources], cancellationToken);
-        }
-
-        var message = CommitMessage.Create(group.Name, bump.Edits, workspace.RunId);
-        List<string> identity = await _git.HasIdentityAsync(worktree, cancellationToken)
-            ? []
-            : ["-c", "user.name=UpgradeAgent", "-c", "user.email=upgrade-agent@localhost"];
-        await _git.RunAsync(worktree, [.. identity, "commit", "--no-verify", "-q", "-m", message], cancellationToken);
-        await _git.RunAsync(worktree, ["clean", "-fd"], cancellationToken);
-
-        return await _git.HeadAsync(worktree, cancellationToken);
-    }
 
     private static IReadOnlyList<string> WarningSummary(BuildResult build) =>
         build.Warnings

@@ -48,6 +48,14 @@ public sealed class CommandPolicy
         "-v", "--verbosity", "-c", "--configuration", "-f", "--framework", "--filter", "--logger", "--blame-hang-timeout", "--results-directory",
     };
 
+    /// <summary>Files that can hold credentials (feed passwords, keys) and are never needed to fix code.</summary>
+    private static readonly HashSet<string> SensitiveNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "nuget.config", ".env", "secrets.json", ".git-credentials", ".npmrc", ".pypirc", "credentials", "credentials.json",
+    };
+
+    private static readonly HashSet<string> SensitiveExtensions = new(StringComparer.OrdinalIgnoreCase) { ".pfx", ".p12", ".snk", ".pem", ".key" };
+
     private readonly string _worktree;
     private readonly IReadOnlyList<string> _readOnlyRoots;
 
@@ -73,6 +81,11 @@ public sealed class CommandPolicy
 
         foreach (var path in possiblePaths ?? [])
         {
+            if (IsSensitive(path))
+            {
+                return SensitiveRefusal(path);
+            }
+
             if (!IsInside(Resolve(path, _worktree), [_worktree, .. _readOnlyRoots]))
             {
                 return PolicyDecision.Reject($"'{path}' is outside the working copy.");
@@ -98,6 +111,11 @@ public sealed class CommandPolicy
 
     public PolicyDecision EvaluateWrite(string path)
     {
+        if (IsSensitive(path))
+        {
+            return SensitiveRefusal(path);
+        }
+
         var full = Resolve(path, _worktree);
         if (!IsInside(full, [_worktree]))
         {
@@ -116,7 +134,8 @@ public sealed class CommandPolicy
     }
 
     public PolicyDecision EvaluateRead(string path) =>
-        IsInside(Resolve(path, _worktree), [_worktree, .. _readOnlyRoots])
+        IsSensitive(path) ? SensitiveRefusal(path)
+        : IsInside(Resolve(path, _worktree), [_worktree, .. _readOnlyRoots])
             ? PolicyDecision.Approve("read inside the working copy or package docs")
             : PolicyDecision.Reject($"'{path}' is outside the working copy and package folders.");
 
@@ -124,6 +143,11 @@ public sealed class CommandPolicy
     {
         var command = tokens[0];
         var arguments = tokens.Skip(1).ToList();
+
+        if (arguments.FirstOrDefault(a => !a.StartsWith('-') && IsSensitive(a)) is { } sensitive)
+        {
+            return SensitiveRefusal(sensitive);
+        }
 
         foreach (var argument in arguments.Where(LooksLikeEscapingPath))
         {
@@ -238,6 +262,15 @@ public sealed class CommandPolicy
 
         return PolicyDecision.Approve($"dotnet {verb}");
     }
+
+    public static bool IsSensitive(string path)
+    {
+        var name = Path.GetFileName(path.TrimEnd('/', '\\'));
+        return SensitiveNames.Contains(name) || SensitiveExtensions.Contains(Path.GetExtension(name));
+    }
+
+    private static PolicyDecision SensitiveRefusal(string path) =>
+        PolicyDecision.Reject($"'{Path.GetFileName(path)}' can hold credentials (such as NuGet feed passwords) and isn't needed to fix code.");
 
     /// <summary>Relative paths without ".." stay inside the current folder, which is always inside the working copy.</summary>
     private static bool LooksLikeEscapingPath(string token) =>

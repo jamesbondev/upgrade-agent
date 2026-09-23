@@ -67,6 +67,11 @@ try {
     # Record every file as 100644 whatever the filesystem says; otherwise the commit hash differs
     # between NTFS/drvfs (no exec bit) and ext4 copies (exec bit set) and recordings stop matching.
     Invoke-Checked git @('-C', $repo, 'config', 'core.fileMode', 'false')
+    # The fixture is synthetic, local and never pushed, so a developer's global hooks (e.g. ggshield via
+    # core.hooksPath) don't apply to it; they would also need network access and slow every demo commit.
+    # Real target repos keep their hooks: UpgradeAgent runs them on agent commits (Target:RunGitHooks).
+    New-Item -ItemType Directory -Path (Join-Path $repo '.git' 'no-hooks') | Out-Null
+    Invoke-Checked git @('-C', $repo, 'config', 'core.hooksPath', '.git/no-hooks')
     Invoke-Checked git @('-C', $repo, '-c', 'core.autocrlf=false', 'add', '-A')
     Invoke-Checked git @('-C', $repo, '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'Initial commit')
 }

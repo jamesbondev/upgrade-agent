@@ -42,6 +42,20 @@ dotnet test tests/UpgradeAgent.IntegrationTests   # replays both recordings end 
    - This abandons the labelled agent PRs and deletes the `agent/nuget-updates-*` branches, after listing them and asking.
    - The default branch is never touched.
 
+## Corporate setups: private feeds and git hooks
+
+**Custom `nuget.config` / private feeds**
+- Runs happen in a git worktree, which only contains **committed** files. The run preflight fails if a `nuget.config`, `Directory.*.props/targets` or `global.json` exists in the repo but isn't committed. Commit it, or move it to the folder **above** the repo (the repo and `.ua-work/` both inherit from there), or put the feeds in your user-level NuGet config.
+- Runs never prompt, so authenticate private feeds once beforehand (for example `dotnet restore --interactive` for Azure Artifacts). The credential provider caches the token, and the app's restores reuse it.
+- The agent never restores. It's refused `dotnet restore`, `--no-restore` is required, and feed variables (`VSS_NUGET_*`) are removed from its environment. It's also refused access to credential files: `nuget.config`, `.env`, `secrets.json`, `*.pfx/.snk/.pem/.key`. This is a usability layer, not a sandbox. Keep feed passwords out of committed files (use the credential provider or `%ENV%` references).
+- The fixture's own `nuget.config` uses nuget.org. If nuget.org is only reachable through a proxy, NuGet's proxy settings still apply. If it's blocked outright, the fixture can't restore.
+
+**Git hooks (ggshield, pre-commit, …)**
+- Agent commits run the repository's hooks, including a global `core.hooksPath` such as ggshield's. A hook that fails **rejects the group** and shows its output. A hook that rewrites files also rejects the group, because only the tree the guardrails verified may be committed. Pushes run pre-push hooks too.
+- `Target:RunGitHooks: false` exists for repos whose hooks can't run unattended. Prefer fixing the hook.
+- Hook tools keep their own keys (for example `GITGUARDIAN_API_KEY`). The app's git commands can use them, but the agent's environment drops anything named like a key or token.
+- The generated fixture repo is synthetic and local, so it opts out of global hooks (`core.hooksPath=.git/no-hooks`). The unit-test repos do the same.
+
 ## Point it at another repo
 
 Create a config file (relative paths resolve against the config file's folder):

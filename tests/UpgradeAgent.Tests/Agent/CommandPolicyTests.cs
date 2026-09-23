@@ -109,3 +109,40 @@ public class CommandPolicyTests
         Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateRead(Path.Combine(Path.GetTempPath(), "ua-policy", "wt-sibling", "a.cs")).Verdict);
     }
 }
+
+public class CommandPolicyCredentialFileTests
+{
+    private static readonly string Worktree = Path.Combine(Path.GetTempPath(), "ua-policy", "wt");
+    private readonly CommandPolicy _policy = new(Worktree, []);
+
+    [Theory]
+    [InlineData("nuget.config")]
+    [InlineData("NuGet.Config")]
+    [InlineData("src/App/.env")]
+    [InlineData("certs/signing.pfx")]
+    [InlineData("keys/strong.snk")]
+    public void CredentialFilesCannotBeReadOrWritten(string relativePath)
+    {
+        var path = Path.Combine(Worktree, relativePath);
+
+        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateRead(path).Verdict);
+        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateWrite(path).Verdict);
+        Assert.Contains("credentials", _policy.EvaluateRead(path).Reason, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("cat nuget.config")]
+    [InlineData("grep -n password NuGet.Config")]
+    [InlineData("Get-Content ./nuget.config")]
+    [InlineData("head -5 src/.env")]
+    public void ShellCommandsNamingCredentialFilesAreRefused(string command)
+    {
+        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateShell(command, false).Verdict);
+    }
+
+    [Fact]
+    public void PossiblePathsNamingCredentialFilesAreRefused()
+    {
+        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateShell("cat x", false, [Path.Combine(Worktree, "nuget.config")]).Verdict);
+    }
+}

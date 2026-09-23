@@ -13,6 +13,10 @@ public sealed class TempRepo : IDisposable
         Run("config", "user.name", "Test");
         Run("config", "user.email", "test@example.invalid");
         Run("config", "commit.gpgsign", "false");
+
+        // Keep a developer's global hooks (e.g. a ggshield core.hooksPath) out of throwaway test repos.
+        Directory.CreateDirectory(System.IO.Path.Combine(Path, ".git", "no-hooks"));
+        Run("config", "core.hooksPath", ".git/no-hooks");
     }
 
     public string Path { get; }

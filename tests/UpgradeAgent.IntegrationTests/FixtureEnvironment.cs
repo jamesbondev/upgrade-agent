@@ -73,9 +73,15 @@ public sealed class FixtureEnvironment : IDisposable
         Run("dotnet", ["build-server", "shutdown"], Root);
         try
         {
+            // git marks object files read-only; Windows refuses to delete read-only files.
+            foreach (var file in Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories))
+            {
+                File.SetAttributes(file, FileAttributes.Normal);
+            }
+
             Directory.Delete(Root, recursive: true);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Best effort: a lingering process may still hold a file on Windows.
         }

@@ -16,11 +16,13 @@ public sealed record RunWorkspace(
     string SolutionPath,
     string OutputDirectory)
 {
-    private static readonly string[] InheritedConfigFiles =
-    [
+    // Matched case-insensitively against the files that actually exist: probing "nuget.config" and
+    // "NuGet.Config" separately finds the same file twice on case-insensitive file systems (Windows).
+    private static readonly HashSet<string> InheritedConfigFiles = new(StringComparer.OrdinalIgnoreCase)
+    {
         "Directory.Build.props", "Directory.Build.targets", "Directory.Build.rsp", "Directory.Packages.props",
-        "nuget.config", "NuGet.Config", "global.json", ".editorconfig",
-    ];
+        "nuget.config", "global.json", ".editorconfig",
+    };
 
     public static string DefaultWorkRoot(string repoPath) =>
         Path.Combine(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(repoPath))!, ".ua-work");
@@ -57,14 +59,23 @@ public sealed record RunWorkspace(
              current is not null;
              current = Path.GetDirectoryName(current))
         {
-            foreach (var name in InheritedConfigFiles)
+            foreach (var file in FilesIn(current).Where(f => InheritedConfigFiles.Contains(Path.GetFileName(f))))
             {
-                var candidate = Path.Combine(current, name);
-                if (File.Exists(candidate))
-                {
-                    yield return candidate;
-                }
+                yield return file;
             }
+        }
+    }
+
+    private static IEnumerable<string> FilesIn(string directory)
+    {
+        try
+        {
+            return Directory.GetFiles(directory);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            // Folders we can't list (e.g. system folders above the repo) can't contribute config.
+            return [];
         }
     }
 }

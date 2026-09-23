@@ -124,7 +124,7 @@ public sealed class RunOrchestrator(
             FixOutcome? fix = null;
             if (!build.Succeeded || tests is not { Succeeded: true })
             {
-                fix = await fixer.FixAsync(new FixContext(workspace, group, bump, build, tests), cancellationToken);
+                fix = await fixer.FixAsync(new FixContext(workspace, group, bump, build, tests, config.Options.Target.TestArgs), cancellationToken);
                 renderer.Fix(fix);
                 if (fix.Attempted)
                 {

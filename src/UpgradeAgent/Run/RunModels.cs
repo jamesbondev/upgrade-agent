@@ -46,7 +46,8 @@ public sealed record FixContext(
     UpdateGroup Group,
     BumpResult Bump,
     BuildResult Build,
-    TestRunResult? Tests);
+    TestRunResult? Tests,
+    IReadOnlyList<string>? TestArgs = null);
 
 /// <param name="Attempted">False when no fixer ran (for example, the agent is disabled).</param>
 /// <param name="Details">The agent's structured account of the group, when it produced one.</param>

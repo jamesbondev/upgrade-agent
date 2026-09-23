@@ -12,11 +12,16 @@ public static class FixInstructions
     /// <summary>Migration notes up to this size are pasted into the task so the model can't skip them.</summary>
     public const int InlineDocBudget = 16_000;
 
-    public static string System(string solution, TestRunnerMode runnerMode, GroupKind kind)
+    /// <param name="testArgs">Target:TestArgs, so the agent runs exactly the tests the guardrails compare (e.g. a filter that leaves out Aspire tests).</param>
+    public static string System(string solution, TestRunnerMode runnerMode, GroupKind kind, IReadOnlyList<string>? testArgs = null)
     {
         var testCommand = runnerMode == TestRunnerMode.TestingPlatform
             ? $"dotnet test --solution {solution} --no-build"
             : $"dotnet test {solution} --no-build";
+        if (testArgs is { Count: > 0 })
+        {
+            testCommand += " " + string.Join(' ', testArgs.Select(Quote));
+        }
 
         var builder = new StringBuilder($"""
             You are UpgradeAgent's fixer. A deterministic tool has already bumped NuGet package versions in this
@@ -25,7 +30,7 @@ public static class FixInstructions
 
             You are in the repository root. Run commands from here, one at a time.
             Build: dotnet build {solution} --no-restore
-            Test:  {testCommand}   (after a successful build)
+            Test:  {testCommand}   (after a successful build; use exactly this test scope)
 
             Automatic checks run after you finish. Breaking any of these rules discards all of your work:
             - Do not change package versions, add packages or restore. Edits to project and build files need a human's approval; avoid them.
@@ -145,6 +150,12 @@ public static class FixInstructions
         Use this shape: {GroupSummaryParser.Schema}
         Use repository-relative paths in "file".
         """;
+
+    /// <summary>Double-quotes arguments with shell-significant characters (filters often contain &amp;, | or !).</summary>
+    internal static string Quote(string argument) =>
+        argument.Length > 0 && argument.All(c => char.IsLetterOrDigit(c) || c is '.' or '_' or '-' or '/' or ':' or '=' or '~' or ',')
+            ? argument
+            : $"\"{argument.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
 
     private static string Truncate(string text, int length)
     {

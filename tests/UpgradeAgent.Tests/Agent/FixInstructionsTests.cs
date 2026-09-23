@@ -49,4 +49,19 @@ public class FixInstructionsTests
     {
         Assert.Contains("dotnet test --solution x.slnx --no-build", FixInstructions.System("x.slnx", TestRunnerMode.TestingPlatform, GroupKind.Major), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void TheAgentRunsTheSameTestScopeAsTheGuardrails()
+    {
+        var system = FixInstructions.System("App.sln", TestRunnerMode.VSTest, GroupKind.Major,
+            ["--filter", "FullyQualifiedName~ClearBank.InterestAccrual.Domain.Tests.Unit"]);
+
+        Assert.Contains("dotnet test App.sln --no-build --filter FullyQualifiedName~ClearBank.InterestAccrual.Domain.Tests.Unit", system, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FiltersWithShellCharactersAreQuoted()
+    {
+        Assert.Equal("\"FullyQualifiedName!~AppHost&Category!=Integration\"", FixInstructions.Quote("FullyQualifiedName!~AppHost&Category!=Integration"));
+    }
 }

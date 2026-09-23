@@ -65,7 +65,7 @@ public sealed class CopilotFixer(
             SystemMessage = new SystemMessageConfig
             {
                 Mode = SystemMessageMode.Append,
-                Content = FixInstructions.System(solution, DotnetCli.DetectRunnerMode(worktree), context.Group.Kind),
+                Content = FixInstructions.System(solution, DotnetCli.DetectRunnerMode(worktree), context.Group.Kind, context.TestArgs ?? []),
             },
             OnPermissionRequest = (request, _) => DecideAsync(request, policy, meter, budget),
             OnEvent = e => Observe(e, meter, budget),

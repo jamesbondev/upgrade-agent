@@ -1,0 +1,35 @@
+namespace UpgradeAgent.Guardrails;
+
+public static class TestProjects
+{
+    private static readonly string[] Markers =
+    [
+        "Microsoft.NET.Test.Sdk", "<IsTestProject>true", "\"MSTest.Sdk", "Include=\"xunit", "Include=\"NUnit", "Include=\"MSTest", "Include=\"TUnit",
+    ];
+
+    /// <summary>Tracked files that live under a test project's folder.</summary>
+    public static IReadOnlySet<string> FindTestFiles(string repoRoot, IReadOnlyList<string> trackedFiles)
+    {
+        var testDirectories = trackedFiles
+            .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".csproj" or ".fsproj" or ".vbproj")
+            .Where(f => IsTestProject(Path.Combine(repoRoot, f)))
+            .Select(f => (Path.GetDirectoryName(f) ?? "").Replace('\\', '/'))
+            .ToList();
+
+        return trackedFiles
+            .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".cs" or ".fs" or ".vb")
+            .Where(f => testDirectories.Any(d => d.Length == 0 || f.StartsWith(d + "/", StringComparison.Ordinal)))
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static bool IsTestProject(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        var text = File.ReadAllText(path);
+        return Markers.Any(m => text.Contains(m, StringComparison.OrdinalIgnoreCase));
+    }
+}

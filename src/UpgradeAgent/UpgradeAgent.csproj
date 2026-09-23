@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>UpgradeAgent</RootNamespace>
+    <UserSecretsId>upgrade-agent</UserSecretsId>
+    <!-- GHCP001: the Copilot SDK marks its permission-decision API as evaluation-only. We depend on it
+         deliberately (it is how tool approval works); pinning the package version contains the risk. -->
+    <NoWarn>$(NoWarn);GHCP001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Agents.AI.GitHub.Copilot" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" />
+    <PackageReference Include="NuGet.Protocol" />
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <InternalsVisibleTo Include="UpgradeAgent.Tests" />
+  </ItemGroup>
+
+</Project>

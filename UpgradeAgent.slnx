@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/UpgradeAgent/UpgradeAgent.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/UpgradeAgent.Tests/UpgradeAgent.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    One source tree, three published API shapes. Pack with -p:FixtureApi=1.0|1.1|2.0
+    (scripts/build-fixture.ps1 does this). 1.1 obsoletes the old APIs; 2.0 removes them.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <FixtureApi Condition="'$(FixtureApi)' == ''">1.0</FixtureApi>
+    <Version Condition="'$(FixtureApi)' == '1.0'">1.0.0</Version>
+    <Version Condition="'$(FixtureApi)' == '1.1'">1.1.0</Version>
+    <Version Condition="'$(FixtureApi)' == '2.0'">2.0.0</Version>
+    <DefineConstants>$(DefineConstants);FIXTURE_API_$(FixtureApi.Replace('.', '_'))</DefineConstants>
+    <PackageId>Fixture.Lib</PackageId>
+    <Authors>Contoso Platform Team</Authors>
+    <Description>Shared formatting, configuration and account lookup helpers (internal package, test fixture).</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>See CHANGELOG.md and MIGRATION.md in the package root.</PackageReleaseNotes>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="docs/README.md" Pack="true" PackagePath="/" />
+    <None Include="docs/CHANGELOG.md" Pack="true" PackagePath="/" />
+    <None Include="docs/MIGRATION.md" Pack="true" PackagePath="/" Condition="'$(FixtureApi)' == '2.0'" />
+  </ItemGroup>
+
+</Project>

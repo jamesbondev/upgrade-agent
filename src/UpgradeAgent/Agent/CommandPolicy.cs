@@ -1,0 +1,264 @@
+namespace UpgradeAgent.Agent;
+
+public enum PolicyVerdict
+{
+    Approve,
+    AskOperator,
+    Reject,
+}
+
+/// <param name="Reason">For a rejection, this goes back to the agent as feedback, so it says what to do instead.</param>
+public sealed record PolicyDecision(PolicyVerdict Verdict, string Reason)
+{
+    public static PolicyDecision Approve(string reason) => new(PolicyVerdict.Approve, reason);
+
+    public static PolicyDecision Ask(string reason) => new(PolicyVerdict.AskOperator, reason);
+
+    public static PolicyDecision Reject(string reason) => new(PolicyVerdict.Reject, reason);
+}
+
+/// <summary>
+/// Decides what the agent may do without asking. Builds, tests, reads and source edits inside the
+/// working copy are automatic; build-configuration edits and unknown commands go to the operator;
+/// restores, package changes, git writes and anything outside the working copy are refused.
+/// This is a usability layer on a non-sandboxed shell, not a security boundary: the deterministic
+/// guardrails after the agent finishes are what decide whether its work is kept.
+/// </summary>
+public sealed class CommandPolicy
+{
+    private static readonly HashSet<string> SourceExtensions = new(StringComparer.OrdinalIgnoreCase) { ".cs", ".fs", ".vb", ".razor", ".cshtml" };
+
+    private static readonly HashSet<string> ReadOnlyCommands = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ls", "cat", "head", "tail", "grep", "egrep", "rg", "wc", "pwd", "echo", "sort", "uniq", "tree", "file", "diff", "stat", "basename", "dirname", "realpath", "true",
+        "dir", "type", "Get-ChildItem", "gci", "Get-Content", "gc", "Select-String", "sls", "Get-Location", "Measure-Object", "Sort-Object", "Select-Object", "Format-Table", "Out-String",
+    };
+
+    private static readonly HashSet<string> ReadOnlyGit = new(StringComparer.OrdinalIgnoreCase) { "status", "diff", "log", "show", "ls-files", "grep", "blame" };
+
+    private static readonly HashSet<string> FindWriteActions = new(StringComparer.Ordinal) { "-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls" };
+
+    private static readonly HashSet<string> DotnetFlags = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "--no-restore", "--no-build", "--no-incremental", "-nologo", "--nologo", "-tl:off", "--tl:off", "--list-tests", "--blame", "--blame-hang",
+    };
+
+    private static readonly HashSet<string> DotnetFlagsWithValue = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "-v", "--verbosity", "-c", "--configuration", "-f", "--framework", "--filter", "--logger", "--blame-hang-timeout", "--results-directory",
+    };
+
+    private readonly string _worktree;
+    private readonly IReadOnlyList<string> _readOnlyRoots;
+
+    /// <param name="readOnlyRoots">Extra folders the agent may read, e.g. the NuGet global packages folder for migration notes.</param>
+    public CommandPolicy(string worktree, IReadOnlyList<string> readOnlyRoots)
+    {
+        _worktree = Normalize(worktree);
+        _readOnlyRoots = readOnlyRoots.Select(Normalize).ToList();
+    }
+
+    public PolicyDecision EvaluateShell(string commandLine, bool hasWriteFileRedirection, IReadOnlyList<string>? possiblePaths = null)
+    {
+        if (hasWriteFileRedirection)
+        {
+            return PolicyDecision.Reject("Writing files with shell redirection is not allowed. Edit files with the edit tool; read command output directly.");
+        }
+
+        var parsed = ShellCommandParser.Parse(commandLine, out var error);
+        if (error is not null)
+        {
+            return PolicyDecision.Reject($"Command not allowed: {error}. Run one simple command at a time from the repository root.");
+        }
+
+        foreach (var path in possiblePaths ?? [])
+        {
+            if (!IsInside(Resolve(path, _worktree), [_worktree, .. _readOnlyRoots]))
+            {
+                return PolicyDecision.Reject($"'{path}' is outside the working copy.");
+            }
+        }
+
+        var cwd = _worktree;
+        var decisions = new List<PolicyDecision>();
+        foreach (var segment in parsed.Segments)
+        {
+            var decision = EvaluateSegment(segment, ref cwd);
+            if (decision.Verdict == PolicyVerdict.Reject)
+            {
+                return decision;
+            }
+
+            decisions.Add(decision);
+        }
+
+        return decisions.FirstOrDefault(d => d.Verdict == PolicyVerdict.AskOperator)
+            ?? PolicyDecision.Approve(decisions.Count == 1 ? decisions[0].Reason : "all segments auto-approved");
+    }
+
+    public PolicyDecision EvaluateWrite(string path)
+    {
+        var full = Resolve(path, _worktree);
+        if (!IsInside(full, [_worktree]))
+        {
+            return PolicyDecision.Reject($"'{path}' is outside the working copy; only files in the repository may be edited.");
+        }
+
+        var relative = Path.GetRelativePath(_worktree, full).Replace('\\', '/');
+        if (relative == ".git" || relative.StartsWith(".git/", StringComparison.Ordinal))
+        {
+            return PolicyDecision.Reject("The .git folder must not be edited.");
+        }
+
+        return SourceExtensions.Contains(Path.GetExtension(full))
+            ? PolicyDecision.Approve($"source edit: {relative}")
+            : PolicyDecision.Ask($"edit to a non-source file: {relative}");
+    }
+
+    public PolicyDecision EvaluateRead(string path) =>
+        IsInside(Resolve(path, _worktree), [_worktree, .. _readOnlyRoots])
+            ? PolicyDecision.Approve("read inside the working copy or package docs")
+            : PolicyDecision.Reject($"'{path}' is outside the working copy and package folders.");
+
+    private PolicyDecision EvaluateSegment(IReadOnlyList<string> tokens, ref string cwd)
+    {
+        var command = tokens[0];
+        var arguments = tokens.Skip(1).ToList();
+
+        foreach (var argument in arguments.Where(LooksLikeEscapingPath))
+        {
+            if (!IsInside(Resolve(argument, cwd), [_worktree, .. _readOnlyRoots]))
+            {
+                return PolicyDecision.Reject($"'{argument}' is outside the working copy.");
+            }
+        }
+
+        switch (command.ToLowerInvariant())
+        {
+            case "cd" or "set-location" or "pushd":
+                if (arguments.Count != 1)
+                {
+                    return PolicyDecision.Reject("cd takes exactly one folder.");
+                }
+
+                var target = Resolve(arguments[0], cwd);
+                if (!IsInside(target, [_worktree]))
+                {
+                    return PolicyDecision.Reject($"'{arguments[0]}' is outside the working copy.");
+                }
+
+                cwd = target;
+                return PolicyDecision.Approve("cd inside the working copy");
+
+            case "dotnet":
+                return EvaluateDotnet(arguments);
+
+            case "git":
+                return arguments.Count > 0 && ReadOnlyGit.Contains(arguments[0])
+                    ? PolicyDecision.Approve($"read-only git {arguments[0]}")
+                    : PolicyDecision.Reject("Only read-only git commands (status, diff, log, show) are allowed; UpgradeAgent owns commits and branches.");
+
+            case "find":
+                return arguments.Any(FindWriteActions.Contains)
+                    ? PolicyDecision.Reject("find actions that run commands or delete files are not allowed.")
+                    : PolicyDecision.Approve("read-only find");
+
+            case "sed":
+                return arguments.Any(a => a == "-i" || a.StartsWith("-i", StringComparison.Ordinal) || a == "--in-place")
+                    ? PolicyDecision.Reject("Edit files with the edit tool, not sed -i.")
+                    : PolicyDecision.Approve("read-only sed");
+
+            case "rm" or "del" or "remove-item" or "mv" or "move-item" or "cp" or "copy-item":
+                return PolicyDecision.Ask($"file operation: {command}");
+
+            default:
+                return ReadOnlyCommands.Contains(command)
+                    ? PolicyDecision.Approve($"read-only {command}")
+                    : PolicyDecision.Ask($"'{command}' is not on the auto-approve list");
+        }
+    }
+
+    private static PolicyDecision EvaluateDotnet(IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count == 0)
+        {
+            return PolicyDecision.Reject("Use dotnet build or dotnet test.");
+        }
+
+        var verb = arguments[0].ToLowerInvariant();
+        switch (verb)
+        {
+            case "--version" or "--info" or "--list-sdks":
+                return PolicyDecision.Approve($"dotnet {verb}");
+            case "restore":
+                return PolicyDecision.Reject("Packages are already restored by UpgradeAgent. Use dotnet build --no-restore.");
+            case "add" or "remove" or "package" or "nuget" or "list":
+                return PolicyDecision.Reject("Package references and versions are managed by UpgradeAgent; don't change them.");
+            case not ("build" or "test"):
+                return PolicyDecision.Ask($"dotnet {verb}");
+        }
+
+        var rest = arguments.Skip(1).ToList();
+        if (verb == "build" && !rest.Contains("--no-restore", StringComparer.OrdinalIgnoreCase))
+        {
+            return PolicyDecision.Reject("Add --no-restore: packages are already restored.");
+        }
+
+        if (verb == "test" && !rest.Any(a => a is "--no-restore" or "--no-build"))
+        {
+            return PolicyDecision.Reject("Add --no-build (after a successful dotnet build --no-restore) or --no-restore.");
+        }
+
+        for (var i = 0; i < rest.Count; i++)
+        {
+            var argument = rest[i];
+            if (argument.StartsWith("-p:", StringComparison.OrdinalIgnoreCase) || argument.StartsWith("/p:", StringComparison.OrdinalIgnoreCase)
+                || argument.StartsWith("--property", StringComparison.OrdinalIgnoreCase))
+            {
+                return PolicyDecision.Reject("MSBuild property overrides are not allowed; build with the repository's own settings.");
+            }
+
+            if (DotnetFlagsWithValue.Contains(argument))
+            {
+                i++;
+                continue;
+            }
+
+            if (DotnetFlags.Contains(argument) || argument.StartsWith("-v:", StringComparison.OrdinalIgnoreCase)
+                || argument.StartsWith("-clp:", StringComparison.OrdinalIgnoreCase) || argument.StartsWith("--filter=", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (argument.StartsWith('-'))
+            {
+                return PolicyDecision.Ask($"dotnet {verb} with unrecognised option {argument}");
+            }
+        }
+
+        return PolicyDecision.Approve($"dotnet {verb}");
+    }
+
+    /// <summary>Relative paths without ".." stay inside the current folder, which is always inside the working copy.</summary>
+    private static bool LooksLikeEscapingPath(string token) =>
+        !token.StartsWith('-')
+        && (Path.IsPathRooted(token) || token.StartsWith('~') || token.Split('/', '\\').Contains(".."));
+
+    private static string Resolve(string path, string cwd)
+    {
+        var expanded = path.StartsWith('~')
+            ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + path[1..]
+            : path;
+        return Normalize(Path.GetFullPath(expanded, cwd));
+    }
+
+    private static string Normalize(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+
+    private static bool IsInside(string path, IEnumerable<string> roots)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return roots.Any(root =>
+            path.Equals(root, comparison)
+            || path.StartsWith(root + Path.DirectorySeparatorChar, comparison));
+    }
+}

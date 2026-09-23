@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/LoanLedger/LoanLedger.csproj" />
+  <Project Path="tests/LoanLedger.Tests/LoanLedger.Tests.csproj" />
+</Solution>

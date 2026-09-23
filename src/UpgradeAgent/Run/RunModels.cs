@@ -25,13 +25,15 @@ public sealed record GroupResult(
     IReadOnlyList<ManualUpdate> Manual,
     GuardrailReport? Guardrails,
     FixOutcome? Fix,
-    TimeSpan Duration);
+    TimeSpan Duration,
+    IReadOnlyList<string>? BuildWarnings = null);
 
 public sealed record RunReport(
     string RunId,
     string Branch,
     string WorktreePath,
     string TargetCommit,
+    string SdkVersion,
     DateTimeOffset StartedUtc,
     TimeSpan Duration,
     UpgradePlan Plan,

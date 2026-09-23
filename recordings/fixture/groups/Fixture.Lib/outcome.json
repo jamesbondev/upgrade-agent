@@ -1,0 +1,55 @@
+{
+  "attempted": true,
+  "summary": "finished in 1.5 min \u00B7 17 model calls \u00B7 20 tool calls \u00B7 270k in / 7k out tokens",
+  "details": {
+    "packages": [
+      {
+        "id": "Fixture.Lib",
+        "from": "1.1.0",
+        "to": "2.0.0",
+        "status": "fixed",
+        "breakingChanges": [
+          "ValueFormatter.Format renamed to FormatValue",
+          "ConfigClient.GetConfig() removed, use GetConfigAsync(CancellationToken)",
+          "AccountDirectory.GetAccount(string) removed, use GetAccount(AccountId)"
+        ],
+        "fixes": [
+          {
+            "file": "src/LoanLedger/InterestCalculator.cs",
+            "reason": "Made methods async, replaced GetConfig() with GetConfigAsync()"
+          },
+          {
+            "file": "src/LoanLedger/StatementService.cs",
+            "reason": "Made async, updated AccountId usage, replaced Format with FormatValue"
+          },
+          {
+            "file": "src/LoanLedger/PortfolioSummary.cs",
+            "reason": "Updated AccountId usage, replaced Format with FormatValue"
+          },
+          {
+            "file": "tests/LoanLedger.Tests/InterestCalculatorTests.cs",
+            "reason": "Made tests async, updated to new async method signatures"
+          },
+          {
+            "file": "tests/LoanLedger.Tests/StatementServiceTests.cs",
+            "reason": "Made tests async, updated to new async method signatures"
+          }
+        ],
+        "upcomingDeprecations": [],
+        "unresolved": []
+      }
+    ]
+  },
+  "stats": {
+    "model": "claude-haiku-4.5",
+    "modelCalls": 17,
+    "toolCalls": 20,
+    "inputTokens": 270572,
+    "outputTokens": 7419,
+    "aiCredits": 8.927295,
+    "operatorApprovals": 0,
+    "refusals": 1,
+    "budgetExceeded": false,
+    "duration": "00:01:28.2707822"
+  }
+}

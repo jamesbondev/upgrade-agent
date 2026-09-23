@@ -96,4 +96,7 @@ public sealed class OutputOptions
 {
     /// <summary>Folder for plans, reports and PR descriptions. Relative paths resolve against the current directory.</summary>
     public string Directory { get; set; } = "out";
+
+    /// <summary>Folder for record/replay sessions. Relative paths resolve against the current directory.</summary>
+    public string RecordingsDirectory { get; set; } = "recordings";
 }

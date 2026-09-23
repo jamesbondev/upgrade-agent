@@ -64,6 +64,9 @@ $env:GIT_COMMITTER_EMAIL = $env:GIT_AUTHOR_EMAIL
 $env:GIT_COMMITTER_DATE = $env:GIT_AUTHOR_DATE
 try {
     Invoke-Checked git @('-C', $repo, 'init', '-q', '-b', 'main')
+    # Record every file as 100644 whatever the filesystem says; otherwise the commit hash differs
+    # between NTFS/drvfs (no exec bit) and ext4 copies (exec bit set) and recordings stop matching.
+    Invoke-Checked git @('-C', $repo, 'config', 'core.fileMode', 'false')
     Invoke-Checked git @('-C', $repo, '-c', 'core.autocrlf=false', 'add', '-A')
     Invoke-Checked git @('-C', $repo, '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'Initial commit')
 }

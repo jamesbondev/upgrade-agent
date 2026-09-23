@@ -13,6 +13,9 @@ public sealed record GuardrailReport(IReadOnlyList<GuardrailCheck> Checks, IRead
     public string FailureSummary => string.Join("; ", Checks.Where(c => !c.Passed).Select(c => $"{c.Name}: {c.Detail}"));
 }
 
+/// <summary>What the reviewer notes compare against: the files the agent says it fixed, and the files the app itself changed.</summary>
+public sealed record ReviewContext(IReadOnlyCollection<string>? ClaimedFiles, IReadOnlyCollection<string> AppChangedFiles);
+
 /// <summary>State captured when a group starts (after the app's bump), compared when it ends.</summary>
 public sealed record GroupStartState(
     string Commit,
@@ -40,7 +43,8 @@ public sealed partial class GuardrailRunner(GitCli git)
         Baseline baseline,
         BuildResult build,
         TestRunResult? tests,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ReviewContext? review = null)
     {
         var checks = new List<GuardrailCheck>();
         var warnings = new List<string>();
@@ -81,8 +85,53 @@ public sealed partial class GuardrailRunner(GitCli git)
                 deletedTests.Select(f => $"deleted test file {f}").Concat(newIgnored.Select(f => $"new git-ignored file {f}")))));
 
         await AddTestFileWarningsAsync(worktree, start.Commit, baseline, diffs, warnings, cancellationToken);
+        warnings.AddRange(PublicApiChanges(diffs, baseline.TestFiles));
+        if (review is not null)
+        {
+            warnings.AddRange(ClaimMismatches(diffs, review));
+        }
 
         return new GuardrailReport(checks, warnings);
+    }
+
+    /// <summary>
+    /// Removed public signatures in non-test code. Often legitimate (an API went async), but callers
+    /// outside this repo may break, so a reviewer should look.
+    /// </summary>
+    internal static IEnumerable<string> PublicApiChanges(IReadOnlyList<FileDiff> diffs, IReadOnlyList<string> testFiles) =>
+        diffs
+            .Where(d => !d.IsNew && Path.GetExtension(d.Path).Equals(".cs", StringComparison.OrdinalIgnoreCase) && !testFiles.Contains(d.Path))
+            .SelectMany(d => SuppressionScanner.Unmatched(d.Removed, d.Added)
+                .Where(line => PublicSignature().IsMatch(line))
+                .Select(line => $"public API changed in {d.Path}: `{line.Trim().TrimEnd('{').Trim()}`"))
+            .Take(8);
+
+    /// <summary>The agent's summary is informational; say where it disagrees with what actually changed.</summary>
+    internal static IEnumerable<string> ClaimMismatches(IReadOnlyList<FileDiff> diffs, ReviewContext review)
+    {
+        if (review.ClaimedFiles is null)
+        {
+            yield break;
+        }
+
+        static string Normalize(string path)
+        {
+            var normalized = path.Replace('\\', '/');
+            return normalized.StartsWith("./", StringComparison.Ordinal) ? normalized[2..] : normalized;
+        }
+
+        var changed = diffs.Select(d => Normalize(d.Path)).Except(review.AppChangedFiles.Select(Normalize), StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var claimed = review.ClaimedFiles.Select(Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var file in claimed.Where(c => !changed.Contains(c)).Order(StringComparer.Ordinal))
+        {
+            yield return $"agent summary lists a fix in {file}, but the file is unchanged";
+        }
+
+        foreach (var file in changed.Where(c => !claimed.Contains(c)).Order(StringComparer.Ordinal))
+        {
+            yield return $"changed but not in the agent's summary: {file}";
+        }
     }
 
     internal static GuardrailCheck CheckTests(Baseline baseline, TestRunResult? tests)
@@ -167,6 +216,9 @@ public sealed partial class GuardrailRunner(GitCli git)
 
     [GeneratedRegex(@"(^|/)(bin|obj|TestResults|\.vs|\.idea)(/|$)")]
     private static partial Regex BuildOutput();
+
+    [GeneratedRegex(@"^\s*public\s+(?:(?:static|sealed|abstract|virtual|override|async|partial|readonly|required|new)\s+)*(?:(?:class|record|struct|interface)\b|[\w<>\[\]?,. ]+\()")]
+    private static partial Regex PublicSignature();
 
     [GeneratedRegex(@"\bAssert\.\w+|\.Should\w*\(|\bVerify\w*\(|\bExpect\(")]
     private static partial Regex Assertion();

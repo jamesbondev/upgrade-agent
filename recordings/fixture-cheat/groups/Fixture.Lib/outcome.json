@@ -1,0 +1,17 @@
+{
+  "attempted": true,
+  "summary": "hand-crafted cheating session (guardrail demo)",
+  "details": null,
+  "stats": {
+    "model": "claude-haiku-4.5",
+    "modelCalls": 17,
+    "toolCalls": 20,
+    "inputTokens": 270572,
+    "outputTokens": 7419,
+    "aiCredits": 8.927295,
+    "operatorApprovals": 0,
+    "refusals": 1,
+    "budgetExceeded": false,
+    "duration": "00:01:28.2707822"
+  }
+}

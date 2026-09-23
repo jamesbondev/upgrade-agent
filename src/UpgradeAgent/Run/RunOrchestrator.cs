@@ -30,7 +30,8 @@ public sealed class RunOrchestrator(
     private readonly DotnetCli _dotnet = new(processRunner);
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
 
-    public async Task<RunReport> RunAsync(IReadOnlyCollection<string> only, string? planFile, CancellationToken cancellationToken)
+    /// <param name="frozenPlan">A plan to use as-is (replay); otherwise <paramref name="planFile"/>, otherwise live detection.</param>
+    public async Task<RunReport> RunAsync(IReadOnlyCollection<string> only, string? planFile, CancellationToken cancellationToken, UpgradePlan? frozenPlan = null)
     {
         var stopwatch = Stopwatch.StartNew();
         var started = _time.GetUtcNow();
@@ -54,9 +55,8 @@ public sealed class RunOrchestrator(
         var runnerMode = DotnetCli.DetectRunnerMode(workspace.WorktreePath);
         var baseline = await GetBaselineAsync(workspace, targetCommit, runnerMode, forceEvaluate, cancellationToken);
 
-        var plan = planFile is not null
-            ? LoadPlan(planFile)
-            : await DetectAsync(workspace, only, cancellationToken);
+        var plan = frozenPlan
+            ?? (planFile is not null ? LoadPlan(planFile) : await DetectAsync(workspace, only, cancellationToken));
         renderer.Plan(plan, workspace.WorktreePath);
         await File.WriteAllTextAsync(Path.Combine(workspace.OutputDirectory, "plan.json"), JsonSerializer.Serialize(plan, JsonDefaults.Options), cancellationToken);
 
@@ -81,7 +81,7 @@ public sealed class RunOrchestrator(
         }
 
         var report = new RunReport(
-            workspace.RunId, workspace.BranchName, workspace.WorktreePath, targetCommit, started, stopwatch.Elapsed, plan, results, ledger);
+            workspace.RunId, workspace.BranchName, workspace.WorktreePath, targetCommit, baseline.SdkVersion, started, stopwatch.Elapsed, plan, results, ledger);
         await File.WriteAllTextAsync(Path.Combine(workspace.OutputDirectory, "run.json"), JsonSerializer.Serialize(report, JsonDefaults.Options), CancellationToken.None);
 
         var log = await _git.RunAsync(workspace.WorktreePath, ["log", "--oneline", "--no-decorate", $"{targetCommit}..HEAD"], CancellationToken.None);
@@ -118,7 +118,8 @@ public sealed class RunOrchestrator(
             }
 
             var startState = await new GuardrailRunner(_git).CaptureStartAsync(worktree, start, cancellationToken);
-            var (build, tests) = await BuildAndTestAsync(workspace, runnerMode, "after-bump", cancellationToken);
+            var label = $"{SafeName(group.Name)}";
+            var (build, tests) = await BuildAndTestAsync(workspace, runnerMode, $"{label}-after-bump", cancellationToken);
 
             FixOutcome? fix = null;
             if (!build.Succeeded || tests is not { Succeeded: true })
@@ -127,11 +128,14 @@ public sealed class RunOrchestrator(
                 renderer.Fix(fix);
                 if (fix.Attempted)
                 {
-                    (build, tests) = await BuildAndTestAsync(workspace, runnerMode, "after-fix", cancellationToken);
+                    (build, tests) = await BuildAndTestAsync(workspace, runnerMode, $"{label}-after-fix", cancellationToken);
                 }
             }
 
-            var guardrails = await new GuardrailRunner(_git).RunAsync(worktree, startState, baseline, build, tests, cancellationToken);
+            var review = new ReviewContext(
+                fix?.Details?.Packages.SelectMany(p => p.Fixes).Select(f => f.File).ToList(),
+                bump.Edits.Select(e => e.File).Distinct().ToList());
+            var guardrails = await new GuardrailRunner(_git).RunAsync(worktree, startState, baseline, build, tests, cancellationToken, review);
             renderer.Guardrails(guardrails);
 
             if (!guardrails.Passed)
@@ -142,7 +146,7 @@ public sealed class RunOrchestrator(
             }
 
             var commit = await CommitAsync(workspace, group, bump, cancellationToken);
-            return Result(GroupStatus.Accepted, null, bump, guardrails, fix, commit);
+            return Result(GroupStatus.Accepted, null, bump, guardrails, fix, commit) with { BuildWarnings = WarningSummary(build) };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -205,9 +209,9 @@ public sealed class RunOrchestrator(
 
     private async Task<UpgradePlan> DetectAsync(RunWorkspace workspace, IReadOnlyCollection<string> only, CancellationToken cancellationToken)
     {
-        renderer.Status("Detecting outdated packages (latest, highest minor, highest patch)...");
-        var reports = await new PackageListRunner(processRunner)
-            .ListAllAsync(workspace.SolutionPath, config.Options.Policy.IncludePrerelease, cancellationToken);
+        var reports = await renderer.WithSpinnerAsync(
+            "Detecting outdated packages (latest, highest minor, highest patch)...",
+            () => new PackageListRunner(processRunner).ListAllAsync(workspace.SolutionPath, config.Options.Policy.IncludePrerelease, cancellationToken));
         var planner = new Planner(config.Options.Policy, new NuGetPackageCompatibilityChecker(workspace.WorktreePath), _time);
         return await planner.CreateAsync(reports, workspace.WorktreePath, workspace.SolutionPath, only, cancellationToken);
     }
@@ -239,6 +243,16 @@ public sealed class RunOrchestrator(
 
         return await _git.HeadAsync(worktree, cancellationToken);
     }
+
+    private static IReadOnlyList<string> WarningSummary(BuildResult build) =>
+        build.Warnings
+            .GroupBy(w => (w.Code, w.Message))
+            .OrderBy(g => g.Key.Code, StringComparer.Ordinal)
+            .ThenByDescending(g => g.Count())
+            .Select(g => $"{g.Key.Code} ×{g.Count()}: {g.Key.Message}")
+            .ToList();
+
+    private static string SafeName(string name) => string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c is '.' or '-' ? c : '_'));
 
     /// <summary>Runs even when the run is being cancelled: a half-applied group must never survive.</summary>
     private async Task RevertAsync(string worktree, string commit)

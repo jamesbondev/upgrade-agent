@@ -52,19 +52,22 @@ public static partial class SuppressionScanner
         return violations;
     }
 
-    internal static IEnumerable<string> GenuinelyAdded(FileDiff diff)
+    internal static IEnumerable<string> GenuinelyAdded(FileDiff diff) => Unmatched(diff.Added, diff.Removed);
+
+    /// <summary>Lines in <paramref name="lines"/> with no whitespace-insensitive counterpart in <paramref name="counterparts"/> (multiset).</summary>
+    internal static IEnumerable<string> Unmatched(IReadOnlyList<string> lines, IReadOnlyList<string> counterparts)
     {
-        var removed = diff.Removed
+        var remaining = counterparts
             .Select(l => l.Trim())
             .GroupBy(l => l, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
 
-        foreach (var line in diff.Added)
+        foreach (var line in lines)
         {
             var key = line.Trim();
-            if (removed.TryGetValue(key, out var count) && count > 0)
+            if (remaining.TryGetValue(key, out var count) && count > 0)
             {
-                removed[key] = count - 1;
+                remaining[key] = count - 1;
                 continue;
             }
 

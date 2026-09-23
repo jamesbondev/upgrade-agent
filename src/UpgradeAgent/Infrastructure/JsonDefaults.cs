@@ -11,4 +11,6 @@ internal static class JsonDefaults
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
+
+    public static readonly JsonSerializerOptions Compact = new(Options) { WriteIndented = false };
 }

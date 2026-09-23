@@ -512,18 +512,44 @@ Status (2026-09-23):
 - **M2 done, using GitHub Copilot** (switched from the harness by user decision). `run --agent copilot` (the default) fixes the Fixture.Lib 2.0.0 break live.
   - Latest fixture run: about 2 min for the major group, 22 model calls, 21 tool calls, about 373k input tokens. All guardrails passed, and the two modified test files were flagged.
   - 180 unit tests. Mutation-checked: disabling the path-escape or `-p:` checks fails 4 tests.
-  - Not yet exercised: the operator prompt in an interactive terminal (every run here had redirected output, so prompts were declined), and Ctrl+C.
+- **M3 done.**
+  - **Ctrl+C:** a real SIGINT during an agent edit reverted the group and still wrote the summary and `run.json`. The grace period was raised from 2 s to 30 s.
+  - **Operator prompt:** tested with Spectre's `TestConsole`.
+  - **Reviewer notes:** removed public signatures in non-test code, and disagreements between the agent's summary and the diff.
+  - **TRX evidence:** kept per group.
+- **M4 done** (group-level replay, section 9).
+  - `--record <name>` / `--replay <name>` / `--replay-max-gap`. Replaying the fixture takes 36 s, against 110 s live.
+  - `recordings/fixture` is a real Copilot session; replay accepts it.
+  - `recordings/fixture-cheat` is hand-crafted from the honest patch plus a `#pragma` and a skipped test. The build is green (15 passed, 1 skipped), yet it's **rejected**: the per-method test check and the suppression scan both catch it.
+  - `tests/UpgradeAgent.IntegrationTests` replays both from a fresh temp fixture with no model access, in about 30 s.
+  - Fixes found along the way:
+    - The fixture commit wasn't deterministic across filesystems (exec bit on ext4 vs drvfs); `core.fileMode=false` fixed it.
+    - Recorded agent lines are now worktree-relative.
+    - An SDK mismatch on replay is a warning; a commit mismatch is still an error.
+- **M5 done** (publishing, dry-run).
+  - `out/pr-description.md` (plus a copy per run) contains:
+    - a summary table
+    - per-group breaking changes, fixes and build warnings (each distinct message)
+    - reviewer attention notes and collapsible guardrail details
+    - agent stats, marked when replayed
+    - a "Not included" list with reasons
+    - run totals
+  - The PR only states what the app verified; a rejected group's agent claims never appear as applied fixes (tested).
+  - **`push_branch` with a live agent:**
+    - Copilot gets a publish session whose only tool (`AvailableTools`) is `push_branch`, wrapped in `ApprovalRequiredAIFunction`.
+    - The agent calls it, the framework raises an approval request, and the operator panel appears.
+    - Verified in a real pseudo-terminal: the agent called it, "y" was entered, and the tool checked the ledger and printed its dry-run result.
+  - **Without a live model** (replay, `--agent none`), the app calls `push_branch` directly behind the same prompt.
+  - **The tool itself refuses** when there is nothing accepted, when HEAD isn't the last ledger commit, or when the worktree is dirty. It runs at most once.
+  - A spinner now covers detection, so the terminal doesn't look hung (the user saw arrow keys echoed during the silent pause).
+  - 201 unit tests and 2 integration tests.
 
 - **M0: detection.** Parsing, classification, policy, TFM check and plan table against the fixture.
 - **M1: bumping and guardrails, no AI.** Worktree, baseline cache, bump, restore, guardrails, and a commit for the patch group. Also the `fixture-cheat`-style guardrail tests, using scripted diffs.
 - **M2: agent (done, Copilot).** Includes what was planned as M3: full instructions, migration notes inlined and gated, budgets, structured summary, and Fixture.Lib 1.1→2.0 fixed live.
-- **M3: hardening from live runs.**
-  - operator prompt tested in a real terminal
-  - Ctrl+C
-  - a warning for public-API changes in non-test projects (reviewer attention)
-  - summary/diff cross-check
-- **M4: record/replay** (group-level, see section 9). Commit the `fixture` recording; the integration tests are green with no model.
-- **M5: publishing in dry-run.** `push_branch` approval, ledger check and PR description. **This is the full rehearsal target.**
+- **M3: hardening from live runs (done).** Ctrl+C, operator prompt, public-API and summary/diff reviewer notes.
+- **M4: record/replay (done).** Group-level (see section 9). The `fixture` and `fixture-cheat` recordings are committed; the integration tests are green with no model.
+- **M5: publishing in dry-run (done).** `push_branch` approval, ledger check and PR description. **This is the full rehearsal target.**
 - **M6: Azure DevOps.** Draft PR, labels, PAT and Entra auth.
 - **M7: `interest_accrual`.** Config only. Work through the checklist, record the demo, rehearse.
 - **M8: finishing.** Reset script, README, optional pipeline.

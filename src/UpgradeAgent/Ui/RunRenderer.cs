@@ -15,6 +15,39 @@ public sealed class RunRenderer(IAnsiConsole console)
 
     public void Status(string message) => console.MarkupLine($"[grey]{Markup.Escape(message)}[/]");
 
+    /// <summary>
+    /// A spinner for slow phases that never prompt (detection), so a silent pause doesn't look like a hang.
+    /// Only used where nothing else writes to the console meanwhile.
+    /// </summary>
+    public Task<T> WithSpinnerAsync<T>(string message, Func<Task<T>> action) =>
+        console.Profile.Capabilities.Interactive
+            ? console.Status().Spinner(Spinner.Known.Dots).StartAsync(Markup.Escape(message), _ => action())
+            : LogThenRun(message, action);
+
+    private async Task<T> LogThenRun<T>(string message, Func<Task<T>> action)
+    {
+        Status(message);
+        return await action();
+    }
+
+    public void PublishHeader(string how)
+    {
+        console.Write(new Rule("[bold]Publish[/]").LeftJustified());
+        console.MarkupLine($"  [grey]{Markup.Escape(how)}[/]");
+    }
+
+    public void Published(string descriptionPath, Publishing.PushResult? push)
+    {
+        if (push is not null)
+        {
+            var color = push.Pushed ? "green" : push.Refused ? "red" : "yellow";
+            console.MarkupLine($"  [{color}]{Markup.Escape(push.Message)}[/]");
+        }
+
+        console.MarkupLine($"  PR description: [blue]{Markup.Escape(descriptionPath)}[/]");
+        console.WriteLine();
+    }
+
     public void Workspace(RunWorkspace workspace)
     {
         console.Write(new Rule("[bold]Run[/]").LeftJustified());

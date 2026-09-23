@@ -8,5 +8,5 @@ TestResults/
 .idea/
 # Recordings of real repos contain proprietary code; only fixture recordings are committed.
 recordings/*
-!recordings/fixture*.jsonl
+!recordings/fixture*/
 !recordings/.gitkeep

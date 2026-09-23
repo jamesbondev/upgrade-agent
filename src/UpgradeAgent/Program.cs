@@ -6,7 +6,10 @@ using UpgradeAgent.Agent;
 using UpgradeAgent.Config;
 using UpgradeAgent.Detection;
 using UpgradeAgent.Infrastructure;
+using UpgradeAgent.Build;
 using UpgradeAgent.Preflight;
+using UpgradeAgent.Publishing;
+using UpgradeAgent.Replay;
 using UpgradeAgent.Run;
 using UpgradeAgent.Ui;
 
@@ -19,6 +22,9 @@ var onlyOption = new Option<string[]>("--only")
 var planOutOption = new Option<FileInfo?>("--plan-out") { Description = "Where to write the plan JSON. Default: <Output:Directory>/plan.json." };
 var planOption = new Option<FileInfo?>("--plan") { Description = "Use a saved plan instead of detecting (replays and demos)." };
 var agentOption = new Option<string?>("--agent") { Description = "Agent that fixes broken groups: copilot or none. Default: Agent:Provider." };
+var recordOption = new Option<string?>("--record") { Description = "Record the agent's sessions under recordings/<name> for later replay." };
+var replayOption = new Option<string?>("--replay") { Description = "Replay recordings/<name> instead of calling the agent. Builds, tests and guardrails still run live." };
+var replayGapOption = new Option<double>("--replay-max-gap") { Description = "Longest pause between replayed agent lines, in seconds.", DefaultValueFactory = _ => 0.8 };
 var nonInteractiveOption = new Option<bool>("--non-interactive") { Description = "Never prompt; anything that needs approval is declined. Implied when output is redirected." };
 
 var planCommand = new Command("plan", "Detect outdated packages and print the upgrade plan. Changes nothing.")
@@ -40,6 +46,9 @@ var runCommand = new Command("run", "Upgrade packages on a new branch in a workt
     planOption,
     agentOption,
     nonInteractiveOption,
+    recordOption,
+    replayOption,
+    replayGapOption,
 };
 runCommand.SetAction((parseResult, cancellationToken) => RunUpgradeAsync(
     parseResult.GetValue(configOption),
@@ -47,6 +56,7 @@ runCommand.SetAction((parseResult, cancellationToken) => RunUpgradeAsync(
     parseResult.GetValue(planOption),
     parseResult.GetValue(agentOption),
     parseResult.GetValue(nonInteractiveOption),
+    new RecordReplay(parseResult.GetValue(recordOption), parseResult.GetValue(replayOption), parseResult.GetValue(replayGapOption)),
     cancellationToken));
 
 var root = new RootCommand("UpgradeAgent: keeps a .NET repo's NuGet packages up to date, with an AI agent fixing breaking changes.")
@@ -55,7 +65,9 @@ var root = new RootCommand("UpgradeAgent: keeps a .NET repo's NuGet packages up 
     runCommand,
 };
 
-return await root.Parse(args).InvokeAsync();
+// Ctrl+C cancels the run; the current group is then reverted and the report written. The default
+// 2-second grace period is too short for that, so allow 30 seconds before the process is killed.
+return await root.Parse(args).InvokeAsync(new InvocationConfiguration { ProcessTerminationTimeout = TimeSpan.FromSeconds(30) });
 
 static async Task<int> RunPlanAsync(FileInfo? configFile, string[] only, FileInfo? planOut, CancellationToken cancellationToken)
 {
@@ -86,7 +98,7 @@ static async Task<int> RunPlanAsync(FileInfo? configFile, string[] only, FileInf
 }
 
 static async Task<int> RunUpgradeAsync(
-    FileInfo? configFile, string[] only, FileInfo? planFile, string? agent, bool nonInteractive, CancellationToken cancellationToken)
+    FileInfo? configFile, string[] only, FileInfo? planFile, string? agent, bool nonInteractive, RecordReplay recordReplay, CancellationToken cancellationToken)
 {
     var console = ConsoleFactory.Create();
     return await HandleErrorsAsync(console, async () =>
@@ -103,22 +115,102 @@ static async Task<int> RunUpgradeAsync(
             ? new DeclineAllPrompter()
             : new ConsoleApprovalPrompter(console, consoleLock);
 
-        await using var fixer = CreateFixer(agent ?? config.Options.Agent.Provider, config, processRunner, console, consoleLock, prompter);
-        var orchestrator = new RunOrchestrator(config, processRunner, fixer, new RunRenderer(console));
-        var report = await orchestrator.RunAsync(only, planFile?.FullName, cancellationToken);
+        if (recordReplay is { Record: not null, Replay: not null })
+        {
+            throw new ConfigurationException("--record and --replay can't be combined.");
+        }
+
+        var git = new GitCli(processRunner);
+        var recordingsRoot = Path.GetFullPath(config.Options.Output.RecordingsDirectory);
+        UpgradePlan? frozenPlan = null;
+        IGroupFixer fixer;
+        CopilotFixer? copilot = null;
+        if (recordReplay.Replay is { } replayName)
+        {
+            var recording = Recording.At(recordingsRoot, replayName);
+            if (!recording.Exists)
+            {
+                throw new ConfigurationException($"No recording at {recording.Directory}.");
+            }
+
+            var header = recording.LoadHeader();
+            var head = await git.HeadAsync(config.RepoPath, cancellationToken);
+            var sdk = await new DotnetCli(processRunner).SdkVersionAsync(config.RepoPath, cancellationToken);
+            if (header.TargetCommit != head)
+            {
+                throw new ConfigurationException(
+                    $"Recording '{replayName}' was made at commit {header.TargetCommit[..8]}; the repo is at {head[..8]}. The recorded patches only apply to the same commit. Record again.");
+            }
+
+            if (header.SdkVersion != sdk)
+            {
+                console.MarkupLine($"[yellow]warning:[/] recorded with SDK {Markup.Escape(header.SdkVersion)}, running with {Markup.Escape(sdk)}. Build output may differ.");
+            }
+
+            console.MarkupLine($"[black on yellow] REPLAY [/] [yellow]'{Markup.Escape(replayName)}', recorded {header.RecordedUtc:yyyy-MM-dd HH:mm} UTC. Agent sessions are played back; bumps, builds, tests and guardrails run live.[/]");
+            console.WriteLine();
+            frozenPlan = header.Plan;
+            fixer = new ReplayFixer(recording, console, consoleLock, git, recordReplay.MaxGapSeconds);
+        }
+        else
+        {
+            fixer = CreateFixer(agent ?? config.Options.Agent.Provider, config, processRunner, console, consoleLock, prompter, out var activity);
+            copilot = fixer as CopilotFixer;
+            if (recordReplay.Record is { } recordName && activity is not null)
+            {
+                fixer = new RecordingFixer(fixer, Recording.At(recordingsRoot, recordName), activity, git);
+            }
+        }
+
+        await using var ownedFixer = new AsyncDisposableFixer(fixer);
+        var renderer = new RunRenderer(console);
+        var orchestrator = new RunOrchestrator(config, processRunner, ownedFixer, renderer);
+        var report = await orchestrator.RunAsync(only, planFile?.FullName, cancellationToken, frozenPlan);
+
+        // Publish: the PR description always; the push only through push_branch, with the operator's approval.
+        var description = PrDescription.Create(report);
+        var runOutput = Path.Combine(config.OutputDirectory, $"run-{report.RunId}");
+        await File.WriteAllTextAsync(Path.Combine(runOutput, "pr-description.md"), description, CancellationToken.None);
+        await File.WriteAllTextAsync(Path.Combine(config.OutputDirectory, "pr-description.md"), description, CancellationToken.None);
+        PushResult? push = null;
+        if (report.Ledger.Count > 0 && !cancellationToken.IsCancellationRequested)
+        {
+            var tool = new PushBranchTool(git, report, dryRun: true);
+            renderer.PublishHeader(copilot is not null ? "the agent must call push_branch; you approve it" : "push_branch needs your approval");
+            push = copilot is not null
+                ? await copilot.PublishAsync(tool, report, cancellationToken)
+                : await new DirectPushPublisher(prompter).PublishAsync(tool, cancellationToken);
+        }
+
+        renderer.Published(Path.Combine(config.OutputDirectory, "pr-description.md"), push);
+
+        if (recordReplay.Record is { } name)
+        {
+            var recording = Recording.At(recordingsRoot, name);
+            recording.SaveHeader(new RecordingHeader(name, DateTimeOffset.UtcNow, report.TargetCommit, report.SdkVersion, Environment.OSVersion.ToString(), report.Plan));
+            console.MarkupLine($"[grey]Recorded to {Markup.Escape(recording.Directory)}[/]");
+        }
+
         return report.Groups.Any(g => g.Status == GroupStatus.Cancelled) ? ExitCodes.Cancelled : ExitCodes.Success;
     });
 }
 
-static AsyncDisposableFixer CreateFixer(
-    string provider, ResolvedConfig config, IProcessRunner processRunner, IAnsiConsole console, object consoleLock, IApprovalPrompter prompter) =>
-    provider.ToLowerInvariant() switch
+static IGroupFixer CreateFixer(
+    string provider, ResolvedConfig config, IProcessRunner processRunner, IAnsiConsole console, object consoleLock, IApprovalPrompter prompter,
+    out AgentActivityRenderer? activity)
+{
+    switch (provider.ToLowerInvariant())
     {
-        "copilot" => new AsyncDisposableFixer(new CopilotFixer(
-            config.Options.Agent, processRunner, new AgentActivityRenderer(console, consoleLock), prompter)),
-        "none" => new AsyncDisposableFixer(new NoAgentFixer()),
-        _ => throw new ConfigurationException($"Unknown agent provider '{provider}'. Use 'copilot' or 'none'."),
-    };
+        case "copilot":
+            activity = new AgentActivityRenderer(console, consoleLock);
+            return new CopilotFixer(config.Options.Agent, processRunner, activity, prompter);
+        case "none":
+            activity = null;
+            return new NoAgentFixer();
+        default:
+            throw new ConfigurationException($"Unknown agent provider '{provider}'. Use 'copilot' or 'none'.");
+    }
+}
 
 static async Task<bool> PreflightAsync(IAnsiConsole console, ResolvedConfig config, IProcessRunner processRunner, bool requireCleanRepo, CancellationToken cancellationToken)
 {
@@ -168,6 +260,8 @@ internal sealed class AsyncDisposableFixer(IGroupFixer inner) : IGroupFixer, IAs
 
     public ValueTask DisposeAsync() => inner is IAsyncDisposable disposable ? disposable.DisposeAsync() : ValueTask.CompletedTask;
 }
+
+internal sealed record RecordReplay(string? Record, string? Replay, double MaxGapSeconds);
 
 internal static class ExitCodes
 {

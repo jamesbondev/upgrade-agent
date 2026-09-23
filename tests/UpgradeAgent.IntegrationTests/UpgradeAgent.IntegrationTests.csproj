@@ -1,12 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    End-to-end replays of the committed fixture recordings: real bumps, builds, tests, guardrails and
+    commits, with no model access. Needs PowerShell 7, git and nuget.org. Slow (about a minute), so it is a
+    separate project: dotnet test tests/UpgradeAgent.IntegrationTests
+  -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="Spectre.Console.Testing" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>

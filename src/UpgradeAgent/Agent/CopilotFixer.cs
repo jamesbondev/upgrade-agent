@@ -5,7 +5,9 @@ using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.GitHub.Copilot;
 using UpgradeAgent.Build;
 using UpgradeAgent.Config;
+using Microsoft.Extensions.AI;
 using UpgradeAgent.Infrastructure;
+using UpgradeAgent.Publishing;
 using UpgradeAgent.Run;
 using UpgradeAgent.Ui;
 
@@ -106,6 +108,74 @@ public sealed class CopilotFixer(
             ? $"stopped by budget after {Describe(stats)}"
             : $"finished in {Describe(stats)}{(summary is null ? "; no structured summary" : "")}";
         return new FixOutcome(true, headline, summary, stats);
+    }
+
+    /// <summary>
+    /// A short publish session whose only tool is push_branch, wrapped in ApprovalRequiredAIFunction.
+    /// The agent framework turns that into an "ask", which arrives in OnPermissionRequest and goes to the operator.
+    /// </summary>
+    public async Task<PushResult> PublishAsync(PushBranchTool tool, RunReport report, CancellationToken cancellationToken)
+    {
+        var client = await GetClientAsync(report.WorktreePath, cancellationToken);
+        var action = await tool.DescribeAsync(cancellationToken);
+        var pushFunction = new ApprovalRequiredAIFunction(AIFunctionFactory.Create(tool.PushBranchAsync, PushBranchTool.Name));
+
+        var config = new SessionConfig
+        {
+            ClientName = "UpgradeAgent",
+            Model = options.Model,
+            WorkingDirectory = report.WorktreePath,
+            EnableConfigDiscovery = false,
+            EnableFileHooks = false,
+            EnableSkills = false,
+            SkipCustomInstructions = true,
+            EnableOnDemandInstructionDiscovery = false,
+            EnableHostGitOperations = false,
+            Tools = [pushFunction],
+            AvailableTools = [PushBranchTool.Name],
+            OnPermissionRequest = async (request, _) =>
+            {
+                var toolName = request switch
+                {
+                    PermissionRequestCustomTool custom => custom.ToolName,
+                    PermissionRequestHook hook => hook.ToolName,
+                    _ => null,
+                };
+
+                if (toolName != PushBranchTool.Name)
+                {
+                    return PermissionDecision.Reject("Only push_branch is available in this session.");
+                }
+
+                return await prompter.ConfirmAsync(action, "The agent wants to publish. This leaves the machine and needs your approval.", cancellationToken)
+                    ? PermissionDecision.ApproveOnce()
+                    : PermissionDecision.Reject("The operator declined the push. Do not retry; reply that the branch was not pushed.");
+            },
+            OnEvent = e =>
+            {
+                if (e is ToolExecutionStartEvent start)
+                {
+                    activity.Note($"agent calls {start.Data.ToolName}");
+                }
+            },
+        };
+
+        await using var agent = new GitHubCopilotAgent(client, config, ownsClient: false, name: "UpgradeAgent");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(2));
+        try
+        {
+            await agent.RunAsync(
+                $"Every package group is finished and independently verified on branch {report.Branch}. " +
+                "Publish it by calling push_branch exactly once, then reply with one sentence saying whether it was pushed.",
+                cancellationToken: timeout.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Fall through: Result tells us whether the tool ran.
+        }
+
+        return tool.Result ?? new PushResult(false, false, "Not pushed: the operator declined, or the agent did not call push_branch.");
     }
 
     public async ValueTask DisposeAsync()

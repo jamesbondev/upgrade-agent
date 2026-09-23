@@ -1,0 +1,168 @@
+diff --git a/src/LoanLedger/InterestCalculator.cs b/src/LoanLedger/InterestCalculator.cs
+index 4c37036..d44006c 100644
+--- a/src/LoanLedger/InterestCalculator.cs
++++ b/src/LoanLedger/InterestCalculator.cs
+@@ -5,17 +5,17 @@ namespace LoanLedger;
+ /// <summary>Simple-interest accrual using the platform's day-count and rounding settings.</summary>
+ public sealed class InterestCalculator(ConfigClient configClient)
+ {
+-    public decimal DailyInterest(decimal principal, decimal annualRatePercent)
++    public async Task<decimal> DailyInterestAsync(decimal principal, decimal annualRatePercent, CancellationToken cancellationToken = default)
+     {
+-        var config = configClient.GetConfig();
++        var config = await configClient.GetConfigAsync(cancellationToken);
+         return Math.Round(DailyRate(principal, annualRatePercent, config), config.RoundingDecimals, MidpointRounding.ToEven);
+     }
+ 
+-    public decimal AccruedInterest(decimal principal, decimal annualRatePercent, int days)
++    public async Task<decimal> AccruedInterestAsync(decimal principal, decimal annualRatePercent, int days, CancellationToken cancellationToken = default)
+     {
+         ArgumentOutOfRangeException.ThrowIfNegative(days);
+ 
+-        var config = configClient.GetConfig();
++        var config = await configClient.GetConfigAsync(cancellationToken);
+         return Math.Round(DailyRate(principal, annualRatePercent, config) * days, config.RoundingDecimals, MidpointRounding.ToEven);
+     }
+ 
+diff --git a/src/LoanLedger/PortfolioSummary.cs b/src/LoanLedger/PortfolioSummary.cs
+index d41edea..02e841e 100644
+--- a/src/LoanLedger/PortfolioSummary.cs
++++ b/src/LoanLedger/PortfolioSummary.cs
+@@ -6,11 +6,11 @@ namespace LoanLedger;
+ public sealed class PortfolioSummary(AccountDirectory directory)
+ {
+     public decimal TotalBalance(IEnumerable<string> accountIds) =>
+-        accountIds.Sum(id => directory.GetAccount(id).Balance);
++        accountIds.Sum(id => directory.GetAccount(new AccountId(id)).Balance);
+ 
+     public string Describe(IEnumerable<string> accountIds)
+     {
+         var ids = accountIds.ToList();
+-        return $"{ids.Count} accounts, total {ValueFormatter.Format(TotalBalance(ids))}";
++        return $"{ids.Count} accounts, total {ValueFormatter.FormatValue(TotalBalance(ids))}";
+     }
+ }
+diff --git a/src/LoanLedger/StatementService.cs b/src/LoanLedger/StatementService.cs
+index 3168e68..6bb1ee7 100644
+--- a/src/LoanLedger/StatementService.cs
++++ b/src/LoanLedger/StatementService.cs
+@@ -8,16 +8,16 @@ public sealed record Statement(string AccountId, string Holder, string Balance,
+ /// <summary>Builds interest statements for accounts.</summary>
+ public sealed class StatementService(AccountDirectory directory, InterestCalculator calculator)
+ {
+-    public Statement BuildStatement(string accountId, int days)
++    public async Task<Statement> BuildStatementAsync(string accountId, int days, CancellationToken cancellationToken = default)
+     {
+-        var account = directory.GetAccount(accountId);
+-        var interest = calculator.AccruedInterest(account.Balance, account.AnnualRatePercent, days);
++        var account = directory.GetAccount(new AccountId(accountId));
++        var interest = await calculator.AccruedInterestAsync(account.Balance, account.AnnualRatePercent, days, cancellationToken);
+ 
+         return new Statement(
+             account.Id,
+             account.Holder,
+-            ValueFormatter.Format(account.Balance),
+-            ValueFormatter.Format(interest),
++            ValueFormatter.FormatValue(account.Balance),
++            ValueFormatter.FormatValue(interest),
+             days);
+     }
+ 
+diff --git a/tests/LoanLedger.Tests/InterestCalculatorTests.cs b/tests/LoanLedger.Tests/InterestCalculatorTests.cs
+index 45f88cd..692fca1 100644
+--- a/tests/LoanLedger.Tests/InterestCalculatorTests.cs
++++ b/tests/LoanLedger.Tests/InterestCalculatorTests.cs
+@@ -3,37 +3,37 @@ namespace LoanLedger.Tests;
+ public class InterestCalculatorTests
+ {
+     [Fact]
+-    public void DailyInterest_UsesDayCountBasis()
++    public async Task DailyInterest_UsesDayCountBasis()
+     {
+         // 10,000 * 3.65% / 365 = 1.00
+-        Assert.Equal(1.00m, TestData.Calculator().DailyInterest(10_000m, 3.65m));
++        Assert.Equal(1.00m, await TestData.Calculator().DailyInterestAsync(10_000m, 3.65m));
+     }
+ 
+     [Fact]
+-    public void DailyInterest_IsZeroForZeroPrincipal()
++    public async Task DailyInterest_IsZeroForZeroPrincipal()
+     {
+-        Assert.Equal(0m, TestData.Calculator().DailyInterest(0m, 5m));
++        Assert.Equal(0m, await TestData.Calculator().DailyInterestAsync(0m, 5m));
+     }
+ 
+     [Fact]
+-    public void DailyInterest_RoundsToConfiguredDecimals()
++    public async Task DailyInterest_RoundsToConfiguredDecimals()
+     {
+         // 1,000 * 5% / 365 = 0.136986... -> 0.14
+-        Assert.Equal(0.14m, TestData.Calculator().DailyInterest(1_000m, 5m));
++        Assert.Equal(0.14m, await TestData.Calculator().DailyInterestAsync(1_000m, 5m));
+     }
+ 
+     [Theory]
+     [InlineData(1, 1.00)]
+     [InlineData(30, 30.00)]
+     [InlineData(365, 365.00)]
+-    public void AccruedInterest_ScalesWithDays(int days, double expected)
++    public async Task AccruedInterest_ScalesWithDays(int days, double expected)
+     {
+-        Assert.Equal((decimal)expected, TestData.Calculator().AccruedInterest(10_000m, 3.65m, days));
++        Assert.Equal((decimal)expected, await TestData.Calculator().AccruedInterestAsync(10_000m, 3.65m, days));
+     }
+ 
+     [Fact]
+-    public void AccruedInterest_RejectsNegativeDays()
++    public async Task AccruedInterest_RejectsNegativeDays()
+     {
+-        Assert.Throws<ArgumentOutOfRangeException>(() => TestData.Calculator().AccruedInterest(10_000m, 3.65m, -1));
++        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => TestData.Calculator().AccruedInterestAsync(10_000m, 3.65m, -1));
+     }
+ }
+diff --git a/tests/LoanLedger.Tests/StatementServiceTests.cs b/tests/LoanLedger.Tests/StatementServiceTests.cs
+index ead8022..5d5eeba 100644
+--- a/tests/LoanLedger.Tests/StatementServiceTests.cs
++++ b/tests/LoanLedger.Tests/StatementServiceTests.cs
+@@ -3,9 +3,9 @@ namespace LoanLedger.Tests;
+ public class StatementServiceTests
+ {
+     [Fact]
+-    public void BuildStatement_FormatsBalanceAndInterest()
++    public async Task BuildStatement_FormatsBalanceAndInterest()
+     {
+-        var statement = TestData.Statements().BuildStatement("ACC-2", 30);
++        var statement = await TestData.Statements().BuildStatementAsync("ACC-2", 30);
+ 
+         Assert.Equal("ACC-2", statement.AccountId);
+         Assert.Equal("Grace Hopper", statement.Holder);
+@@ -19,22 +19,23 @@ public class StatementServiceTests
+     [InlineData("ACC-1", "Ada Lovelace")]
+     [InlineData("ACC-2", "Grace Hopper")]
+     [InlineData("ACC-3", "Alan Turing")]
+-    public void BuildStatement_ResolvesHolder(string accountId, string expectedHolder)
++    public async Task BuildStatement_ResolvesHolder(string accountId, string expectedHolder)
+     {
+-        Assert.Equal(expectedHolder, TestData.Statements().BuildStatement(accountId, 1).Holder);
++        Assert.Equal(expectedHolder, (await TestData.Statements().BuildStatementAsync(accountId, 1)).Holder);
+     }
+ 
+     [Fact]
+-    public void BuildStatement_ThrowsForUnknownAccount()
++    public async Task BuildStatement_ThrowsForUnknownAccount()
+     {
+-        Assert.Throws<KeyNotFoundException>(() => TestData.Statements().BuildStatement("ACC-404", 1));
++        await Assert.ThrowsAsync<KeyNotFoundException>(() => TestData.Statements().BuildStatementAsync("ACC-404", 1));
+     }
+ 
+     [Fact]
+-    public void ToJson_ContainsAllFields()
++    public async Task ToJson_ContainsAllFields()
+     {
+         var service = TestData.Statements();
+-        var json = service.ToJson(service.BuildStatement("ACC-1", 1));
++        var statement = await service.BuildStatementAsync("ACC-1", 1);
++        var json = service.ToJson(statement);
+ 
+         Assert.Equal(
+             """{"AccountId":"ACC-1","Holder":"Ada Lovelace","Balance":"10,000.00","AccruedInterest":"1.00","Days":1}""",

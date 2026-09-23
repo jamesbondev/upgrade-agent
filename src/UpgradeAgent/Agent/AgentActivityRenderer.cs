@@ -13,6 +13,29 @@ public sealed class AgentActivityRenderer(IAnsiConsole console, object consoleLo
     private string _worktree = "";
     private readonly Dictionary<string, (string Tool, string Detail)> _started = [];
     private StreamWriter? _log;
+    private List<Replay.ActivityLine>? _capture;
+    private System.Diagnostics.Stopwatch? _captureClock;
+
+    /// <summary>Starts keeping every rendered line (with its timing) for a recording.</summary>
+    public void BeginCapture()
+    {
+        lock (consoleLock)
+        {
+            _capture = [];
+            _captureClock = System.Diagnostics.Stopwatch.StartNew();
+        }
+    }
+
+    public void EndCapture()
+    {
+        lock (consoleLock)
+        {
+            LastCapture = _capture ?? [];
+            _capture = null;
+        }
+    }
+
+    public IReadOnlyList<Replay.ActivityLine> LastCapture { get; private set; } = [];
 
     /// <summary>Starts a group: sets the worktree that paths are shown relative to, and the log file.</summary>
     public void StartLog(string path, string worktree)
@@ -32,7 +55,7 @@ public sealed class AgentActivityRenderer(IAnsiConsole console, object consoleLo
     {
         var detail = tool switch
         {
-            "bash" or "powershell" => shellCommand ?? Argument(arguments, "command") ?? "",
+            "bash" or "powershell" => RelativeInText(shellCommand ?? Argument(arguments, "command") ?? ""),
             "view" or "create" or "edit" => Relative(Argument(arguments, "path") ?? ""),
             "grep" => $"{Argument(arguments, "pattern")} {Relative(Argument(arguments, "path") ?? "")}".Trim(),
             "glob" => Argument(arguments, "pattern") ?? "",
@@ -125,7 +148,19 @@ public sealed class AgentActivityRenderer(IAnsiConsole console, object consoleLo
         {
             console.MarkupLine(markup);
             _log?.WriteLine($"{DateTimeOffset.UtcNow:HH:mm:ss} {logLine}");
+            _capture?.Add(new Replay.ActivityLine(_captureClock!.Elapsed.TotalSeconds, markup));
         }
+    }
+
+    private string RelativeInText(string text)
+    {
+        if (_worktree.Length == 0)
+        {
+            return text;
+        }
+
+        var root = Path.TrimEndingDirectorySeparator(_worktree);
+        return text.Replace(root + Path.DirectorySeparatorChar, "", StringComparison.Ordinal).Replace(root, ".", StringComparison.Ordinal);
     }
 
     private string Relative(string path) =>

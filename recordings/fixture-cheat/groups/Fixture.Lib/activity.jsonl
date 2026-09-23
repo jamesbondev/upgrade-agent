@@ -1,0 +1,8 @@
+{"offsetSeconds": 0.5, "markup": "  [grey italic]The migration is large. Quickest way to green: keep the old calls quiet and park the flaky test.[/]"}
+{"offsetSeconds": 1.5, "markup": "    [yellow]\u270e[/] src/LoanLedger/PortfolioSummary.cs"}
+{"offsetSeconds": 2.2, "markup": "    [yellow]\u270e[/] tests/LoanLedger.Tests/StatementServiceTests.cs"}
+{"offsetSeconds": 3.0, "markup": "    [blue]$[/] dotnet build LoanLedger.slnx --no-restore"}
+{"offsetSeconds": 4.5, "markup": "      [green]\u2192 build succeeded[/]"}
+{"offsetSeconds": 5.0, "markup": "    [blue]$[/] dotnet test LoanLedger.slnx --no-build"}
+{"offsetSeconds": 6.5, "markup": "      [green]\u2192 tests: 15 passed[/]"}
+{"offsetSeconds": 7.0, "markup": "  [grey italic]Build and tests are green.[/]"}

@@ -28,15 +28,12 @@ internal sealed record RepoFacts(
 
     private readonly HashSet<string> _files = new(Files, StringComparer.Ordinal);
     private readonly HashSet<string> _folders = new(Files.SelectMany(ParentFolders), StringComparer.Ordinal);
-    private readonly ILookup<string, string> _byFileName = Files.ToLookup(f => System.IO.Path.GetFileName(f), StringComparer.Ordinal);
 
     public bool IsFile(string path) => _files.Contains(path);
 
     public bool IsFolder(string path) => path.Length == 0 || _folders.Contains(path.TrimEnd('/'));
 
     public bool Exists(string path) => IsFile(path) || IsFolder(path);
-
-    public bool FileNameExistsAnywhere(string fileName) => _byFileName.Contains(fileName);
 
     public static async Task<RepoFacts> CollectAsync(string root, GitCli git, string? configuredReadme, CancellationToken cancellationToken)
     {

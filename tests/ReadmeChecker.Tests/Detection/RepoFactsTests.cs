@@ -111,6 +111,5 @@ public class RepoFactsTests
         Assert.True(facts.IsFile("Docs/Guide.md"));
         Assert.False(facts.IsFile("docs/guide.md"));
         Assert.True(facts.IsFolder("Docs"));
-        Assert.True(facts.FileNameExistsAnywhere("Guide.md"));
     }
 }

@@ -12,7 +12,7 @@ internal sealed record Verification(IReadOnlyList<string> Problems, string NewTe
 
 internal static partial class ReadmeVerifier
 {
-    private static readonly SignalKind[] ReferenceKinds = [SignalKind.BrokenLink, SignalKind.MissingPath, SignalKind.MissingCommandTarget];
+    private static readonly SignalKind[] ReferenceKinds = [SignalKind.BrokenLink, SignalKind.MissingPath, SignalKind.MissingCommandTarget, SignalKind.MissingIdentifier];
 
     public static async Task<Verification> VerifyAsync(RepoWorkspace workspace, RepoFacts facts, double minKeptRatio, CancellationToken cancellationToken)
     {
@@ -97,7 +97,7 @@ internal static partial class ReadmeVerifier
     private static (SignalKind Kind, string Text) Key(Signal signal) => (signal.Kind, signal.Text);
 
     private static async Task<IReadOnlyList<Signal>> SignalsAsync(RepoFacts facts, RepoWorkspace workspace, CancellationToken cancellationToken) =>
-        (await IgnoredPaths.DropIgnoredAsync(ReadmeSignals.Find(facts), workspace.Path, workspace.Git, cancellationToken)).Signals;
+        (await SignalFinder.FindAsync(facts, workspace.Path, workspace.Git, cancellationToken)).Signals;
 
     private static async Task<IEnumerable<string>> RepoHostsAsync(RepoWorkspace workspace, CancellationToken cancellationToken)
     {

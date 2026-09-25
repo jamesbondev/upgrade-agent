@@ -13,7 +13,7 @@ internal static class FactsBuilder
         string? sdk = null,
         IEnumerable<string>? addedProjects = null)
     {
-        var fileList = (files ?? []).Append(readmePath).Distinct().ToList();
+        var fileList = (files ?? []).Concat(addedProjects ?? []).Append(readmePath).Distinct().ToList();
         var age = new ReadmeAge(new GitCommit("abc123", DateTimeOffset.UnixEpoch), 3, [.. addedProjects ?? []], []);
         return new RepoFacts(
             fileList,

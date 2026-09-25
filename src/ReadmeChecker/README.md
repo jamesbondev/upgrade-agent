@@ -101,11 +101,19 @@ For each repo, one at a time:
    `Directory.Build.props`/`.targets`), the SDK in `global.json`, and what changed since the README last changed.
 4. **Find signals** with a script. Existence is checked against `git ls-files`, so it is case-sensitive like the repo.
    - Broken relative links, including `<img src>`. These are certain.
-   - Paths in inline code and in shell code blocks, and the targets of `cd`, `dotnet run/test/build --project`,
-     `./script` and `pwsh script.ps1`. `cd` is followed, and folders the block creates (`dotnet new -o`, `mkdir`)
-     don't count. URLs, placeholders, globs, absolute paths, gitignored and build-output paths are skipped.
+   - Paths with a folder in them, in inline code and shell code blocks, and the targets of `cd`,
+     `dotnet run/test/build --project`, `./script` and `pwsh script.ps1`. `cd` is followed, and folders the block
+     creates (`dotnet new -o`, `mkdir`) don't count. URLs, placeholders, globs, absolute paths, gitignored and
+     build-output paths are skipped, and so are bare file names in prose (`secrets.json` usually means a kind of file,
+     not one in this repo).
+   - Type names (`IReviewEngine`, `ReviewJobHandler`) that no code or config file contains. Names inside
+     language-tagged code examples are skipped, since those are often other libraries' APIs.
    - `.NET 6`, `net6.0` and SDK versions that the projects and `global.json` don't use ("or later" is fine).
-   - Non-test projects added since the README last changed that it doesn't name.
+   - Files missing from a list: when the README links at least three files in a folder and most of the folder, the
+     folder's other files of that type (not `index`, `README` or templates) are candidates.
+   - Projects the README doesn't name: under a top-level folder where it names at least half of the projects
+     (test projects only if it names a test project there), or non-test projects added since the README last
+     changed. A README in a subfolder only covers projects under that folder.
 
    Only the first `Readme:MaxCandidates` (25) are kept, certain ones first.
 5. **Skip the agent when there is nothing to check**: no signals, and the README changed within the last

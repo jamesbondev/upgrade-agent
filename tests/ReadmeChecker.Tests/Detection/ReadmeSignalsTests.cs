@@ -139,11 +139,76 @@ public class ReadmeSignalsTests
     }
 
     [Fact]
-    public void BareFileNamesMatchAnywhereInTheRepo()
+    public void BareFileNamesInProseAreNotCheckedButBareCommandsAre()
     {
-        var facts = FactsBuilder.Readme("Set `appsettings.json`, then run `build.ps1`.", ["src/App/appsettings.json"]);
+        var facts = FactsBuilder.Readme("Set `appsettings.json`, keep `secrets.json` private, then run `./build.ps1`.", ["src/App/appsettings.json"]);
 
-        Assert.Equal(["build.ps1"], FactsBuilder.Signals(facts).Select(s => s.Target));
+        Assert.Equal([(SignalKind.MissingCommandTarget, "build.ps1")], FactsBuilder.Signals(facts).Select(s => (s.Kind, s.Target)));
+    }
+
+    [Fact]
+    public void FilesMissingFromAListOfAFoldersFilesAreCandidates()
+    {
+        var facts = FactsBuilder.Readme(
+            "- [One](docs/features/01-one.md)\n- [Two](docs/features/02-two.md)\n- [Three](docs/features/03-three.md)\n",
+            ["docs/features/01-one.md", "docs/features/02-two.md", "docs/features/03-three.md", "docs/features/04-four.md", "docs/features/index.md", "docs/features/00-template.md", "docs/other/x.md"]);
+
+        var signal = Assert.Single(FactsBuilder.Signals(facts));
+
+        Assert.Equal((SignalKind.UnlistedFile, "docs/features/04-four.md"), (signal.Kind, signal.Target));
+        Assert.Equal("the README lists 3 of the 4 files in docs/features/, but not this one", signal.Detail);
+    }
+
+    [Fact]
+    public void AFolderTheReadmeOnlySamplesIsNotAList()
+    {
+        var facts = FactsBuilder.Readme(
+            "[a](docs/a.md) [b](docs/b.md) [c](docs/c.md)",
+            ["docs/a.md", "docs/b.md", "docs/c.md", "docs/d.md", "docs/e.md", "docs/f.md", "docs/g.md"]);
+
+        Assert.Empty(FactsBuilder.Signals(facts));
+    }
+
+    [Fact]
+    public void ProjectsMissingFromAnEnumeratedGroupAreCandidates()
+    {
+        var facts = FactsBuilder.Readme(
+            "src/Api, src/Worker and src/Domain; tests: Api.Tests, Worker.Tests",
+            ["src/Api/Api.csproj", "src/Worker/Worker.csproj", "src/Domain/Domain.csproj",
+             "tests/Api.Tests/Api.Tests.csproj", "tests/Worker.Tests/Worker.Tests.csproj", "tests/Replay/Replay.csproj",
+             "samples/One/One.csproj", "samples/Two/Two.csproj", "samples/Three/Three.csproj", "samples/Three.Tests/Three.Tests.csproj"]);
+
+        Assert.Equal(["tests/Replay/Replay.csproj"], FactsBuilder.Signals(facts).Where(s => s.Kind == SignalKind.UnmentionedProject).Select(s => s.Target));
+    }
+
+    [Fact]
+    public void ANestedReadmeOnlyCoversProjectsUnderItsFolder()
+    {
+        var facts = FactsBuilder.Readme(
+            "Covers Harness.",
+            ["src/Harness/Harness.csproj", "src/App/App.csproj", "src/Other/Other.csproj"],
+            readmePath: "src/Harness/README.md",
+            addedProjects: ["src/App/App.csproj"]);
+
+        Assert.DoesNotContain(FactsBuilder.Signals(facts), s => s.Kind == SignalKind.UnmentionedProject);
+    }
+
+    [Fact]
+    public void IdentifiersInCodeExamplesAreLeftOutButTreesAndProseAreIn()
+    {
+        var mentions = ReadmeSignals.IdentifierMentions("""
+            The ReviewJobHandler and IReviewEngine run it.
+
+            ```
+            src/Application/   # Ports (ITenantContext)
+            ```
+
+            ```csharp
+            builder.AddConsoleExporter(new MyProviderBackend());
+            ```
+            """);
+
+        Assert.Equal(["ReviewJobHandler", "IReviewEngine", "ITenantContext"], mentions.Select(m => m.Identifier));
     }
 
     [Fact]

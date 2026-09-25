@@ -104,8 +104,8 @@ internal sealed class RepoInspector(
         }
     }
 
-    private static async Task<SignalScan> SignalsAsync(RepoFacts facts, RepoWorkspace workspace, CancellationToken cancellationToken) =>
-        await IgnoredPaths.DropIgnoredAsync(ReadmeSignals.Find(facts), workspace.Path, workspace.Git, cancellationToken);
+    private static Task<SignalScan> SignalsAsync(RepoFacts facts, RepoWorkspace workspace, CancellationToken cancellationToken) =>
+        SignalFinder.FindAsync(facts, workspace.Path, workspace.Git, cancellationToken);
 
     private async Task<(RepoReport Report, RepoFacts? Facts, SignalScan Scan)> AssessAsync(
         RepoTarget target, RepoWorkspace workspace, string outputDirectory, string? agentNote, CancellationToken cancellationToken)

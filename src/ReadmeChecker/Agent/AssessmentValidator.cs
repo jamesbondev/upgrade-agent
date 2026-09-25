@@ -63,6 +63,7 @@ internal static partial class AssessmentValidator
 
     private static bool BacksABrokenReference(Signal signal) =>
         signal.Definitive
+        || signal.Kind == SignalKind.MissingIdentifier
         || (signal.Kind is SignalKind.MissingPath or SignalKind.MissingCommandTarget && signal.Target?.Contains('/', StringComparison.Ordinal) == true);
 
     internal static string NormalizeText(string text) => Whitespace().Replace(text.ReplaceLineEndings("\n"), " ").Trim();

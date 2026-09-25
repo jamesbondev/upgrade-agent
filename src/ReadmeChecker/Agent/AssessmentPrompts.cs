@@ -102,7 +102,9 @@ internal static class AssessmentPrompts
         SignalKind.BrokenLink => "broken link",
         SignalKind.MissingCommandTarget => "command target not found",
         SignalKind.MissingPath => "path not found",
+        SignalKind.MissingIdentifier => "name not found in the code",
         SignalKind.VersionMismatch => "version mismatch",
+        SignalKind.UnlistedFile => "file missing from a list",
         _ => "project not mentioned",
     };
 

@@ -11,7 +11,9 @@ internal enum SignalKind
     BrokenLink,
     MissingCommandTarget,
     MissingPath,
+    MissingIdentifier,
     VersionMismatch,
+    UnlistedFile,
     UnmentionedProject,
 }
 
@@ -36,6 +38,8 @@ internal static partial class ReadmeSignals
     {
         "", "sh", "bash", "shell", "console", "zsh", "pwsh", "powershell", "ps", "ps1", "cmd", "bat", "batch",
     };
+
+    private static readonly HashSet<string> ProseLikeLanguages = new(StringComparer.OrdinalIgnoreCase) { "", "text", "txt", "plaintext" };
 
     private static readonly HashSet<string> FileExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -72,6 +76,7 @@ internal static partial class ReadmeSignals
         var all = Links(document, readme, facts)
             .Concat(Code(document, readme, facts))
             .Concat(Versions(readme.Text, facts))
+            .Concat(UnlistedFiles(document, readme, facts))
             .Concat(UnmentionedProjects(readme.Text, facts))
             .DistinctBy(s => (s.Kind, s.Text))
             .OrderBy(s => s.Kind)
@@ -101,7 +106,10 @@ internal static partial class ReadmeSignals
     private static IEnumerable<(string Url, int Line)> HtmlTargets(string html, int line) =>
         HtmlTarget().Matches(html).Select(m => (m.Groups["url"].Value, line));
 
-    internal static string? MissingLinkTarget(string url, string readmeDirectory, RepoFacts facts)
+    internal static string? MissingLinkTarget(string url, string readmeDirectory, RepoFacts facts) =>
+        ResolveLink(url, readmeDirectory) is { } resolved && !facts.Exists(resolved) ? resolved : null;
+
+    internal static string? ResolveLink(string url, string readmeDirectory)
     {
         var target = url.Trim();
         if (target.Length == 0 || target.StartsWith('#') || target.StartsWith("//", StringComparison.Ordinal) || UrlScheme().IsMatch(target))
@@ -124,8 +132,72 @@ internal static partial class ReadmeSignals
             return null;
         }
 
-        var resolved = target.StartsWith('/') ? Normalize(target.TrimStart('/')) : Normalize(Join(readmeDirectory, target));
-        return resolved is null || facts.Exists(resolved) ? null : resolved;
+        return target.StartsWith('/') ? Normalize(target.TrimStart('/')) : Normalize(Join(readmeDirectory, target));
+    }
+
+    public static IReadOnlyList<(string Identifier, int Line)> IdentifierMentions(string text)
+    {
+        var examples = Markdown.Parse(text, Pipeline).Descendants<FencedCodeBlock>()
+            .Where(b => !ProseLikeLanguages.Contains((b.Info ?? "").Split(' ', 2)[0]))
+            .Select(b => (First: b.Line + 1, Last: b.Line + 1 + b.Lines.Count + 1))
+            .ToList();
+
+        return Identifier().Matches(text)
+            .Select(m => (m.Value, Line: LineOf(text, m.Index)))
+            .Where(m => !examples.Any(e => m.Line >= e.First && m.Line <= e.Last))
+            .DistinctBy(m => m.Value)
+            .ToList();
+    }
+
+    private static IEnumerable<Signal> UnlistedFiles(MarkdownDocument document, ReadmeFile readme, RepoFacts facts)
+    {
+        var linked = document.Descendants<LinkInline>()
+            .Where(l => l.Url is not null)
+            .Select(l => (Path: ResolveLink(l.Url!, readme.Directory), Line: l.Line + 1))
+            .Where(l => l.Path is not null && facts.IsFile(l.Path))
+            .Select(l => (Path: l.Path!, l.Line))
+            .ToList();
+
+        foreach (var group in linked.GroupBy(l => FolderOf(l.Path)))
+        {
+            var listed = group.Select(l => l.Path).ToHashSet(StringComparer.Ordinal);
+            if (listed.Count < 3)
+            {
+                continue;
+            }
+
+            var extension = listed.GroupBy(Path.GetExtension).OrderByDescending(g => g.Count()).First().Key;
+            var siblings = facts.Files
+                .Where(f => FolderOf(f) == group.Key && Path.GetExtension(f) == extension && !IsIndexLike(f))
+                .ToList();
+            var unlisted = siblings
+                .Where(f => !listed.Contains(f) && !readme.Text.Contains(Path.GetFileName(f), StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (siblings.Count == 0 || siblings.Count - unlisted.Count < siblings.Count / 2.0)
+            {
+                continue;
+            }
+
+            var line = group.Select(l => l.Line).OrderByDescending(l => group.Count(o => Math.Abs(o.Line - l) <= 15)).First();
+            var folder = group.Key.Length == 0 ? "the repository root" : $"{group.Key}/";
+            foreach (var file in unlisted)
+            {
+                yield return new Signal(
+                    SignalKind.UnlistedFile, line, file, $"the README lists {siblings.Count - unlisted.Count} of the {siblings.Count} files in {folder}, but not this one", file);
+            }
+        }
+    }
+
+    private static string FolderOf(string path) => path.Contains('/', StringComparison.Ordinal) ? path[..path.LastIndexOf('/')] : "";
+
+    private static bool IsIndexLike(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path);
+        return name.Equals("index", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("README", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("00-", StringComparison.Ordinal)
+            || name.StartsWith('_')
+            || name.Contains("template", StringComparison.OrdinalIgnoreCase);
     }
 
     private static IEnumerable<Signal> Code(MarkdownDocument document, ReadmeFile readme, RepoFacts facts)
@@ -201,19 +273,41 @@ internal static partial class ReadmeSignals
 
     private static IEnumerable<Signal> UnmentionedProjects(string text, RepoFacts facts)
     {
-        foreach (var project in facts.Age?.AddedProjects ?? [])
-        {
-            var name = Path.GetFileNameWithoutExtension(project);
-            var folder = Path.GetDirectoryName(project)?.Replace('\\', '/') ?? "";
-            if (IsTestProject(project, name)
-                || text.Contains(name, StringComparison.OrdinalIgnoreCase)
-                || (folder.Length > 0 && text.Contains(folder, StringComparison.OrdinalIgnoreCase)))
-            {
-                continue;
-            }
+        var scope = facts.Readme?.Directory is { Length: > 0 } directory ? directory + "/" : "";
+        var projects = facts.Files.Where(f => IsProjectFile(f) && f.StartsWith(scope, StringComparison.Ordinal)).ToList();
+        var added = (facts.Age?.AddedProjects ?? []).ToHashSet(StringComparer.Ordinal);
 
-            yield return new Signal(SignalKind.UnmentionedProject, 0, project, "added since the README last changed, and not mentioned in it");
+        foreach (var group in projects.GroupBy(p => p[scope.Length..].Split('/')[0]))
+        {
+            var mentioned = group.Where(p => Mentions(text, p)).ToList();
+            var enumerated = group.Count() >= 3 && mentioned.Count >= group.Count() / 2.0;
+            var listsTests = mentioned.Any(p => IsTestProject(p, Path.GetFileNameWithoutExtension(p)));
+            foreach (var project in group.Except(mentioned))
+            {
+                var isTest = IsTestProject(project, Path.GetFileNameWithoutExtension(project));
+                if (enumerated && (!isTest || listsTests))
+                {
+                    yield return new Signal(
+                        SignalKind.UnmentionedProject, 0, project, $"the README names {mentioned.Count} of the {group.Count()} projects under {scope}{group.Key}/, but not this one", project);
+                }
+                else if (added.Contains(project) && !isTest)
+                {
+                    yield return new Signal(SignalKind.UnmentionedProject, 0, project, "added since the README last changed, and not mentioned in it", project);
+                }
+            }
         }
+    }
+
+    private static bool IsProjectFile(string path) =>
+        path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase);
+
+    private static bool Mentions(string text, string project)
+    {
+        var folder = Path.GetDirectoryName(project)?.Replace('\\', '/') ?? "";
+        return text.Contains(Path.GetFileNameWithoutExtension(project), StringComparison.OrdinalIgnoreCase)
+            || (folder.Length > 0 && text.Contains(folder, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsTestProject(string path, string name) =>
@@ -256,6 +350,9 @@ internal static partial class ReadmeSignals
 
     [GeneratedRegex("""(?:src|href)\s*=\s*["'](?<url>[^"']+)["']""", RegexOptions.IgnoreCase)]
     private static partial Regex HtmlTarget();
+
+    [GeneratedRegex(@"\b(?:I[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)+|[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+){2,})\b")]
+    private static partial Regex Identifier();
 
     [GeneratedRegex("^[a-zA-Z][a-zA-Z0-9+.-]*:")]
     private static partial Regex UrlScheme();
@@ -439,9 +536,7 @@ internal static partial class ReadmeSignals
 
             if (!path.Contains('/', StringComparison.Ordinal))
             {
-                return !exact && (HasFileExtension(path) || BareFileNames.Contains(path))
-                    ? facts.FileNameExistsAnywhere(path) || facts.IsFolder(path) ? null : path
-                    : MissingIfNotFound(path);
+                return exact ? MissingIfNotFound(path) : null;
             }
 
             if (!HasFileExtension(path) && !facts.IsFolder(first) && !ConventionalFolders.Contains(first) && !(Resolve(first) is { } relativeFirst && facts.IsFolder(relativeFirst)))

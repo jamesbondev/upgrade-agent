@@ -41,7 +41,10 @@ public sealed class AgentSessionOptions
 /// </summary>
 public sealed record AgentLimits
 {
-    /// <summary>Wall-clock time for the session's turns, not counting time spent waiting on the operator.</summary>
+    /// <summary>
+    /// Time the agent spends working: starting the session and in <see cref="AgentSession.SendAsync"/> turns. Time
+    /// between turns and time waiting on the operator don't count.
+    /// </summary>
     public TimeSpan? MaxDuration { get; init; } = TimeSpan.FromMinutes(10);
 
     public int MaxToolCalls { get; init; } = 80;

@@ -28,6 +28,7 @@ public sealed class AgentSession : IAsyncDisposable
     private readonly Lock _state = new();
     private readonly ConcurrentDictionary<string, ToolCallStarted> _running = new(StringComparer.Ordinal);
     private IAgentBackendSession? _session;
+    private IDisposable _idle;
     private volatile bool _toolsOff;
     private int _modelCalls;
     private int _toolCalls;
@@ -49,6 +50,9 @@ public sealed class AgentSession : IAsyncDisposable
         _time = time;
         _started = time.GetTimestamp();
         _budget = new PausableTimeout(options.Limits.MaxDuration is { } d && d > TimeSpan.Zero ? d : null, time);
+
+        // The budget runs only while the agent is working (starting up, or in a turn), not between turns.
+        _idle = _budget.Pause();
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(_budget.Token, _stop.Token);
         _span = AgentTelemetry.StartSession(backend.Name, options.Name, backend.Model);
     }
@@ -95,7 +99,11 @@ public sealed class AgentSession : IAsyncDisposable
                 options.WorkingDirectory, options.Instructions, options.Tools, options.UseBuiltInTools, options.AllowWebFetch,
                 (request, _) => session.AuthorizeAsync(request, session._lifetime.Token),
                 session.Publish);
-            session._session = await backend.StartSessionAsync(settings, start.Token);
+            using (session.Working())
+            {
+                session._session = await backend.StartSessionAsync(settings, start.Token);
+            }
+
             return session;
         }
         catch
@@ -113,7 +121,13 @@ public sealed class AgentSession : IAsyncDisposable
     public async Task<AgentReply> SendAsync(string message, CancellationToken cancellationToken = default)
     {
         var session = _session ?? throw new ObjectDisposedException(nameof(AgentSession));
+        if (StopReason is { } stopped)
+        {
+            return new AgentReply(null, stopped);
+        }
+
         using var turn = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        using var working = Working();
         Publish(new UserMessage(message));
         try
         {
@@ -213,6 +227,18 @@ public sealed class AgentSession : IAsyncDisposable
         _lifetime.Dispose();
         _stop.Dispose();
         _budget.Dispose();
+    }
+
+    /// <summary>Runs the budget until disposed.</summary>
+    private WorkingScope Working()
+    {
+        _idle.Dispose();
+        return new WorkingScope(this);
+    }
+
+    private sealed class WorkingScope(AgentSession owner) : IDisposable
+    {
+        public void Dispose() => owner._idle = owner._budget.Pause();
     }
 
     private async Task<ToolApproval> AuthorizeAsync(ToolRequest request, CancellationToken cancellationToken)

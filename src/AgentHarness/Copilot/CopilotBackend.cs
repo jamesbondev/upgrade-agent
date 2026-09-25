@@ -72,7 +72,8 @@ public sealed class CopilotBackend(CopilotOptions? options = null) : IAgentBacke
 
         config.OnPermissionRequest = async (request, _) =>
         {
-            var permission = await settings.AuthorizeAsync(ToToolRequest(request), cancellationToken);
+            // The harness cancels pending approvals itself when the session ends; the start token is gone by then.
+            var permission = await settings.AuthorizeAsync(ToToolRequest(request), CancellationToken.None);
             return permission.Allowed ? PermissionDecision.ApproveOnce() : PermissionDecision.Reject(permission.Feedback ?? "Not allowed.");
         };
         config.OnEvent = sessionEvent =>

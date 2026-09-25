@@ -16,13 +16,19 @@
     <NoWarn>$(NoWarn);GHCP001</NoWarn>
   </PropertyGroup>
 
-  <!-- Works with and without central package management. With it, add
-       <PackageVersion Include="Microsoft.Agents.AI.GitHub.Copilot" Version="1.22.0" /> to Directory.Packages.props. -->
+  <!--
+    Builds with or without central package management, with no edits: without CPM it uses the version below;
+    with CPM it uses your Directory.Packages.props entry if you have one, and this version otherwise.
+  -->
+  <PropertyGroup>
+    <CopilotAgentVersion>1.22.0</CopilotAgentVersion>
+  </PropertyGroup>
   <ItemGroup Condition="'$(ManagePackageVersionsCentrally)' == 'true'">
-    <PackageReference Include="Microsoft.Agents.AI.GitHub.Copilot" />
+    <PackageReference Include="Microsoft.Agents.AI.GitHub.Copilot" Condition="'@(PackageVersion->WithMetadataValue('Identity', 'Microsoft.Agents.AI.GitHub.Copilot'))' != ''" />
+    <PackageReference Include="Microsoft.Agents.AI.GitHub.Copilot" VersionOverride="$(CopilotAgentVersion)" Condition="'@(PackageVersion->WithMetadataValue('Identity', 'Microsoft.Agents.AI.GitHub.Copilot'))' == ''" />
   </ItemGroup>
   <ItemGroup Condition="'$(ManagePackageVersionsCentrally)' != 'true'">
-    <PackageReference Include="Microsoft.Agents.AI.GitHub.Copilot" Version="1.22.0" />
+    <PackageReference Include="Microsoft.Agents.AI.GitHub.Copilot" Version="$(CopilotAgentVersion)" />
   </ItemGroup>
 
   <ItemGroup>

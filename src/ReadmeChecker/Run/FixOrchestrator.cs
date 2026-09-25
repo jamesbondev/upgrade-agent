@@ -50,7 +50,8 @@ internal sealed class FixOrchestrator(
     private async Task<RepoFixReport> FixRepoAsync(RepoTarget target, RunContext run, FixArguments arguments, double credits, CancellationToken cancellationToken)
     {
         var started = time.GetTimestamp();
-        await using var inspection = await inspector.InspectAsync(target, run, inspector.AgentNote(AgentProvider.Copilot, credits), cancellationToken);
+        await using var inspection = await inspector.InspectAsync(
+            target, run, inspector.AgentNote(AgentProvider.Copilot, credits), inspector.DepthFor(target, arguments.Deep), inspector.RemainingBudget(credits), cancellationToken);
         var report = new RepoFixReport { Name = target.Name, Location = target.Location, Status = FixStatus.NothingToFix, Check = inspection.Report };
         try
         {
@@ -99,7 +100,7 @@ internal sealed class FixOrchestrator(
             return report with { Status = FixStatus.Failed, Reason = attempt.Failure };
         }
 
-        var verification = await ReadmeVerifier.VerifyAsync(workspace, facts, Options.Readme.MinKeptRatio, cancellationToken);
+        var verification = await ReadmeVerifier.VerifyAsync(workspace, facts, check.Issues, Options.Readme.MinKeptRatio, cancellationToken);
         if (verification.Diff.Length > 0)
         {
             Directory.CreateDirectory(repoFolder);
@@ -134,7 +135,7 @@ internal sealed class FixOrchestrator(
         try
         {
             var pullRequest = await host.CreateDraftAsync(
-                branch, targetBranch, PullRequestText.Title, PullRequestText.Description(readme.Path, check.Issues, certain, attempt.Summary), cancellationToken);
+                branch, targetBranch, PullRequestText.Title, PullRequestText.Description(readme.Path, check.Issues, certain, attempt.Summary, verification.Unchanged), cancellationToken);
             return report with { Status = FixStatus.Opened, PullRequestUrl = pullRequest.WebUrl };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

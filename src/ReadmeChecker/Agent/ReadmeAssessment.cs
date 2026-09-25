@@ -15,6 +15,7 @@ internal enum IssueKind
     WrongCommand,
     OutdatedVersion,
     MissingContent,
+    WrongClaim,
     Other,
 }
 
@@ -42,4 +43,16 @@ internal sealed record ReadmeIssue
 
     [Description("What the README should say instead, in one or two sentences.")]
     public required string SuggestedFix { get; init; }
+
+    [Description("For WrongClaim: what the code actually says, in one sentence.")]
+    public string? Truth { get; init; }
+
+    [Description("A short snippet copied exactly from one of the Evidence files (source or config, not docs or tests) that shows the truth.")]
+    public string? EvidenceQuote { get; init; }
+
+    [Description("When the README relies on something that no longer exists anywhere in the code (a removed feature, type or setting): the term itself, e.g. \"map lock\".")]
+    public string? MissingTerm { get; init; }
+
+    [Description("Leave this out; the checker fills it in.")]
+    public int? Line { get; init; }
 }

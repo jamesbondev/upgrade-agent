@@ -45,6 +45,8 @@ internal sealed record RepoReport
 
     public AgentStats? Stats { get; init; }
 
+    public Coverage? Coverage { get; init; }
+
     public TimeSpan Duration { get; init; }
 
     public static RepoReport For(RepoTarget target, RepoVerdict verdict, string? note = null) =>
@@ -59,7 +61,7 @@ internal sealed record CheckReport(
     double AiCredits,
     IReadOnlyList<RepoReport> Repos);
 
-internal sealed record CheckArguments(IReadOnlyCollection<string> Only, AgentProvider Provider);
+internal sealed record CheckArguments(IReadOnlyCollection<string> Only, AgentProvider Provider, bool Deep = false);
 
 internal interface ICheckProgress
 {

@@ -1,11 +1,12 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using ReadmeChecker.Agent;
 using ReadmeChecker.Detection;
 using RepoKit;
 
 namespace ReadmeChecker.Fixing;
 
-internal sealed record Verification(IReadOnlyList<string> Problems, string NewText, string Diff)
+internal sealed record Verification(IReadOnlyList<string> Problems, string NewText, string Diff, IReadOnlyList<ReadmeIssue>? Unchanged = null)
 {
     public bool Passed => Problems.Count == 0;
 }
@@ -14,7 +15,8 @@ internal static partial class ReadmeVerifier
 {
     private static readonly SignalKind[] ReferenceKinds = [SignalKind.BrokenLink, SignalKind.MissingPath, SignalKind.MissingCommandTarget, SignalKind.MissingIdentifier];
 
-    public static async Task<Verification> VerifyAsync(RepoWorkspace workspace, RepoFacts facts, double minKeptRatio, CancellationToken cancellationToken)
+    public static async Task<Verification> VerifyAsync(
+        RepoWorkspace workspace, RepoFacts facts, IReadOnlyList<ReadmeIssue> issues, double minKeptRatio, CancellationToken cancellationToken)
     {
         var readme = facts.Readme!;
         var problems = new List<string>();
@@ -62,8 +64,54 @@ internal static partial class ReadmeVerifier
             problems.Add($"it links to sites that aren't mentioned anywhere in the repository: {string.Join(", ", newHosts)}");
         }
 
+        var unchanged = CheckClaims(issues, newText, problems);
         var diff = await workspace.Git.RunAsync(workspace.Path, ["diff", "--", readme.Path], cancellationToken);
-        return new Verification(problems, newText, diff);
+        return new Verification(problems, newText, diff, unchanged);
+    }
+
+    internal static IReadOnlyList<ReadmeIssue> CheckClaims(IReadOnlyList<ReadmeIssue> issues, string newText, List<string> problems)
+    {
+        var normalized = AssessmentValidator.NormalizeText(newText);
+        var claims = issues.Where(i => i.Kind == IssueKind.WrongClaim).ToList();
+        var unchanged = new List<ReadmeIssue>();
+        foreach (var claim in claims)
+        {
+            if (normalized.Contains(AssessmentValidator.NormalizeText(claim.Quote), StringComparison.Ordinal))
+            {
+                unchanged.Add(claim);
+                continue;
+            }
+
+            if (claim.MissingTerm is { } term)
+            {
+                if (EvidenceChecks.TermWords(term) is { Count: > 0 } words
+                    && Regex.IsMatch(newText, string.Join(@"[\s_-]*", words.Select(Regex.Escape)), RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)))
+                {
+                    problems.Add($"it still mentions '{term}', which no longer exists in the code");
+                }
+
+                continue;
+            }
+
+            var anchors = EvidenceChecks.Anchors(claim.Truth ?? "", claim.EvidenceQuote ?? "");
+            if (anchors.Count > 0 && !anchors.Any(a => newText.Contains(a, StringComparison.OrdinalIgnoreCase)))
+            {
+                problems.Add($"it changed \"{Short(claim.Quote)}\" but the new text doesn't say what the code says ({string.Join(", ", anchors)})");
+            }
+        }
+
+        if (claims.Count > 0 && unchanged.Count == claims.Count && claims.Count == issues.Count)
+        {
+            problems.Add("none of the wrong claims was changed");
+        }
+
+        return unchanged;
+    }
+
+    private static string Short(string text)
+    {
+        var line = AssessmentValidator.NormalizeText(text);
+        return line.Length <= 60 ? line : line[..59] + "…";
     }
 
     internal static double KeptRatio(string before, string after)

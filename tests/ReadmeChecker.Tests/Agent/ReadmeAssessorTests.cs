@@ -4,6 +4,7 @@ using ReadmeChecker.Agent;
 using ReadmeChecker.Config;
 using ReadmeChecker.Detection;
 using ReadmeChecker.Tests.TestSupport;
+using RepoKit;
 
 namespace ReadmeChecker.Tests.Agent;
 
@@ -36,7 +37,7 @@ public sealed class ReadmeAssessorTests : IDisposable
             }));
         var factory = new ScriptedFactory(backend);
 
-        var outcome = await Assessor(factory).AssessAsync("demo", _repo.Path, _facts, SignalScan.Empty, _out.Combine("demo/agent.log"), CancellationToken.None);
+        var outcome = await Assessor(factory).AssessAsync("demo", _repo.Path, _facts, SignalScan.Empty, _out.Combine("demo/agent.log"), null, CancellationToken.None);
 
         Assert.Null(outcome.Failure);
         Assert.Equal(AssessedVerdict.Stale, outcome.Verdict);
@@ -54,7 +55,7 @@ public sealed class ReadmeAssessorTests : IDisposable
             .Turn(t => t.Edit("README.md", "changed").Shell("rm -rf src").Reply("done"))
             .Turn(t => t.ReplyJson(new ReadmeAssessment { Verdict = AssessedVerdict.Current, Summary = "fine" }));
 
-        await Assessor(new ScriptedFactory(backend)).AssessAsync("demo", _repo.Path, _facts, SignalScan.Empty, _out.Combine("log"), CancellationToken.None);
+        await Assessor(new ScriptedFactory(backend)).AssessAsync("demo", _repo.Path, _facts, SignalScan.Empty, _out.Combine("log"), null, CancellationToken.None);
 
         Assert.Collection(
             backend.Decisions,
@@ -69,7 +70,7 @@ public sealed class ReadmeAssessorTests : IDisposable
         var backend = new ScriptedBackend().Turn(t => t.Shell("ls").Shell("ls src").Shell("ls docs").Reply("never"));
         var options = new AgentOptions { MaxToolCalls = 2 };
 
-        var outcome = await Assessor(new ScriptedFactory(backend), options).AssessAsync("demo", _repo.Path, _facts, SignalScan.Empty, _out.Combine("log"), CancellationToken.None);
+        var outcome = await Assessor(new ScriptedFactory(backend), options).AssessAsync("demo", _repo.Path, _facts, SignalScan.Empty, _out.Combine("log"), null, CancellationToken.None);
 
         Assert.StartsWith("the agent was stopped", outcome.Failure, StringComparison.Ordinal);
         Assert.NotNull(outcome.Stats);
@@ -80,7 +81,7 @@ public sealed class ReadmeAssessorTests : IDisposable
     {
         var backend = new ScriptedBackend().Reply("checked").Reply("It looks fine to me.");
 
-        var outcome = await Assessor(new ScriptedFactory(backend)).AssessAsync("demo", _repo.Path, _facts, SignalScan.Empty, _out.Combine("log"), CancellationToken.None);
+        var outcome = await Assessor(new ScriptedFactory(backend)).AssessAsync("demo", _repo.Path, _facts, SignalScan.Empty, _out.Combine("log"), null, CancellationToken.None);
 
         Assert.StartsWith("the agent's answer wasn't usable", outcome.Failure, StringComparison.Ordinal);
     }
@@ -88,7 +89,7 @@ public sealed class ReadmeAssessorTests : IDisposable
     [Fact]
     public async Task AProviderFailureIsAFailureNotAnException()
     {
-        var outcome = await Assessor(new ScriptedFactory(new ScriptedBackend())).AssessAsync("demo", _repo.Path, _facts, SignalScan.Empty, _out.Combine("log"), CancellationToken.None);
+        var outcome = await Assessor(new ScriptedFactory(new ScriptedBackend())).AssessAsync("demo", _repo.Path, _facts, SignalScan.Empty, _out.Combine("log"), null, CancellationToken.None);
 
         Assert.StartsWith("the agent failed", outcome.Failure, StringComparison.Ordinal);
     }
@@ -99,7 +100,7 @@ public sealed class ReadmeAssessorTests : IDisposable
         var factory = new ScriptedFactory(new ScriptedBackend()) { NotReady = "Copilot is not signed in." };
 
         var error = await Assert.ThrowsAsync<AgentUnavailableException>(() =>
-            Assessor(factory).AssessAsync("demo", _repo.Path, _facts, SignalScan.Empty, _out.Combine("log"), CancellationToken.None));
+            Assessor(factory).AssessAsync("demo", _repo.Path, _facts, SignalScan.Empty, _out.Combine("log"), null, CancellationToken.None));
 
         Assert.Equal("Copilot is not signed in.", error.Message);
     }
@@ -114,7 +115,7 @@ public sealed class ReadmeAssessorTests : IDisposable
     }
 
     private static ReadmeAssessor Assessor(IAgentBackendFactory factory, AgentOptions? options = null) =>
-        new(factory, options ?? new AgentOptions(), TimeProvider.System);
+        new(factory, options ?? new AgentOptions(), new GitCli(new ProcessRunner()), TimeProvider.System);
 
     internal sealed class ScriptedFactory(ScriptedBackend backend) : IAgentBackendFactory
     {

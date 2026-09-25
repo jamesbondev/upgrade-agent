@@ -14,7 +14,9 @@ internal sealed class CheckOrchestrator(RepoInspector inspector, ICheckProgress 
             for (var i = 0; i < run.Targets.Count; i++)
             {
                 progress.RepoStarted(run.Targets[i], i + 1, run.Targets.Count);
-                await using var inspection = await inspector.InspectAsync(run.Targets[i], run, inspector.AgentNote(arguments.Provider, credits), cancellationToken);
+                var target = run.Targets[i];
+                await using var inspection = await inspector.InspectAsync(
+                    target, run, inspector.AgentNote(arguments.Provider, credits), inspector.DepthFor(target, arguments.Deep), inspector.RemainingBudget(credits), cancellationToken);
                 var report = inspection.Report;
                 credits += report.Stats?.AiCredits ?? 0;
                 reports.Add(report);

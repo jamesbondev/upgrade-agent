@@ -52,6 +52,20 @@ internal static class FixPrompts
         {
             builder.AppendLine(CultureInfo.InvariantCulture, $"{number++}. {issue.Kind}: \"{issue.Quote}\"");
             builder.AppendLine(CultureInfo.InvariantCulture, $"   Fix: {issue.SuggestedFix}");
+            if (issue.Truth is { } truth)
+            {
+                builder.AppendLine(CultureInfo.InvariantCulture, $"   The checker says the code has: {OneLine(truth)} (verify it before you write it)");
+            }
+
+            if (issue.EvidenceQuote is { } quote)
+            {
+                builder.AppendLine(CultureInfo.InvariantCulture, $"   The checker's evidence: {OneLine(quote)}");
+            }
+
+            if (issue.MissingTerm is { } term)
+            {
+                builder.AppendLine(CultureInfo.InvariantCulture, $"   The checker found no \"{OneLine(term)}\" anywhere in the code (verify it; if so, remove or correct what relies on it)");
+            }
             if (issue.Evidence.Count > 0)
             {
                 builder.AppendLine(CultureInfo.InvariantCulture, $"   Evidence: {string.Join(", ", issue.Evidence)}");
@@ -64,6 +78,12 @@ internal static class FixPrompts
         }
 
         return builder.ToString();
+    }
+
+    private static string OneLine(string text)
+    {
+        var line = text.ReplaceLineEndings(" ").Trim();
+        return line.Length <= 300 ? line : line[..299] + "…";
     }
 
     private static void Append(StringBuilder builder, string tag, string content)

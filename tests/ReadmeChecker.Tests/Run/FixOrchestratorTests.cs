@@ -196,7 +196,9 @@ public sealed class FixOrchestratorTests : IAsyncLifetime, IDisposable
         var config = new ResolvedConfig(options, targets.Targets, _out.Path, _work.Path);
         var factory = new ReadmeAssessorTests.ScriptedFactory(backend);
         var credentials = new AzureDevOpsCredentialProvider(new AzureDevOpsAuthOptions { UseAzureIdentity = false }, _ => null);
-        var inspector = new RepoInspector(config, new GitCli(new ProcessRunner()), credentials, new ReadmeAssessor(factory, options.Agent, TimeProvider.System), TimeProvider.System);
+        var git = new GitCli(new ProcessRunner());
+        var inspector = new RepoInspector(
+            config, git, credentials, new ReadmeAssessor(factory, options.Agent, git, TimeProvider.System), new DeepReadmeAssessor(factory, options.Agent, git, TimeProvider.System), TimeProvider.System);
         return new FixOrchestrator(config, inspector, new ReadmeFixer(factory, options.Agent, TimeProvider.System), _hosts, new NoProgress(), TimeProvider.System);
     }
 

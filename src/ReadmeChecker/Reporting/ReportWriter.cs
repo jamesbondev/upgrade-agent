@@ -94,7 +94,31 @@ internal static class ReportWriter
             builder.AppendLine().AppendLine("### Issues").AppendLine();
             foreach (var (issue, index) in repo.Issues.Select((i, n) => (i, n + 1)))
             {
-                builder.AppendLine(CultureInfo.InvariantCulture, $"{index}. **{issue.Kind}**: \"{Escape(issue.Quote)}\". {Escape(issue.SuggestedFix)}{Evidence(issue)}");
+                var where = issue.Line is { } line ? $"line {line}, " : "";
+                builder.AppendLine(CultureInfo.InvariantCulture, $"{index}. {where}**{issue.Kind}**: \"{Escape(issue.Quote)}\". {Escape(issue.SuggestedFix)}{Evidence(issue)}");
+                if (issue.Truth is { } truth)
+                {
+                    builder.AppendLine(CultureInfo.InvariantCulture, $"   The code says: {Escape(truth)}{(issue.EvidenceQuote is { } quote ? $" (`{quote.ReplaceLineEndings(" ").Replace("`", "'", StringComparison.Ordinal)}`)" : "")}");
+                }
+
+                if (issue.MissingTerm is { } term)
+                {
+                    builder.AppendLine(CultureInfo.InvariantCulture, $"   No code or config file mentions \"{Escape(term)}\".");
+                }
+            }
+        }
+
+        if (repo.Coverage is { } coverage)
+        {
+            builder.AppendLine().AppendLine(CultureInfo.InvariantCulture, $"### Coverage: {coverage.ClaimsChecked} claims checked").AppendLine();
+            foreach (var part in coverage.Parts)
+            {
+                builder.AppendLine(CultureInfo.InvariantCulture, $"- lines {part.FirstLine}-{part.LastLine}: {part.Status}, {part.ClaimsChecked} claims, {part.AiCredits:0.##} AI credits{(part.Note is null ? "" : $" ({Escape(part.Note)})")}");
+            }
+
+            foreach (var range in coverage.NotChecked)
+            {
+                builder.AppendLine(CultureInfo.InvariantCulture, $"- lines {range.FirstLine}-{range.LastLine}: not checked (too long)");
             }
         }
 

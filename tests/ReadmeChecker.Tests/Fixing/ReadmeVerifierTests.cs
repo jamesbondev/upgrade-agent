@@ -120,5 +120,5 @@ public sealed class ReadmeVerifierTests : IAsyncLifetime, IDisposable
 
     private Task WriteReadme(string text) => File.WriteAllTextAsync(Path.Combine(_workspace.Path, "README.md"), text);
 
-    private Task<Verification> Verify() => ReadmeVerifier.VerifyAsync(_workspace, _facts, 0.5, CancellationToken.None);
+    private Task<Verification> Verify() => ReadmeVerifier.VerifyAsync(_workspace, _facts, [], 0.5, CancellationToken.None);
 }

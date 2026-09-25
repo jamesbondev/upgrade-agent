@@ -52,7 +52,7 @@ internal sealed record FixRunReport(
     double AiCredits,
     IReadOnlyList<RepoFixReport> Repos);
 
-internal sealed record FixArguments(IReadOnlyCollection<string> Only, bool DryRun, IApprovalPrompter Prompter);
+internal sealed record FixArguments(IReadOnlyCollection<string> Only, bool DryRun, IApprovalPrompter Prompter, bool Deep = false);
 
 internal interface IFixProgress
 {

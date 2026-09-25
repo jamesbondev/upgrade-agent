@@ -51,10 +51,20 @@ internal sealed class RepoOptions
     public string? Path { get; set; }
 
     public string? Readme { get; set; }
+
+    public ReadmeDepth? Depth { get; set; }
+}
+
+internal enum ReadmeDepth
+{
+    Quick,
+    Deep,
 }
 
 internal sealed class ReadmeOptions
 {
+    public ReadmeDepth Depth { get; set; } = ReadmeDepth.Quick;
+
     public int RecentCommits { get; set; } = 20;
 
     public int MaxCandidates { get; set; } = 25;

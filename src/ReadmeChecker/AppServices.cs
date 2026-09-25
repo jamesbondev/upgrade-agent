@@ -41,9 +41,16 @@ internal static class AppServices
         services.AddSingleton(sp => new AzureDevOpsCredentialProvider(sp.GetRequiredService<ResolvedConfig>().Options.AzureDevOps.ToAuthOptions()));
 
         services.AddSingleton<IAgentBackendFactory, CopilotBackendFactory>();
-        services.AddSingleton<IReadmeAssessor, ReadmeAssessor>();
+        services.AddSingleton<ReadmeAssessor>();
+        services.AddSingleton<DeepReadmeAssessor>();
         services.AddSingleton<IReadmeFixer, ReadmeFixer>();
-        services.AddSingleton<RepoInspector>();
+        services.AddSingleton(sp => new RepoInspector(
+            sp.GetRequiredService<ResolvedConfig>(),
+            sp.GetRequiredService<GitCli>(),
+            sp.GetRequiredService<AzureDevOpsCredentialProvider>(),
+            sp.GetRequiredService<ReadmeAssessor>(),
+            sp.GetRequiredService<DeepReadmeAssessor>(),
+            sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<CheckOrchestrator>();
         services.AddSingleton<CheckCommandHandler>();
 

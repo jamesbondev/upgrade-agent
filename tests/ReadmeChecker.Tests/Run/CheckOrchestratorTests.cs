@@ -140,8 +140,9 @@ public sealed class CheckOrchestratorTests : IAsyncLifetime, IDisposable
         var options = new ReadmeCheckerOptions();
         var config = new ResolvedConfig(options, repos, _out.Path, _work.Path);
         var credentials = new AzureDevOpsCredentialProvider(new AzureDevOpsAuthOptions { UseAzureIdentity = false }, _ => null);
-        var assessor = new ReadmeAssessor(factory, options.Agent, TimeProvider.System);
-        var inspector = new RepoInspector(config, new GitCli(new ProcessRunner()), credentials, assessor, TimeProvider.System);
+        var git = new GitCli(new ProcessRunner());
+        var inspector = new RepoInspector(
+            config, git, credentials, new ReadmeAssessor(factory, options.Agent, git, TimeProvider.System), new DeepReadmeAssessor(factory, options.Agent, git, TimeProvider.System), TimeProvider.System);
         return new CheckOrchestrator(inspector, progress, TimeProvider.System);
     }
 

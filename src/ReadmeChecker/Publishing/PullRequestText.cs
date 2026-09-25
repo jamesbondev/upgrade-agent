@@ -27,8 +27,10 @@ internal static class PullRequestText
         return builder.AppendLine().AppendLine("Written by ReadmeChecker's agent and checked by script; review before merging.").ToString();
     }
 
-    public static string Description(string readmePath, IReadOnlyList<ReadmeIssue> issues, IReadOnlyList<Signal> certain, string? agentSummary)
+    public static string Description(
+        string readmePath, IReadOnlyList<ReadmeIssue> issues, IReadOnlyList<Signal> certain, string? agentSummary, IReadOnlyList<ReadmeIssue>? unchanged = null)
     {
+        var left = unchanged ?? [];
         var builder = new StringBuilder()
             .AppendLine(CultureInfo.InvariantCulture, $"`{Escape(readmePath)}` no longer matched the repository. An agent (ReadmeChecker) found the problems below and edited the README; a script then checked that only the README changed, that it refers only to files and folders in the repository, that broken links are gone and that it links to no new sites.")
             .AppendLine()
@@ -38,14 +40,28 @@ internal static class PullRequestText
             .AppendLine();
 
         var number = 1;
-        foreach (var issue in issues)
+        foreach (var issue in issues.Except(left))
         {
             builder.AppendLine(CultureInfo.InvariantCulture, $"{number++}. **{issue.Kind}**: \"{Escape(issue.Quote)}\". {Escape(issue.SuggestedFix)}");
+            if (issue.Truth is { } truth)
+            {
+                builder.AppendLine(CultureInfo.InvariantCulture, $"   The code says: {Escape(truth)}{(issue.Evidence.Count == 0 ? "" : $" ({Escape(string.Join(", ", issue.Evidence))})")}");
+            }
         }
 
         foreach (var signal in certain)
         {
             builder.AppendLine(CultureInfo.InvariantCulture, $"{number++}. **Broken link** on line {signal.Line}: {Escape(signal.Text)}");
+        }
+
+        if (left.Count > 0)
+        {
+            builder.AppendLine().AppendLine("## Left unchanged").AppendLine()
+                .AppendLine("The checker flagged these, but the fix didn't change them; check them by hand.").AppendLine();
+            foreach (var issue in left)
+            {
+                builder.AppendLine(CultureInfo.InvariantCulture, $"- \"{Escape(issue.Quote)}\"{(issue.Truth is { } truth ? $": the checker says {Escape(truth)}" : "")}");
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(agentSummary))

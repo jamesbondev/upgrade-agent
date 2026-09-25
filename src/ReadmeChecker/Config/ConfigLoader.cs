@@ -4,7 +4,7 @@ using RepoKit.AzureDevOps;
 
 namespace ReadmeChecker.Config;
 
-internal sealed record RepoTarget(string Name, AzureDevOpsRepo? AzureDevOps, string? LocalPath, string? ReadmePath)
+internal sealed record RepoTarget(string Name, AzureDevOpsRepo? AzureDevOps, string? LocalPath, string? ReadmePath, ReadmeDepth? Depth = null)
 {
     public string Location => AzureDevOps?.WebUrl ?? LocalPath ?? Name;
 }
@@ -60,14 +60,14 @@ internal static class ConfigLoader
         var readme = string.IsNullOrWhiteSpace(repo.Readme) ? null : repo.Readme.Replace('\\', '/').TrimStart('/');
         if (!string.IsNullOrWhiteSpace(repo.Path))
         {
-            return new RepoTarget(repo.Name, null, Path.GetFullPath(repo.Path, baseDirectory), readme);
+            return new RepoTarget(repo.Name, null, Path.GetFullPath(repo.Path, baseDirectory), readme, repo.Depth);
         }
 
         try
         {
             var organization = string.IsNullOrWhiteSpace(repo.OrganizationUrl) ? defaults.OrganizationUrl : repo.OrganizationUrl;
             var project = string.IsNullOrWhiteSpace(repo.Project) ? defaults.Project : repo.Project;
-            return new RepoTarget(repo.Name, new AzureDevOpsRepo(organization, project, repo.Name), null, readme);
+            return new RepoTarget(repo.Name, new AzureDevOpsRepo(organization, project, repo.Name), null, readme, repo.Depth);
         }
         catch (ArgumentException ex)
         {

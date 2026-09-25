@@ -34,7 +34,8 @@ internal sealed class RepoInspector(
     ResolvedConfig config,
     GitCli git,
     AzureDevOpsCredentialProvider credentials,
-    IReadmeAssessor assessor,
+    IReadmeAssessor quickAssessor,
+    IReadmeAssessor deepAssessor,
     TimeProvider time)
 {
     private ReadmeCheckerOptions Options => config.Options;
@@ -55,7 +56,13 @@ internal sealed class RepoInspector(
         : Options.Agent.MaxAiCreditsPerRun > 0 && creditsSoFar >= Options.Agent.MaxAiCreditsPerRun ? $"AI credit cap of {Options.Agent.MaxAiCreditsPerRun} reached"
         : null;
 
-    public async Task<Inspection> InspectAsync(RepoTarget target, RunContext run, string? agentNote, CancellationToken cancellationToken)
+    public double? RemainingBudget(double creditsSoFar) =>
+        Options.Agent.MaxAiCreditsPerRun > 0 ? Math.Max(0, Options.Agent.MaxAiCreditsPerRun - creditsSoFar) : null;
+
+    public ReadmeDepth DepthFor(RepoTarget target, bool deep) => deep ? ReadmeDepth.Deep : target.Depth ?? Options.Readme.Depth;
+
+    public async Task<Inspection> InspectAsync(
+        RepoTarget target, RunContext run, string? agentNote, ReadmeDepth depth, double? creditBudget, CancellationToken cancellationToken)
     {
         var started = time.GetTimestamp();
         RepoWorkspace? workspace = null;
@@ -69,7 +76,7 @@ internal sealed class RepoInspector(
                 source, run.WorkRoot, git, TimeSpan.FromMinutes(Options.Output.CloneTimeoutMinutes), cancellationToken);
             workspace.Keep = Options.Output.KeepClones;
 
-            var (report, facts, scan) = await AssessAsync(target, workspace, run.OutputDirectory, agentNote, cancellationToken);
+            var (report, facts, scan) = await AssessAsync(target, workspace, run.OutputDirectory, agentNote, depth, creditBudget, cancellationToken);
             return new Inspection(report with { Duration = time.GetElapsedTime(started) }, workspace, facts, scan);
         }
         catch (AgentUnavailableException)
@@ -108,7 +115,7 @@ internal sealed class RepoInspector(
         SignalFinder.FindAsync(facts, workspace.Path, workspace.Git, cancellationToken);
 
     private async Task<(RepoReport Report, RepoFacts? Facts, SignalScan Scan)> AssessAsync(
-        RepoTarget target, RepoWorkspace workspace, string outputDirectory, string? agentNote, CancellationToken cancellationToken)
+        RepoTarget target, RepoWorkspace workspace, string outputDirectory, string? agentNote, ReadmeDepth depth, double? creditBudget, CancellationToken cancellationToken)
     {
         var facts = await RepoFacts.CollectAsync(workspace.Path, workspace.Git, target.ReadmePath, cancellationToken);
         if (facts.Readme is null)
@@ -133,7 +140,7 @@ internal sealed class RepoInspector(
         report = report with { Signals = scan.Signals, SignalsNotListed = scan.Dropped };
 
         var recent = facts.Age is { } age && age.CommitsSince <= Options.Readme.RecentCommits;
-        if (Options.Agent.SkipWhenClean && scan.Signals.Count == 0 && recent)
+        if (depth == ReadmeDepth.Quick && Options.Agent.SkipWhenClean && scan.Signals.Count == 0 && recent)
         {
             return (report with
             {
@@ -151,7 +158,8 @@ internal sealed class RepoInspector(
         }
 
         var logPath = Path.Combine(outputDirectory, ReportWriter.FolderName(target.Name), "agent.log");
-        var outcome = await assessor.AssessAsync(target.Name, workspace.Path, facts, scan, logPath, cancellationToken);
+        var assessor = depth == ReadmeDepth.Deep ? deepAssessor : quickAssessor;
+        var outcome = await assessor.AssessAsync(target.Name, workspace.Path, facts, scan, logPath, creditBudget, cancellationToken);
         return (Combine(report, scan, outcome), facts, scan);
     }
 
@@ -164,6 +172,7 @@ internal sealed class RepoInspector(
             Unsupported = outcome.Rejected,
             AgentSummary = outcome.Summary,
             Stats = outcome.Stats,
+            Coverage = outcome.Coverage,
         };
 
         return (outcome.Failure, outcome.Verdict, outcome.Issues.Count, definitive) switch

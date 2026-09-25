@@ -32,20 +32,25 @@ internal static class CheckCommand
         Description = "copilot, or none for the script's signals only. Default: Agent:Provider.",
     };
 
+    public static readonly Option<bool> Deep = new("--deep")
+    {
+        Description = "Check the README claim by claim, one part at a time (several agent sessions per repo). Default: Readme:Depth.",
+    };
+
     public static Command Create()
     {
-        var command = new Command("check", "Clone each configured repo and report whether its README is out of date. Changes nothing.") { Only, Agent };
+        var command = new Command("check", "Clone each configured repo and report whether its README is out of date. Changes nothing.") { Only, Agent, Deep };
         command.SetAction((parseResult, cancellationToken) => CommandRunner.RunAsync<CheckCommandHandler>(parseResult, handler => handler.RunAsync(
-            parseResult.GetValue(Only) ?? [], parseResult.GetValue(Agent), cancellationToken)));
+            parseResult.GetValue(Only) ?? [], parseResult.GetValue(Agent), parseResult.GetValue(Deep), cancellationToken)));
         return command;
     }
 }
 
 internal sealed class CheckCommandHandler(ResolvedConfig config, CheckOrchestrator orchestrator)
 {
-    public async Task<int> RunAsync(IReadOnlyCollection<string> only, AgentProvider? agent, CancellationToken cancellationToken)
+    public async Task<int> RunAsync(IReadOnlyCollection<string> only, AgentProvider? agent, bool deep, CancellationToken cancellationToken)
     {
-        var report = await orchestrator.RunAsync(new CheckArguments(only, agent ?? config.Options.Agent.Provider), cancellationToken);
+        var report = await orchestrator.RunAsync(new CheckArguments(only, agent ?? config.Options.Agent.Provider, deep), cancellationToken);
         return report.Repos.All(r => r.Verdict == RepoVerdict.Error) ? ExitCodes.AllReposFailed : ExitCodes.Success;
     }
 }

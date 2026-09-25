@@ -4,6 +4,14 @@ A .NET 10 console tool that keeps a repo's NuGet packages up to date. It detects
 
 The Copilot calls and the agentic tool calling live in **[AgentHarness](src/AgentHarness/README.md)**, a standalone library you can copy into another solution. Start with `dotnet run --project samples/HelloAgent -- --scripted` (no Copilot login needed), and see [docs/agent-harness-tour.md](docs/agent-harness-tour.md) for a walkthrough.
 
+The repo also holds the pieces for apps that work across many repos:
+
+| Component | What it is |
+|---|---|
+| [RepoKit](src/RepoKit/README.md) | Standalone library with no packages: processes, git, and clones of a repo into a throwaway workspace. |
+| [RepoKit.AzureDevOps](src/RepoKit.AzureDevOps/README.md) | Standalone library: Azure DevOps credentials and repo addresses. |
+| [ReadmeChecker](src/ReadmeChecker/README.md) | App: clones the repos you list and reports the READMEs that no longer match their repo. |
+
 See [PLAN.md](PLAN.md) for the design and milestones. **Current status: M8.** The full pipeline works, including publishing to Azure DevOps, and the codebase has been through a maintainability cleanup (see [How it works with the LLM](#how-it-works-with-the-llm)).
 
 ## Try it on the fixture

@@ -42,6 +42,8 @@ public static class FixInstructions
               constructors and dependencies just to avoid calling the new API.
             - Read the migration notes in the task before changing code. Edits are refused until any listed notes files have been read.
             - If the same error survives three fix attempts, stop working on it and report it as unresolved.
+            - If the migration notes and the code don't show a replacement, report the error as unresolved. Don't search the web,
+              download packages or look outside the repository. Refused actions count against you; repeated refusals end the session.
             - Before finishing, build and test once more and make sure both pass.
             """);
 

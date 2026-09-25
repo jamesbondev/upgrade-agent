@@ -41,7 +41,10 @@ public sealed class CopilotFixer(
         var globalPackages = await locator.GlobalPackagesFolderAsync(worktree, cancellationToken);
         var docs = context.Group.Updates.Select(u => PackageDocsLocator.Find(globalPackages, u.Id, u.To)).ToList();
         var policy = new CommandPolicy(worktree, globalPackages is null ? [] : [globalPackages]);
-        var meter = new Meter();
+        var meter = new Meter
+        {
+            Progress = new ProgressMonitor(options.MaxRefusalsPerGroup, options.MaxBuildsWithoutProgress, context.Build.Succeeded ? 0 : context.Build.Errors.Count),
+        };
 
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(TimeSpan.FromMinutes(options.MaxMinutesPerGroup));
@@ -105,7 +108,7 @@ public sealed class CopilotFixer(
 
         var stats = meter.Snapshot(stopwatch.Elapsed);
         var headline = meter.BudgetExceeded
-            ? $"stopped by budget after {Describe(stats)}"
+            ? $"{meter.BudgetReason ?? "agent stopped: time budget exceeded"} after {Describe(stats)}"
             : $"finished in {Describe(stats)}{(summary is null ? "; no structured summary" : "")}";
         return new FixOutcome(true, headline, summary, stats);
     }
@@ -247,15 +250,31 @@ public sealed class CopilotFixer(
                 return PermissionDecision.ApproveOnce();
 
             case PolicyVerdict.AskOperator:
-                meter.Refusals++;
                 activity.Refused(action, "declined (needs operator approval)");
+                RecordRefusal(meter, budget);
                 return PermissionDecision.Reject("The operator declined this. Find another way that stays within the rules.");
 
             default:
-                meter.Refusals++;
                 activity.Refused(action, decision.Reason);
+                RecordRefusal(meter, budget);
                 return PermissionDecision.Reject(decision.Reason);
         }
+    }
+
+    /// <summary>The notes-first gate isn't counted: it's a sequencing nudge, not a sign the agent is lost.</summary>
+    private static void RecordRefusal(Meter meter, CancellationTokenSource budget)
+    {
+        Interlocked.Increment(ref meter.Refusals);
+        if (meter.Progress.RecordRefusal() is { } reason)
+        {
+            Stop(meter, budget, reason);
+        }
+    }
+
+    private static void Stop(Meter meter, CancellationTokenSource budget, string reason)
+    {
+        meter.BudgetReason ??= reason;
+        budget.Cancel();
     }
 
     private void Observe(SessionEvent sessionEvent, Meter meter, CancellationTokenSource budget)
@@ -267,9 +286,13 @@ public sealed class CopilotFixer(
                 meter.MarkRead(start.Data.ShellToolInfo?.DisplayCommand);
                 if (Interlocked.Increment(ref meter.ToolCalls) > options.MaxToolCallsPerGroup)
                 {
-                    meter.BudgetReason = $"agent stopped: more than {options.MaxToolCallsPerGroup} tool calls";
-                    budget.Cancel();
+                    Stop(meter, budget, $"agent stopped: more than {options.MaxToolCallsPerGroup} tool calls");
                     return;
+                }
+
+                if (ProgressMonitor.IsBuildCommand(start.Data.ShellToolInfo?.DisplayCommand))
+                {
+                    meter.BuildCalls[start.Data.ToolCallId] = true;
                 }
 
                 activity.ToolStarted(start.Data.ToolCallId, start.Data.ToolName, start.Data.Arguments, start.Data.ShellToolInfo?.DisplayCommand);
@@ -277,6 +300,12 @@ public sealed class CopilotFixer(
 
             case ToolExecutionCompleteEvent complete:
                 activity.ToolCompleted(complete.Data.ToolCallId, complete.Data.Success, complete.Data.Result?.Content, complete.Data.Error?.Message);
+                if (meter.BuildCalls.TryRemove(complete.Data.ToolCallId, out _)
+                    && meter.Progress.RecordBuild(complete.Data.Result?.Content ?? "") is { } reason)
+                {
+                    Stop(meter, budget, reason);
+                }
+
                 break;
 
             case AssistantMessageEvent message when message.Data.ParentToolCallId is null && !meter.SummaryMode:
@@ -323,6 +352,8 @@ public sealed class CopilotFixer(
         public string? BudgetReason;
         public volatile string? ServedModel;
         public HashSet<string> RequiredReads { get; set; } = [];
+        public required ProgressMonitor Progress { get; init; }
+        public System.Collections.Concurrent.ConcurrentDictionary<string, bool> BuildCalls { get; } = new();
 
         /// <summary>A notes file counts as read once any tool call mentions its path (view, cat, grep...).</summary>
         public void MarkRead(string? toolText)

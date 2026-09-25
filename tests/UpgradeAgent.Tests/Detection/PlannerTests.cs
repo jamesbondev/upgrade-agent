@@ -157,6 +157,43 @@ public class PlannerTests
         Assert.Equal(UpdateDecision.Skipped, Assert.Single(plan.Updates).Decision);
     }
 
+    [Fact]
+    public async Task LargeMajorJumpsAreManualButTheMinorStepStillRuns()
+    {
+        var plan = await CreatePlanAsync(new Reports().Add(App, "Old.Lib", "8.0.0", latest: "16.0.0", minor: "8.4.0"));
+
+        Assert.Collection(plan.Updates,
+            u => Assert.Equal(("8.4.0", UpdateDecision.Planned), (u.To, u.Decision)),
+            u =>
+            {
+                Assert.Equal(("16.0.0", UpdateDecision.Manual), (u.To, u.Decision));
+                Assert.StartsWith("8 major versions behind (limit 2)", u.Reason, StringComparison.Ordinal);
+            });
+        Assert.Equal(["patch-minor"], plan.Groups.Select(g => g.Name));
+    }
+
+    [Theory]
+    [InlineData("10.0.0", UpdateDecision.Planned)]
+    [InlineData("11.0.0", UpdateDecision.Manual)]
+    public async Task MaxMajorJumpAppliesToTargetOverrides(string target, UpdateDecision expected)
+    {
+        var policy = new PolicyOptions { TargetOverrides = { ["Old.Lib"] = target } };
+
+        var plan = await CreatePlanAsync(new Reports().Add(App, "Old.Lib", "8.0.0", latest: "16.0.0"), policy);
+
+        Assert.Equal(expected, Assert.Single(plan.Updates).Decision);
+    }
+
+    [Fact]
+    public async Task MaxMajorJumpExemptsZeroXAndCanBeDisabled()
+    {
+        var zeroX = await CreatePlanAsync(new Reports().Add(App, "Young.Lib", "0.3.0", latest: "4.0.0"));
+        var disabled = await CreatePlanAsync(new Reports().Add(App, "Old.Lib", "8.0.0", latest: "16.0.0"), new PolicyOptions { MaxMajorJump = 0 });
+
+        Assert.Equal(UpdateDecision.Planned, Assert.Single(zeroX.Updates).Decision);
+        Assert.Equal(UpdateDecision.Planned, Assert.Single(disabled.Updates).Decision);
+    }
+
     [Theory]
     [InlineData("1.*")]
     [InlineData("[1.0.0, 2.0.0)")]

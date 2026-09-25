@@ -67,14 +67,20 @@ public class CommandPolicyTests
     }
 
     [Theory]
-    [InlineData("curl https://example.com")]
-    [InlineData("rm src/Old.cs")]
-    [InlineData("python3 fix.py")]
-    [InlineData("dotnet format")]
-    [InlineData("dotnet build x.slnx --no-restore --some-new-flag")]
-    public void AsksTheOperatorForAnythingElse(string command)
+    [InlineData("curl https://example.com", "No network access")]
+    [InlineData("wget https://example.com/pkg.nupkg", "No network access")]
+    [InlineData("Invoke-WebRequest https://example.com", "No network access")]
+    [InlineData("rm src/Old.cs", "edit tool")]
+    [InlineData("mv src/a.cs src/b.cs", "edit tool")]
+    [InlineData("python3 fix.py", "not available")]
+    [InlineData("dotnet format", "not available")]
+    [InlineData("dotnet build x.slnx --no-restore --some-new-flag", "not allowed")]
+    public void RejectsAnythingElseSoRunsNeverWaitOnAPrompt(string command, string expectedReason)
     {
-        Assert.Equal(PolicyVerdict.AskOperator, _policy.EvaluateShell(command, false).Verdict);
+        var decision = _policy.EvaluateShell(command, false);
+
+        Assert.Equal(PolicyVerdict.Reject, decision.Verdict);
+        Assert.Contains(expectedReason, decision.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -109,8 +109,11 @@ your app ──► AgentRunner ──► AgentSession ──► IAgentBackend (C
 harness's neutral types (`ToolRequest`, `AgentEvent`). Everything else lives in the session, so it works the same
 for every backend.
 
-`CopilotBackend` is the real one. It starts one Copilot runtime lazily and shares it between sessions. Dispose it
-to stop the runtime.
+`CopilotBackend` is the real one. It starts one Copilot runtime lazily and shares it between sessions in the same
+working directory. When a session starts in a different directory, the backend stops the runtime and starts a new
+one there, which breaks any session still running in the old directory. So sessions in one directory can share a
+backend, in sequence or at once; for sessions in different directories at the same time, create one backend each.
+Dispose it to stop the runtime.
 
 ```csharp
 await using var copilot = new CopilotBackend(new CopilotOptions
@@ -133,8 +136,8 @@ says what to fix. Call it at startup with the folder you will work in, so the ru
 
 ### Runner and session
 
-`AgentRunner` starts sessions. One runner can serve many sessions, in sequence or at once. It does not own the
-backend.
+`AgentRunner` starts sessions. One runner can serve many sessions, in sequence or at once, within the limits of its
+backend (see [Backend](#backend)). It does not own the backend.
 
 An `AgentSession` is one conversation. Each `SendAsync` is a turn: the agent works until it replies. The session can
 take more turns, and it keeps its context between them.
@@ -379,6 +382,10 @@ if (!reply.Stopped)
     Console.WriteLine(summary.Value is { } s ? s.Outcome : $"no summary: {summary.Error}");
 }
 ```
+
+`AskAsync` is a tool-free turn: the agent can't read files or run commands while it answers. When the answer needs
+exploring first, send a turn with tools and then ask, or use `runner.RunAsync<T>` (below). Enums in `T` appear in
+the schema by name and parse by name or number, unless the enum type has its own `[JsonConverter]`, which then wins.
 
 `AskAsync` never throws for a bad or missing reply: `Value` is null and `Error` says why, with the raw reply in
 `Text`. Only your own cancellation throws. Every tool is refused during the turn, and it has its own timeout (the
@@ -660,6 +667,9 @@ What it does not do:
   than printing and substitution, `git grep -O`, `--ext-diff`, `--textconv`), but a program you add to
   `ReadOnlyCommands` is trusted with every argument. Add only what you understand, and narrow it with a `Commands`
   rule when in doubt.
+- Follow symbolic links. Path checks compare paths as text, so a link inside the folder that points outside it
+  passes them. When the folder is an untrusted checkout, clone with `-c core.symlinks=false` so links arrive as
+  plain files.
 - Hide secrets that are not in environment variables: files outside the working folder that the agent's commands
   can reach, credential helpers, or a signed-in CLI.
 - Check the agent's output. The model's reply and summary are claims, not facts.

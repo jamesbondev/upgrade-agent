@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Self-contained on purpose: copy this folder into any .NET 10 solution and add a ProjectReference.
+    It has no reference to RepoKit, AgentHarness or any app; its only package is Azure.Identity.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>RepoKit.AzureDevOps</RootNamespace>
+    <Description>Azure DevOps credentials and repo addresses for tools that clone and publish across many repos.</Description>
+  </PropertyGroup>
+
+  <!--
+    Builds with or without central package management, with no edits: without CPM it uses the version below;
+    with CPM it uses your Directory.Packages.props entry if you have one, and this version otherwise.
+  -->
+  <PropertyGroup>
+    <AzureIdentityVersion>1.21.0</AzureIdentityVersion>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(ManagePackageVersionsCentrally)' == 'true'">
+    <PackageReference Include="Azure.Identity" Condition="'@(PackageVersion->WithMetadataValue('Identity', 'Azure.Identity'))' != ''" />
+    <PackageReference Include="Azure.Identity" VersionOverride="$(AzureIdentityVersion)" Condition="'@(PackageVersion->WithMetadataValue('Identity', 'Azure.Identity'))' == ''" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ManagePackageVersionsCentrally)' != 'true'">
+    <PackageReference Include="Azure.Identity" Version="$(AzureIdentityVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="RepoKit.AzureDevOps.Tests" />
+  </ItemGroup>
+
+</Project>

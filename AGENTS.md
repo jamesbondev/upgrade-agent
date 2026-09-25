@@ -12,6 +12,8 @@ to do it → verify → open a PR.
 | Path | What it is |
 |---|---|
 | `src/AgentHarness` | Standalone library: Copilot sessions, tool policy, budgets, events, structured replies. See its README. |
+| `src/RepoKit` | Standalone library, no packages: processes, git, clones of a repo into a throwaway workspace. No LLM concepts. |
+| `src/RepoKit.AzureDevOps` | Standalone library: Azure DevOps credentials and repo addresses. Doesn't reference RepoKit. |
 | `src/UpgradeAgent` | App: NuGet upgrades with an agent fixing breaking changes, published as a draft PR in Azure DevOps. |
 | `samples/HelloAgent` | The smallest runnable use of AgentHarness. `--scripted` needs no model. |
 | `tests/` | xUnit. `*.IntegrationTests` replay recorded agent sessions end to end. |
@@ -23,12 +25,14 @@ to do it → verify → open a PR.
 ```sh
 dotnet build UpgradeAgent.slnx
 dotnet test tests/AgentHarness.Tests
+dotnet test tests/RepoKit.Tests
+dotnet test tests/RepoKit.AzureDevOps.Tests
 dotnet test tests/UpgradeAgent.Tests
 dotnet test tests/UpgradeAgent.IntegrationTests   # about 30 s, no model
 ```
 
 The build treats warnings as errors and enforces the `.editorconfig` style. A change is done when the build is clean
-and all three test projects pass.
+and every test project passes.
 
 ## Architecture rules
 
@@ -44,6 +48,15 @@ and all three test projects pass.
   ask a model, use a read-only session and `AskAsync<T>`. Verify every agent change with plain code (build, tests,
   diff guardrails) before committing. The agent's summary is a claim, never a result.
 - **Tests never call a model.** Use `ScriptedBackend` for sessions, and `--record`/`--replay` for app runs.
+- **One `CopilotBackend` per directory in use at the same time.** A backend restarts its runtime when a session
+  starts in another directory, which breaks sessions still running in the old one.
+- **Treat every cloned repo as untrusted.** Clone through `RepoWorkspace`, which turns symlinks into plain files
+  (policy path checks don't follow links). Validate anything the agent cites against `git ls-files`, not the file
+  system.
+- **Credentials reach git only through the environment** (`GitAuth.HeaderEnvironment`), never in a URL or in
+  `.git/config`, where the agent could read them. Hide credential env vars from the agent's environment.
+- **Known duplication:** `src/UpgradeAgent/Infrastructure` and parts of `Publishing` are copies of what RepoKit now
+  holds. UpgradeAgent moves onto RepoKit in a later milestone; until then, fix a bug in both places.
 
 ## Code rules
 

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Self-contained on purpose: copy this folder into any .NET 10 solution and add a ProjectReference.
+    It has no package dependencies and no reference to AgentHarness or any app.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>RepoKit</RootNamespace>
+    <Description>Repo plumbing for tools that work across many repos: processes, git, authenticated clones into throwaway workspaces.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="RepoKit.Tests" />
+  </ItemGroup>
+
+</Project>

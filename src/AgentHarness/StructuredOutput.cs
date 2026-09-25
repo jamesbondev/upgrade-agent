@@ -14,6 +14,7 @@ public static class StructuredOutput
         AllowTrailingCommas = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
+        Converters = { new EnumNamesUnlessTheTypeHasItsOwnConverter() },
     };
 
     public static string SchemaFor<T>() => AIJsonUtilities.CreateJsonSchema(typeof(T), serializerOptions: SerializerOptions).GetRawText();
@@ -48,5 +49,16 @@ public static class StructuredOutput
         {
             return new(null, text, $"the JSON doesn't match {typeof(T).Name}: {ex.Message}");
         }
+    }
+
+    private sealed class EnumNamesUnlessTheTypeHasItsOwnConverter : JsonConverterFactory
+    {
+        private readonly JsonStringEnumConverter _names = new();
+
+        public override bool CanConvert(Type typeToConvert) =>
+            _names.CanConvert(typeToConvert) && !typeToConvert.IsDefined(typeof(JsonConverterAttribute), inherit: false);
+
+        public override JsonConverter? CreateConverter(Type typeToConvert, JsonSerializerOptions options) =>
+            _names.CreateConverter(typeToConvert, options);
     }
 }

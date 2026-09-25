@@ -36,7 +36,14 @@ public sealed record CustomToolRequest(string Name, string? Arguments = null) : 
     public override string Describe() => string.IsNullOrWhiteSpace(Arguments) || Arguments == "{}" ? Name : $"{Name} {Arguments}";
 }
 
-/// <summary>Anything else the runtime offers (MCP, memory, extensions…). Refused unless a policy says otherwise.</summary>
+/// <summary>A call to a tool on an MCP server (configured through the backend, e.g. <c>CopilotOptions.ConfigureSession</c>).</summary>
+/// <param name="ReadOnly">The server says the tool only reads.</param>
+public sealed record McpToolRequest(string Server, string Tool, string? Arguments = null, bool ReadOnly = false) : ToolRequest
+{
+    public override string Describe() => $"{Server}/{Tool}{(string.IsNullOrWhiteSpace(Arguments) || Arguments == "{}" ? "" : $" {Arguments}")}";
+}
+
+/// <summary>Anything else the runtime offers (memory, extensions…). Refused unless a policy says otherwise.</summary>
 public sealed record OtherToolRequest(string Kind) : ToolRequest
 {
     public override string Describe() => Kind;

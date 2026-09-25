@@ -88,6 +88,8 @@ public sealed class ScriptedBackend(string? model = "scripted-model") : IAgentBa
     {
         private int _calls;
 
+        public string? Model => owner.Model;
+
         public async Task<string?> SendAsync(string message, CancellationToken cancellationToken)
         {
             lock (owner._messages)
@@ -134,6 +136,9 @@ public sealed class ScriptedBackend(string? model = "scripted-model") : IAgentBa
         }
 
         public AgentBackendSettings Settings { get; }
+
+        /// <summary>The backend's model, reported by default in <see cref="ScriptedTurn.Usage"/>.</summary>
+        public string? Model => _session.Model;
 
         public string NextCallId() => _session.NextCallId();
 
@@ -211,7 +216,8 @@ public sealed class ScriptedTurn
             return;
         }
 
-        if (tool.RequiresApproval && !await c.AuthorizeAsync(new CustomToolRequest(name, json), ct))
+        // Asked even for tools that need no approval, as the runtime does: the session still refuses them in tools-off turns.
+        if (!await c.AuthorizeAsync(new CustomToolRequest(name, json), ct))
         {
             return;
         }
@@ -232,7 +238,7 @@ public sealed class ScriptedTurn
 
     public ScriptedTurn Usage(long inputTokens, long outputTokens, string? model = null) => Step((c, _) =>
     {
-        c.Raise(new ModelUsage(model ?? "scripted-model", inputTokens, outputTokens));
+        c.Raise(new ModelUsage(model ?? c.Model, inputTokens, outputTokens));
         return Task.CompletedTask;
     });
 
@@ -246,7 +252,7 @@ public sealed class ScriptedTurn
         return Task.FromResult<string?>(text);
     });
 
-    /// <summary>A reply that is <paramref name="value"/> as JSON, for <see cref="AgentSession.AskAsync{T}"/>.</summary>
+    /// <summary>A reply that is <paramref name="value"/> as JSON, for <see cref="AgentSession.AskAsync{T}(string, CancellationToken)"/>.</summary>
     public ScriptedTurn ReplyJson(object value) => Reply(JsonSerializer.Serialize(value, StructuredOutput.SerializerOptions));
 
     /// <summary>Anything else: raise your own events, ask for your own permissions.</summary>

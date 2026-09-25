@@ -19,7 +19,10 @@ public static class ToolPolicy
     /// <summary>Everything goes to the operator.</summary>
     public static IToolPolicy AskForEverything { get; } = From(r => ToolDecision.Ask($"the agent wants to: {r.Describe()}"));
 
-    /// <summary>Nothing runs: for sessions that should only talk.</summary>
+    /// <summary>
+    /// Nothing runs: for sessions that should only talk. Your own <see cref="AgentTool"/>s that don't require approval
+    /// never reach a policy, so they still run; leave them out of <see cref="AgentSessionOptions.Tools"/> too.
+    /// </summary>
     public static IToolPolicy RejectAll { get; } = From(_ => ToolDecision.Reject("No tools are available in this session; answer from what you already know."));
 
     public static IToolPolicy From(Func<ToolRequest, ToolDecision> decide) => new DelegatePolicy((r, _) => ValueTask.FromResult(decide(r)));

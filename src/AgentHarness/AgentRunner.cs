@@ -36,13 +36,13 @@ public sealed class AgentRunner(IAgentBackend backend, IApprovalPrompter? prompt
         return new AgentResult(reply, session.Stats);
     }
 
-    /// <summary>One turn, then a structured reply (<see cref="AgentSession.AskAsync{T}"/>) when the turn wasn't stopped.</summary>
+    /// <summary>One turn, then a structured reply (<see cref="AgentSession.AskAsync{T}(string, CancellationToken)"/>) when the turn wasn't stopped.</summary>
     public async Task<AgentResult<T>> RunAsync<T>(AgentSessionOptions options, string message, string question, CancellationToken cancellationToken = default)
         where T : class
     {
         await using var session = await StartAsync(options, cancellationToken);
         var reply = await session.SendAsync(message, cancellationToken);
-        var structured = reply.Stopped ? null : await session.AskAsync<T>(question, cancellationToken: cancellationToken);
+        var structured = reply.Stopped ? null : await session.AskAsync<T>(question, cancellationToken);
         return new AgentResult<T>(reply, structured, session.Stats);
     }
 }

@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace AgentHarness.Policies;
 
 /// <summary>A rule for one program (the first word of a shell command). It gets the words after the program name.</summary>
@@ -25,7 +27,7 @@ public sealed class WorkspacePolicyOptions
     /// <summary>Folders outside the workspace the agent may read (never write), e.g. a package cache with docs.</summary>
     public IList<string> ReadOnlyRoots { get; } = [];
 
-    /// <summary>Edits to files with these extensions (".cs") run on their own; other edits in the workspace go to the operator.</summary>
+    /// <summary>Edits to files with these extensions (".cs" or "cs") run on their own; other edits in the workspace go to the operator.</summary>
     public ISet<string> AutoApprovedEditExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Programs that only read. Approved when every path they name stays inside the allowed folders.</summary>
@@ -55,6 +57,9 @@ public sealed class WorkspacePolicyOptions
 
     public ISet<string> SensitiveExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".pfx", ".p12", ".snk", ".pem", ".key" };
 
+    /// <summary>What the operator is told about an edit outside <see cref="AutoApprovedEditExtensions"/>, given its workspace-relative path.</summary>
+    public Func<string, string> EditAskReason { get; set; } = _ => "this file type isn't edited without your approval";
+
     public string NetworkRefusal { get; set; } = "No network access in this session. Work from the files in the workspace.";
 
     public string GitRefusal { get; set; } = "Only read-only git commands (status, diff, log, show) are allowed; the app owns commits and branches.";
@@ -81,8 +86,10 @@ public sealed class WorkspacePolicyOptions
 /// This is a usability layer on a non-sandboxed shell, not a security boundary: check the agent's work
 /// yourself afterwards (build, tests, diff review), and run it where a mistake is cheap.
 /// </summary>
-public sealed class WorkspacePolicy : IToolPolicy
+public sealed partial class WorkspacePolicy : IToolPolicy
 {
+    private static readonly string[] GitRunsPrograms = ["--ext-diff", "--textconv", "--open-files-in-pager"];
+
     private static readonly HashSet<string> FindWriteActions = new(StringComparer.Ordinal) { "-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls" };
 
     private readonly string _root;
@@ -111,6 +118,7 @@ public sealed class WorkspacePolicy : IToolPolicy
         FileReadRequest read => EvaluateRead(read.Path),
         WebFetchRequest => ToolDecision.Ask("fetch a web page (its content is untrusted)"),
         CustomToolRequest custom => ToolDecision.Ask($"{custom.Name} needs your approval"),
+        McpToolRequest mcp => ToolDecision.Ask($"MCP tool {mcp.Tool} on {mcp.Server}{(mcp.ReadOnly ? " (read-only)" : "")}"),
         _ => ToolDecision.Reject($"'{request.Describe()}' is not available in this session."),
     });
 
@@ -180,9 +188,10 @@ public sealed class WorkspacePolicy : IToolPolicy
             return ToolDecision.Reject("The .git folder must not be edited.");
         }
 
-        return _options.AutoApprovedEditExtensions.Contains(Path.GetExtension(full))
+        var extension = Path.GetExtension(full);
+        return _options.AutoApprovedEditExtensions.Contains(extension) || (extension.Length > 1 && _options.AutoApprovedEditExtensions.Contains(extension[1..]))
             ? ToolDecision.Approve($"source edit: {relative}")
-            : ToolDecision.Ask($"edit to {relative}");
+            : ToolDecision.Ask(_options.EditAskReason(relative));
     }
 
     public ToolDecision EvaluateRead(string path) =>
@@ -203,12 +212,14 @@ public sealed class WorkspacePolicy : IToolPolicy
         var command = tokens[0];
         var arguments = tokens.Skip(1).ToList();
 
-        if (arguments.FirstOrDefault(a => !a.StartsWith('-') && IsSensitive(a)) is { } sensitive)
+        // Paths hide in option values (--from-file=/etc/passwd) and git revisions (HEAD:nuget.config).
+        var paths = arguments.Select(PathIn).OfType<string>().ToList();
+        if (paths.SelectMany(p => new[] { p, AfterRevision(p) }).FirstOrDefault(IsSensitive) is { } sensitive)
         {
             return Sensitive(sensitive);
         }
 
-        foreach (var argument in arguments.Where(LooksLikeEscapingPath))
+        foreach (var argument in paths.Where(LooksLikeEscapingPath))
         {
             if (!IsInside(Resolve(argument, cwd), [_root, .. _readOnlyRoots]))
             {
@@ -247,7 +258,10 @@ public sealed class WorkspacePolicy : IToolPolicy
 
                 return arguments.Any(a => a.StartsWith("--output", StringComparison.Ordinal))
                     ? ToolDecision.Reject("git --output writes a file; read the output directly.")
-                    : ToolDecision.Approve($"read-only git {arguments[0]}");
+                    : arguments.Any(a => GitRunsPrograms.Any(f => a.StartsWith(f, StringComparison.Ordinal))
+                        || (arguments[0] == "grep" && a.StartsWith('-') && !a.StartsWith("--", StringComparison.Ordinal) && a.Contains('O', StringComparison.Ordinal)))
+                        ? ToolDecision.Reject("Options that run other programs (external diff, textconv, pager) are not allowed; use plain git diff/show/grep.")
+                        : ToolDecision.Approve($"read-only git {arguments[0]}");
 
             case "find":
                 return arguments.Any(FindWriteActions.Contains)
@@ -257,7 +271,16 @@ public sealed class WorkspacePolicy : IToolPolicy
             case "sed":
                 return arguments.Any(a => a.StartsWith("-i", StringComparison.Ordinal) || a.StartsWith("--in-place", StringComparison.Ordinal))
                     ? ToolDecision.Reject("Edit files with the edit tool, not sed -i.")
-                    : ToolDecision.Approve("read-only sed");
+                    : IsPrintOnlySed(arguments)
+                        ? ToolDecision.Approve("read-only sed")
+                        : ToolDecision.Reject("Only printing sed scripts are allowed (such as sed -n '1,40p' file or s/a/b/g). Edit files with the edit tool.");
+
+            // Read-only programs with options that write files or run other programs.
+            case "sort" when arguments.Any(a => a.StartsWith("-o", StringComparison.Ordinal) || a.StartsWith("--output", StringComparison.Ordinal)):
+            case "tree" when arguments.Any(a => a == "-o" || a.StartsWith("--output", StringComparison.Ordinal)):
+            case "uniq" when arguments.Count(a => !a.StartsWith('-')) > 1:
+            case "rg" when arguments.Any(a => a.StartsWith("--pre", StringComparison.Ordinal)):
+                return ToolDecision.Reject($"That {command} option writes a file or runs a program. Read the output directly.");
 
             case "rm" or "del" or "remove-item" or "mv" or "move-item" or "cp" or "copy-item":
                 return ToolDecision.Reject($"'{command}' is not allowed. Change code with the edit tool; leave files where they are.");
@@ -276,6 +299,53 @@ public sealed class WorkspacePolicy : IToolPolicy
         var options = new WorkspacePolicyOptions();
         configure(options);
         return options;
+    }
+
+    /// <summary>
+    /// sed scripts that only print: line addresses with p, d or =, and s/// with only the g, i, p or number flags.
+    /// Anything else (w, W, r, e, or an s flag of w or e) can write files or run programs.
+    /// </summary>
+    private static bool IsPrintOnlySed(IReadOnlyList<string> arguments)
+    {
+        var scripts = new List<string>();
+        for (var i = 0; i < arguments.Count; i++)
+        {
+            var argument = arguments[i];
+            if (argument is "-e" or "--expression" && i + 1 < arguments.Count)
+            {
+                scripts.Add(arguments[++i]);
+            }
+            else if (argument.StartsWith("--expression=", StringComparison.Ordinal))
+            {
+                scripts.Add(argument["--expression=".Length..]);
+            }
+            else if (argument is "-f" or "--file" || argument.StartsWith("--file=", StringComparison.Ordinal))
+            {
+                return false;
+            }
+            else if (!argument.StartsWith('-') && scripts.Count == 0)
+            {
+                scripts.Add(argument);
+            }
+        }
+
+        return scripts.Count > 0 && scripts.SelectMany(s => s.Split(';', '\n')).All(c => c.Trim().Length == 0 || SedPrintCommand().IsMatch(c.Trim()));
+    }
+
+    [GeneratedRegex(@"^(\d+|\$|/[^/]*/)?(,(\d+|\$|/[^/]*/))?\s*([pd=]|s(.)((?!\5).)*\5((?!\5).)*\5[gIip0-9]*)$")]
+    private static partial Regex SedPrintCommand();
+
+    /// <summary>The path a word may name: the word itself, or the value of a <c>--option=value</c>.</summary>
+    private static string? PathIn(string word) =>
+        !word.StartsWith('-') ? word
+        : word.IndexOf('=', StringComparison.Ordinal) is var i and > 0 && i < word.Length - 1 ? word[(i + 1)..]
+        : null;
+
+    /// <summary>The path in a git <c>revision:path</c> word; a Windows drive letter isn't a revision.</summary>
+    private static string AfterRevision(string word)
+    {
+        var colon = word.LastIndexOf(':');
+        return colon > 1 || (colon == 1 && !char.IsLetter(word[0])) ? word[(colon + 1)..] : word;
     }
 
     /// <summary>Relative paths without ".." stay inside the current folder, which is always inside the workspace.</summary>

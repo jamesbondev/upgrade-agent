@@ -33,13 +33,24 @@ public sealed record AssistantMessage(string Text) : AgentEvent;
 public sealed record ModelUsage(string? Model, long InputTokens, long OutputTokens, double AiCredits = 0) : AgentEvent;
 
 /// <summary>A message the app sent to the agent (the start of a turn).</summary>
-public sealed record UserMessage(string Text) : AgentEvent;
+public sealed record UserMessage(string Text) : AgentEvent
+{
+    /// <summary>A tools-off turn (<see cref="AgentSession.AskAsync{T}(string, CancellationToken)"/>): its reply is data, often JSON, not narration.</summary>
+    public bool WithoutTools { get; init; }
+}
 
 /// <summary>A tool action was refused, by a policy or by the operator.</summary>
 /// <param name="Action">What was asked, with paths relative to the working directory.</param>
 /// <param name="Reason">Why, for logs; the model may have been given longer feedback.</param>
 /// <param name="CountsTowardLimit">False for nudges that don't count toward <see cref="AgentLimits.MaxRefusals"/>.</param>
-public sealed record ToolRefused(ToolRequest Request, string Action, string Reason, bool CountsTowardLimit = true) : AgentEvent;
+public sealed record ToolRefused(ToolRequest Request, string Action, string Reason, bool CountsTowardLimit = true) : AgentEvent
+{
+    /// <summary>
+    /// A policy asked, and the prompter said no (rather than the policy refusing outright). With
+    /// <see cref="Policies.ApprovalPrompter.DeclineAll"/> or no console, nobody was actually asked.
+    /// </summary>
+    public bool DeclinedByOperator { get; init; }
+}
 
 /// <summary>The operator approved an action a policy left to a human.</summary>
 public sealed record ToolApprovedByOperator(ToolRequest Request, string Action) : AgentEvent;

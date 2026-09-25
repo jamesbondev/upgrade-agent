@@ -1,3 +1,4 @@
+using AgentHarness.Policies;
 using Spectre.Console.Testing;
 using UpgradeAgent.Ui;
 
@@ -13,7 +14,7 @@ public class ApprovalPrompterTests
         var console = new TestConsole().Interactive();
         console.Input.PushTextWithEnter(answer);
 
-        var approved = await new ConsoleApprovalPrompter(new SynchronizedConsole(console))
+        var approved = await new SpectreApprovalPrompter(new SynchronizedConsole(console))
             .ConfirmAsync("edit src/App/App.csproj", "edit to a non-source file: src/App/App.csproj", CancellationToken.None);
 
         Assert.Equal(expected, approved);
@@ -28,7 +29,7 @@ public class ApprovalPrompterTests
         var console = new TestConsole().Interactive();
         console.Input.PushKey(ConsoleKey.Enter);
 
-        Assert.False(await new ConsoleApprovalPrompter(new SynchronizedConsole(console)).ConfirmAsync("rm src/Old.cs", "file operation: rm", CancellationToken.None));
+        Assert.False(await new SpectreApprovalPrompter(new SynchronizedConsole(console)).ConfirmAsync("rm src/Old.cs", "file operation: rm", CancellationToken.None));
     }
 
     [Fact]
@@ -38,12 +39,12 @@ public class ApprovalPrompterTests
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
 
-        Assert.False(await new ConsoleApprovalPrompter(new SynchronizedConsole(console)).ConfirmAsync("rm src/Old.cs", "reason", cancelled.Token));
+        Assert.False(await new SpectreApprovalPrompter(new SynchronizedConsole(console)).ConfirmAsync("rm src/Old.cs", "reason", cancelled.Token));
     }
 
     [Fact]
     public async Task NonInteractivePrompterDeclinesWithoutWaiting()
     {
-        Assert.False(await new DeclineAllPrompter().ConfirmAsync("anything", "reason", CancellationToken.None));
+        Assert.False(await ApprovalPrompter.DeclineAll.ConfirmAsync("anything", "reason", CancellationToken.None));
     }
 }

@@ -2,6 +2,8 @@
 
 A .NET 10 console tool that keeps a repo's NuGet packages up to date. It detects and applies version bumps deterministically, uses a Microsoft Agent Framework harness agent to fix breaking changes, checks the result with deterministic guardrails, and opens a draft PR in Azure DevOps.
 
+The Copilot calls and the agentic tool calling live in **[AgentHarness](src/AgentHarness/README.md)**, a standalone library you can copy into another solution. Start with `dotnet run --project samples/HelloAgent -- --scripted` (no Copilot login needed), and see [docs/agent-harness-tour.md](docs/agent-harness-tour.md) for a walkthrough.
+
 See [PLAN.md](PLAN.md) for the design and milestones. **Current status: M8.** The full pipeline works, including publishing to Azure DevOps, and the codebase has been through a maintainability cleanup (see [How it works with the LLM](#how-it-works-with-the-llm)).
 
 ## Try it on the fixture
@@ -37,10 +39,12 @@ detect → plan (policy rules, families, TFM check) → per group: bump → rest
                                                                       │ broken?
                                                                       ▼
             AgentFixRunner  ── prompts (FixPrompts: notes inlined as untrusted data, current errors)
-                            ── PermissionGate on every tool call (CommandPolicy → notes-first → operator)
-                            ── SessionMonitor + AgentSessionMeter (tool cap, refusals, builds without progress, time)
-                            ── summary turn (JSON schema generated from GroupSummary)
-                            ── IAgentBackend: CopilotBackend today; another provider is one more class
+                            ── AgentHarness session: every tool call through the policy
+                               (CommandPolicy on WorkspacePolicy → notes-first → operator)
+                            ── limits (time, tool calls, refusals) + a stop rule for builds without progress
+                            ── SessionMonitor: harness events → activity (console, log, recordings)
+                            ── AskAsync<GroupSummary> (JSON schema generated from the type)
+                            ── IAgentBackend: CopilotBackend today; ScriptedBackend in tests
                                                                       │
                                                                       ▼
       rebuild → retest → guardrails (one IGuardrail per check) → commit, or revert
@@ -52,7 +56,7 @@ detect → plan (policy rules, families, TFM check) → per group: bump → rest
 - **Least privilege:** reads, builds and source edits are automatic; project-file edits need a human; everything else is refused with a reason the model can act on. The agent's environment has no secrets.
 - **Budgets and stop rules:** time (paused while a human decides), tool calls, refusals, and builds that don't reduce the error count.
 - **Never trusted:** the app rebuilds, retests and runs the guardrails itself; the agent's summary is only compared with the diff.
-- **Observable:** typed activity events go to the console, a per-group log and recordings; OpenTelemetry spans and metrics (`UpgradeAgent.Agent`); `--verbose` traces every external command.
+- **Observable:** typed activity events go to the console, a per-group log and recordings; OpenTelemetry spans and metrics (`AgentHarness`); `--verbose` traces every external command.
 - **Reproducible:** `--record`/`--replay` capture sessions as events plus a patch, so demos and tests run without a model.
 
 ## Publish to Azure DevOps

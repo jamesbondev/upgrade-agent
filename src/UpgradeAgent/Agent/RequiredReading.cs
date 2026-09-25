@@ -1,3 +1,6 @@
+using AgentHarness;
+using AgentHarness.Policies;
+
 namespace UpgradeAgent.Agent;
 
 /// <summary>
@@ -34,4 +37,14 @@ internal sealed class RequiredReading(IEnumerable<string> paths)
             }
         }
     }
+
+    /// <summary>
+    /// <paramref name="inner"/>, except that edits it would allow (or ask about) are refused while notes are unread.
+    /// The refusal is a nudge, not a sign the agent is lost, so it doesn't count toward the refusal limit.
+    /// </summary>
+    public IToolPolicy Guard(IToolPolicy inner) => inner.Wrap((request, decision) =>
+        request is FileWriteRequest && decision.Verdict != ToolVerdict.Reject && Unread is { Count: > 0 } unread
+            ? ToolDecision.Reject($"Read the migration notes before editing: {string.Join(", ", unread)}. They name the replacement APIs.")
+                with { CountsTowardRefusalLimit = false, LogReason = "migration notes not read yet" }
+            : decision);
 }

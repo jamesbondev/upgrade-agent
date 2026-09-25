@@ -134,10 +134,10 @@ public sealed class AgentSession : IAsyncDisposable
             var text = await session.SendAsync(message, turn.Token);
             return new AgentReply(text, null);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && _lifetime.IsCancellationRequested)
         {
             // A stop rule or the time budget ended the turn; the first reason recorded wins.
-            Stop("agent stopped: time budget exceeded");
+            StopForLimit("agent stopped: time budget exceeded");
             return new AgentReply(null, StopReason);
         }
     }
@@ -145,14 +145,22 @@ public sealed class AgentSession : IAsyncDisposable
     /// <summary>
     /// Asks for a structured reply, with every tool refused. The JSON schema comes from <typeparamref name="T"/>.
     /// Has its own timeout (default 2 minutes) outside the session's budget, and works after a normal turn; a
-    /// reply that isn't valid JSON for <typeparamref name="T"/> is returned with an error, not thrown.
+    /// reply that isn't valid JSON for <typeparamref name="T"/> is returned with an error, not thrown; so is a provider
+    /// failure (then <see cref="StructuredReply{T}.Text"/> is null and the error names the exception).
     /// </summary>
-    public async Task<StructuredReply<T>> AskAsync<T>(string question, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    public Task<StructuredReply<T>> AskAsync<T>(string question, CancellationToken cancellationToken)
+        where T : class => AskAsync<T>(question, validate: null, timeout: null, cancellationToken);
+
+    /// <inheritdoc cref="AskAsync{T}(string, CancellationToken)"/>
+    /// <param name="validate">Checks JSON can't express (non-empty strings, ranges): returns an error, or null when the value is fine.</param>
+    public async Task<StructuredReply<T>> AskAsync<T>(
+        string question, Func<T, string?>? validate = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
         where T : class
     {
         try
         {
-            return StructuredOutput.Parse<T>(await SendWithoutToolsAsync(StructuredOutput.PromptFor<T>(question), timeout, cancellationToken));
+            var reply = StructuredOutput.Parse<T>(await SendWithoutToolsAsync(StructuredOutput.PromptFor<T>(question), timeout, cancellationToken));
+            return reply.Value is { } value && validate?.Invoke(value) is { } error ? reply with { Value = null, Error = error } : reply;
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -164,6 +172,9 @@ public sealed class AgentSession : IAsyncDisposable
     /// A turn in which every tool is refused and no limit or stop rule applies: for summaries and follow-up
     /// questions after the work is done. Throws on timeout (default 2 minutes) and on provider failures.
     /// </summary>
+    public Task<string?> SendWithoutToolsAsync(string message, CancellationToken cancellationToken) => SendWithoutToolsAsync(message, null, cancellationToken);
+
+    /// <inheritdoc cref="SendWithoutToolsAsync(string, CancellationToken)"/>
     public async Task<string?> SendWithoutToolsAsync(string message, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         var session = _session ?? throw new ObjectDisposedException(nameof(AgentSession));
@@ -172,7 +183,7 @@ public sealed class AgentSession : IAsyncDisposable
         _toolsOff = true;
         try
         {
-            Publish(new UserMessage(message));
+            Publish(new UserMessage(message) { WithoutTools = true });
             return await session.SendAsync(message, turn.Token);
         }
         finally
@@ -181,12 +192,20 @@ public sealed class AgentSession : IAsyncDisposable
         }
     }
 
-    /// <summary>Stops the session for a reason of your own, unless it has already stopped. The running turn returns early.</summary>
-    public void Stop(string reason)
+    /// <summary>
+    /// Stops the session for a reason of your own, unless it has already stopped. A running <see cref="SendAsync"/>
+    /// turn returns early; a running tools-off turn finishes, and later turns return stopped.
+    /// </summary>
+    public void Stop(string reason) => Stop(reason, fromLimit: false);
+
+    /// <summary>Limits and stop rules don't apply to tools-off turns: late events must not stop a finished session.</summary>
+    private void StopForLimit(string reason) => Stop(reason, fromLimit: true);
+
+    private void Stop(string reason, bool fromLimit)
     {
         lock (_state)
         {
-            if (_stopReason is not null || _toolsOff)
+            if (_stopReason is not null || (fromLimit && _toolsOff))
             {
                 return;
             }
@@ -283,7 +302,7 @@ public sealed class AgentSession : IAsyncDisposable
 
                 if (!approved)
                 {
-                    return Refuse(request, action, ToolDecision.Reject(decision.DeclinedFeedback ?? DefaultDeclinedFeedback) with { LogReason = "declined by the operator" });
+                    return Refuse(request, action, ToolDecision.Reject(decision.DeclinedFeedback ?? DefaultDeclinedFeedback) with { LogReason = "declined (needs operator approval)" }, byOperator: true);
                 }
 
                 lock (_state)
@@ -299,7 +318,7 @@ public sealed class AgentSession : IAsyncDisposable
         }
     }
 
-    private ToolApproval Refuse(ToolRequest request, string action, ToolDecision decision)
+    private ToolApproval Refuse(ToolRequest request, string action, ToolDecision decision, bool byOperator = false)
     {
         string? stop = null;
         lock (_state)
@@ -311,10 +330,10 @@ public sealed class AgentSession : IAsyncDisposable
             }
         }
 
-        Publish(new ToolRefused(request, action, decision.LogReason ?? decision.Reason, decision.CountsTowardRefusalLimit));
+        Publish(new ToolRefused(request, action, decision.LogReason ?? decision.Reason, decision.CountsTowardRefusalLimit) { DeclinedByOperator = byOperator });
         if (stop is not null)
         {
-            Stop(stop);
+            StopForLimit(stop);
         }
 
         return ToolApproval.Deny(decision.Reason);
@@ -347,7 +366,7 @@ public sealed class AgentSession : IAsyncDisposable
 
         if (stop is not null)
         {
-            Stop(stop);
+            StopForLimit(stop);
         }
     }
 

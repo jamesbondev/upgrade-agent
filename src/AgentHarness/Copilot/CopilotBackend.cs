@@ -110,6 +110,7 @@ public sealed class CopilotBackend(CopilotOptions? options = null) : IAgentBacke
         PermissionRequestRead read => new FileReadRequest(read.Path),
         PermissionRequestUrl url => new WebFetchRequest(url.Url),
         PermissionRequestCustomTool custom => new CustomToolRequest(custom.ToolName, custom.Args?.GetRawText()),
+        PermissionRequestMcp mcp => new McpToolRequest(mcp.ServerName, mcp.ToolName, mcp.Args?.GetRawText(), mcp.ReadOnly),
         PermissionRequestHook { ToolName: { Length: > 0 } tool } hook => new CustomToolRequest(tool, hook.ToolArgs?.GetRawText()),
         _ => new OtherToolRequest($"{request.Kind}"),
     };

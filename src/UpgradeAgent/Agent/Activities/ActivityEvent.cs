@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using AgentHarness;
 
 namespace UpgradeAgent.Agent.Activities;
 
@@ -23,14 +24,7 @@ internal sealed record Note(string Text) : ActivityEvent;
 /// <summary>Text the model wrote between tool calls.</summary>
 internal sealed record AgentMessage(string Text) : ActivityEvent;
 
-internal enum ToolKind
-{
-    Shell,
-    Edit,
-    Read,
-    Other,
-}
-
+/// <param name="Kind">The harness's own enum: its member names are what recordings store, so they must not change.</param>
 internal sealed record ToolStarted(ToolKind Kind, string Tool, string Detail) : ActivityEvent;
 
 internal sealed record ToolFailed(string Error) : ActivityEvent;

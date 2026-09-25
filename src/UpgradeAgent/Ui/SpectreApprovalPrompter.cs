@@ -1,15 +1,13 @@
+using AgentHarness.Policies;
 using Spectre.Console;
 
 namespace UpgradeAgent.Ui;
 
-internal interface IApprovalPrompter
-{
-    /// <summary>Asks the operator. Implementations must return false rather than wait when nobody can answer.</summary>
-    Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken);
-}
-
-/// <summary>Asks at the console. Cancelling (Ctrl+C, or a budget running out) counts as declining.</summary>
-internal sealed class ConsoleApprovalPrompter(SynchronizedConsole console) : IApprovalPrompter
+/// <summary>
+/// Asks at the console, through Spectre so the prompt doesn't tear the live output. Cancelling (Ctrl+C, or a
+/// budget running out) counts as declining. Unattended runs use <see cref="ApprovalPrompter.DeclineAll"/> instead.
+/// </summary>
+internal sealed class SpectreApprovalPrompter(SynchronizedConsole console) : IApprovalPrompter
 {
     public async Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken)
     {
@@ -34,10 +32,4 @@ internal sealed class ConsoleApprovalPrompter(SynchronizedConsole console) : IAp
         console.MarkupLine(approved ? "  [green]approved by operator[/]" : "  [red]declined by operator[/]");
         return approved;
     }
-}
-
-/// <summary>For pipelines and redirected output: anything that needs a human is declined, never left waiting.</summary>
-internal sealed class DeclineAllPrompter : IApprovalPrompter
-{
-    public Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken) => Task.FromResult(false);
 }

@@ -8,16 +8,24 @@ namespace AgentHarness;
 public sealed class ConsoleAgentObserver(string? workingDirectory = null, TextWriter? output = null) : IAgentObserver
 {
     private readonly TextWriter _output = output ?? Console.Out;
+    private bool _quiet;
 
     public void OnEvent(AgentEvent agentEvent)
     {
+        if (agentEvent is UserMessage user)
+        {
+            // Replies to tools-off turns are data (JSON): the app prints what it wants of them.
+            _quiet = user.WithoutTools;
+            return;
+        }
+
         var line = agentEvent switch
         {
             ToolCallStarted { Kind: ToolKind.Shell } call => $"    $ {call.Detail}",
             ToolCallStarted { Kind: ToolKind.Edit } call => $"    ✎ {call.Detail}",
-            ToolCallStarted call => $"    · {call.Tool} {call.Detail}",
+            ToolCallStarted call => $"    · {call.Tool} {(call.Detail.Length > 0 ? call.Detail : call.RawArguments is null or "{}" ? "" : Shorten(call.RawArguments))}".TrimEnd(),
             ToolCallCompleted { Success: false } failed => $"      ✗ {Shorten(failed.Error ?? "failed")}",
-            AssistantMessage message when FirstLine(message.Text) is { } text => $"  {Shorten(text)}",
+            AssistantMessage message when !_quiet && FirstLine(message.Text) is { } text => $"  {Shorten(text)}",
             ToolRefused refused => $"    ⊘ refused {refused.Action}: {refused.Reason}",
             ToolApprovedByOperator approved => $"    ✓ approved {approved.Action}",
             ModelServed { IsFallback: true } served => $"  warning: asked for {served.Requested} but the provider is serving {served.Model}",

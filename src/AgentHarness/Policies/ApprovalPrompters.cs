@@ -39,6 +39,7 @@ public sealed class ConsoleApprovalPrompter : IApprovalPrompter
     {
         if (System.Console.IsInputRedirected)
         {
+            System.Console.WriteLine($"  approval needed: {action} — declined (no interactive console)");
             return false;
         }
 

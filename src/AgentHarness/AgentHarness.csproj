@@ -19,6 +19,8 @@
   <!--
     Builds with or without central package management, with no edits: without CPM it uses the version below;
     with CPM it uses your Directory.Packages.props entry if you have one, and this version otherwise.
+    The first build of an executable that references this downloads the Copilot CLI (~180 MB) from npm into obj/.
+    Behind a proxy or offline, see the package's CopilotNpmRegistryUrl, CopilotCliBinaryPath and CopilotSkipCliDownload properties.
   -->
   <PropertyGroup>
     <CopilotAgentVersion>1.22.0</CopilotAgentVersion>

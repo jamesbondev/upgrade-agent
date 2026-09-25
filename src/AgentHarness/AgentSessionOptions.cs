@@ -98,6 +98,7 @@ public sealed record AgentReply(string? Text, string? StopReason)
 }
 
 /// <summary>What a session did, so far.</summary>
+/// <param name="Duration">Since the session started, idle and prompt time included (unlike <see cref="AgentLimits.MaxDuration"/>).</param>
 /// <param name="Model">The model that actually served the last call (providers fall back silently).</param>
 public sealed record AgentStats(
     string? Model,
@@ -112,5 +113,8 @@ public sealed record AgentStats(
     TimeSpan Duration)
 {
     public override string ToString() =>
-        $"{Duration.TotalMinutes:0.0} min · {ModelCalls} model calls · {ToolCalls} tool calls · {InputTokens / 1000}k in / {OutputTokens / 1000}k out tokens";
+        $"{Duration.TotalMinutes:0.0} min · {ModelCalls} model calls · {ToolCalls} tool calls · {Tokens(InputTokens)} in / {Tokens(OutputTokens)} out tokens"
+        + $" · {Refusals} refused · {OperatorApprovals} approved by the operator{(StopReason is null ? "" : $" · {StopReason}")}";
+
+    private static string Tokens(long count) => count < 1000 ? $"{count}" : $"{count / 1000}k";
 }

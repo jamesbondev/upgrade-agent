@@ -1,18 +1,21 @@
+using AgentHarness;
+using AgentHarness.Policies;
 using UpgradeAgent.Agent.Activities;
 using UpgradeAgent.Build;
 using UpgradeAgent.Config;
 using UpgradeAgent.Infrastructure;
 using UpgradeAgent.Run;
-using UpgradeAgent.Ui;
+using AgentStats = UpgradeAgent.Run.AgentStats;
 
 namespace UpgradeAgent.Agent;
 
 /// <summary>
-/// Fixes a broken group with an AI agent. This is the provider-neutral half: it grounds the model (migration
-/// notes, current errors), decides what the agent may do, enforces the budgets and stop rules, and asks for a
-/// structured summary. <see cref="IAgentBackend"/> is the provider half. The outcome is never trusted: the
-/// orchestrator rebuilds, retests and runs the guardrails afterwards.
+/// Fixes a broken group with an AI agent. This is the UpgradeAgent half: it grounds the model (migration notes,
+/// current errors), decides what the agent may do, and asks for a structured summary. The harness
+/// (<see cref="AgentRunner"/>) runs the session: permissions, budgets, stop rules and the provider. The outcome
+/// is never trusted: the orchestrator rebuilds, retests and runs the guardrails afterwards.
 /// </summary>
+/// <param name="backend">Owned: disposed with the fixer, at the end of the run (after publishing, which shares it).</param>
 internal sealed class AgentFixRunner(
     IAgentBackend backend,
     AgentOptions options,
@@ -21,7 +24,7 @@ internal sealed class AgentFixRunner(
     IApprovalPrompter prompter,
     TimeProvider time) : IGroupFixer
 {
-    private static readonly TimeSpan SummaryTimeout = TimeSpan.FromMinutes(2);
+    private readonly AgentRunner _runner = new(backend, prompter, time);
 
     public async Task<FixOutcome> FixAsync(FixContext context, CancellationToken cancellationToken)
     {
@@ -33,40 +36,51 @@ internal sealed class AgentFixRunner(
         var systemPrompt = FixPrompts.SystemPrompt(
             RepoPath.Relative(worktree, context.SolutionPath), TestRunnerDetector.Detect(worktree), context.Group.Kind, context.TestArgs);
 
-        using var budget = new PausableTimeout(TimeSpan.FromMinutes(options.MaxMinutesPerGroup), time);
-        using var session = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
-        var meter = new AgentSessionMeter(options, context.Build.Succeeded ? 0 : context.Build.Errors.Count, () => CancelQuietly(session));
         var reading = new RequiredReading(task.RequiredReads);
-        var policy = new CommandPolicy(worktree, globalPackages is null ? [] : [globalPackages]);
-        var gate = new PermissionGate(worktree, policy, reading, prompter, activity, meter, options.AllowWebFetch, budget.Pause);
-        var monitor = new SessionMonitor(worktree, activity, meter, reading, options.Model);
+        var monitor = new SessionMonitor(worktree, activity, reading);
+        var sessionOptions = new AgentSessionOptions
+        {
+            Name = context.Group.Name,
+            WorkingDirectory = worktree,
+            Instructions = systemPrompt,
+            Policy = reading.Guard(new CommandPolicy(worktree, globalPackages is null ? [] : [globalPackages])),
+            AllowWebFetch = options.AllowWebFetch,
+            Limits = new AgentLimits
+            {
+                MaxDuration = TimeSpan.FromMinutes(options.MaxMinutesPerGroup),
+                MaxToolCalls = options.MaxToolCallsPerGroup,
+                MaxRefusals = options.MaxRefusalsPerGroup,
+            },
+            Observers = [monitor],
+            StopRules = [new ProgressMonitor(options.MaxBuildsWithoutProgress, context.Build.Succeeded ? 0 : context.Build.Errors.Count)],
+        };
 
         using var log = new FileActivitySink(Path.Combine(context.OutputDirectory, "agent", $"{RepoPath.SafeFileName(context.Group.Name)}.log"), time);
         using var attached = activity.Attach(log);
-        using var span = AgentTelemetry.StartSession(backend.Name, context.Group.Name, options.Model);
         activity.Write(new Note(
             $"agent: {backend.Name}{(options.Model is null ? "" : $" ({options.Model})")} · budget {options.MaxMinutesPerGroup} min / {options.MaxToolCallsPerGroup} tool calls"));
         activity.Write(new Transcript("TASK", task.Text));
 
-        var sessionStarted = false;
+        AgentSession? session = null;
         GroupSummary? summary = null;
+        string? stopReason = null;
         string? failure = null;
         try
         {
-            var settings = new AgentSessionSettings(worktree, systemPrompt, options.AllowWebFetch, gate.AuthorizeAsync, monitor.OnEvent);
-            await using var agent = await backend.StartSessionAsync(settings, session.Token);
-            sessionStarted = true;
-            var reply = await agent.SendAsync(task.Text, session.Token);
-            activity.Write(new Transcript("FINAL", reply ?? ""));
-
-            meter.SummaryMode = true;
-            summary = await RequestSummaryAsync(agent, cancellationToken);
+            session = await _runner.StartAsync(sessionOptions, cancellationToken);
+            var reply = await session.SendAsync(task.Text, cancellationToken);
+            if (!reply.Stopped)
+            {
+                activity.Write(new Transcript("FINAL", reply.Text ?? ""));
+                monitor.SummaryMode = true;
+                summary = await RequestSummaryAsync(session, cancellationToken);
+            }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // A stop rule or the time budget ended the session; the first reason recorded wins.
-            meter.Stop("agent stopped: time budget exceeded");
-            activity.Write(new Note(meter.StopReason!));
+            // Only session start can end up here (turns report their own stops): the time budget ran out first.
+            stopReason = "agent stopped: time budget exceeded";
+            activity.Write(new Note(stopReason));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -75,55 +89,48 @@ internal sealed class AgentFixRunner(
             failure = $"agent failed: {ex.GetBaseException().Message.Truncate(200)}";
             activity.Write(new Note(failure));
         }
+        finally
+        {
+            if (session is not null)
+            {
+                await session.DisposeAsync();
+            }
+        }
 
-        var stats = meter.Snapshot(time.GetElapsedTime(started));
-        span?.SetTag("gen_ai.response.model", stats.Model)
-            .SetTag("gen_ai.usage.input_tokens", stats.InputTokens)
-            .SetTag("gen_ai.usage.output_tokens", stats.OutputTokens)
-            .SetTag("upgrade_agent.stop_reason", meter.StopReason);
-
+        stopReason ??= session?.StopReason;
+        var stats = ToStats(session?.Stats, stopReason is not null, time.GetElapsedTime(started));
         var headline = failure
-            ?? (meter.StopReason is { } reason
+            ?? (stopReason is { } reason
                 ? $"{reason} after {Describe(stats)}"
                 : $"finished in {Describe(stats)}{(summary is null ? "; no structured summary" : "")}");
-        return new FixOutcome(sessionStarted, headline, summary, stats);
+        return new FixOutcome(session is not null, headline, summary, stats);
     }
 
     public ValueTask DisposeAsync() => backend.DisposeAsync();
 
     /// <summary>
-    /// A second turn on the same session, with every tool refused. It has its own timeout, and a missing or
-    /// malformed summary is only a note: the fix itself already finished.
+    /// A second turn on the same session, with every tool refused and its own timeout. A missing or malformed
+    /// summary is only a note: the fix itself already finished.
     /// </summary>
-    private async Task<GroupSummary?> RequestSummaryAsync(IAgentSession agent, CancellationToken cancellationToken)
+    private async Task<GroupSummary?> RequestSummaryAsync(AgentSession session, CancellationToken cancellationToken)
     {
-        using var timeout = new CancellationTokenSource(SummaryTimeout, time);
-        using var turn = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-        try
+        var reply = await session.AskAsync<GroupSummary>(FixPrompts.SummaryRequest(), cancellationToken: cancellationToken);
+        if (reply.Text is null)
         {
-            var reply = await agent.SendAsync(FixPrompts.SummaryRequest(), turn.Token);
-            activity.Write(new Transcript("SUMMARY", reply ?? ""));
-            return GroupSummaryParser.TryParse(reply);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-        {
-            activity.Write(new Note($"no structured summary: {(ex is OperationCanceledException ? "the agent didn't reply in time" : ex.GetBaseException().Message.Truncate(120))}"));
+            activity.Write(new Note($"no structured summary: {(reply.Error ?? "no reply").Truncate(120)}"));
             return null;
         }
+
+        activity.Write(new Transcript("SUMMARY", reply.Text));
+        return GroupSummaryParser.Validate(reply.Value);
     }
 
-    /// <summary>Stop rules can fire from SDK callbacks that arrive after the session was torn down.</summary>
-    private static void CancelQuietly(CancellationTokenSource session)
-    {
-        try
-        {
-            session.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            // Already over.
-        }
-    }
+    /// <summary>The harness's counters in the app's shape, which recordings and reports store. Duration is the fixer's own.</summary>
+    private static AgentStats ToStats(AgentHarness.AgentStats? stats, bool stopped, TimeSpan duration) => stats is null
+        ? new AgentStats(null, 0, 0, 0, 0, 0, 0, 0, stopped, duration)
+        : new AgentStats(
+            stats.Model, stats.ModelCalls, stats.ToolCalls, stats.InputTokens, stats.OutputTokens, stats.AiCredits, stats.OperatorApprovals, stats.Refusals,
+            stopped, duration);
 
     private static string Describe(AgentStats stats) =>
         $"{stats.Duration.TotalMinutes:0.0} min · {stats.ModelCalls} model calls · {stats.ToolCalls} tool calls · {stats.InputTokens / 1000}k in / {stats.OutputTokens / 1000}k out tokens";

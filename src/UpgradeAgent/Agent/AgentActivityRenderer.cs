@@ -8,7 +8,7 @@ namespace UpgradeAgent.Agent;
 /// Turns agent events into append-only console lines (and a plain-text log). Events arrive on
 /// background threads, so every write takes the shared console lock.
 /// </summary>
-public sealed class AgentActivityRenderer(IAnsiConsole console, object consoleLock)
+internal sealed class AgentActivityRenderer(IAnsiConsole console, object consoleLock) : IDisposable
 {
     private string _worktree = "";
     private readonly Dictionary<string, (string Tool, string Detail)> _started = [];
@@ -47,9 +47,14 @@ public sealed class AgentActivityRenderer(IAnsiConsole console, object consoleLo
 
     public void StopLog()
     {
-        _log?.Dispose();
-        _log = null;
+        lock (consoleLock)
+        {
+            _log?.Dispose();
+            _log = null;
+        }
     }
+
+    public void Dispose() => StopLog();
 
     public void ToolStarted(string callId, string tool, JsonElement? arguments, string? shellCommand)
     {

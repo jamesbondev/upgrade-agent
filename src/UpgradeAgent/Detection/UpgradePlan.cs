@@ -1,6 +1,6 @@
 namespace UpgradeAgent.Detection;
 
-public enum UpdateDecision
+internal enum UpdateDecision
 {
     Planned,
     Skipped,
@@ -8,20 +8,20 @@ public enum UpdateDecision
     NeedsTfmUpgrade,
 }
 
-public enum GroupKind
+internal enum GroupKind
 {
     PatchMinor,
     Major,
 }
 
 /// <param name="ProjectPath">Relative to the repo root, with forward slashes.</param>
-public sealed record ProjectTarget(string ProjectPath, string Framework);
+internal sealed record ProjectTarget(string ProjectPath, string Framework);
 
 /// <summary>
 /// One version step for one package. A package with a newer minor and a newer major produces two
 /// steps: current → latest minor (in the patch/minor group), then latest minor → major.
 /// </summary>
-public sealed record PlannedUpdate(
+internal sealed record PlannedUpdate(
     string Id,
     string From,
     string To,
@@ -31,9 +31,9 @@ public sealed record PlannedUpdate(
     string? Reason,
     string? Group);
 
-public sealed record UpdateGroup(string Name, GroupKind Kind, IReadOnlyList<PlannedUpdate> Updates);
+internal sealed record UpdateGroup(string Name, GroupKind Kind, IReadOnlyList<PlannedUpdate> Updates);
 
-public sealed record UpgradePlan(
+internal sealed record UpgradePlan(
     DateTimeOffset CreatedUtc,
     string SolutionPath,
     IReadOnlyList<PlannedUpdate> Updates,

@@ -4,7 +4,7 @@ using Microsoft.VisualStudio.Services.WebApi;
 namespace UpgradeAgent.Publishing;
 
 /// <summary>The few Azure DevOps operations a run needs, over the official .NET client (VssConnection + GitHttpClient).</summary>
-public sealed class AzureDevOpsClient(string organizationUrl, AzureDevOpsCredential credential) : IDisposable
+internal sealed class AzureDevOpsClient(string organizationUrl, AzureDevOpsCredential credential) : IDisposable
 {
     public const string BranchPrefix = "agent/nuget-updates-";
 
@@ -50,7 +50,7 @@ public sealed class AzureDevOpsClient(string organizationUrl, AzureDevOpsCredent
         return pullRequest;
     }
 
-    public string WebUrl(GitRepository repository, GitPullRequest pullRequest) =>
+    public static string WebUrl(GitRepository repository, GitPullRequest pullRequest) =>
         $"{repository.WebUrl}/pullrequest/{pullRequest.PullRequestId}";
 
     /// <summary>Active PRs from agent branches that carry the label: what a demo reset abandons.</summary>

@@ -7,7 +7,7 @@ using UpgradeAgent.Workspace;
 
 namespace UpgradeAgent.Run;
 
-public enum GroupStatus
+internal enum GroupStatus
 {
     Accepted,
     Rejected,
@@ -15,7 +15,7 @@ public enum GroupStatus
     Cancelled,
 }
 
-public sealed record GroupResult(
+internal sealed record GroupResult(
     string Name,
     GroupKind Kind,
     GroupStatus Status,
@@ -28,7 +28,7 @@ public sealed record GroupResult(
     TimeSpan Duration,
     IReadOnlyList<string>? BuildWarnings = null);
 
-public sealed record RunReport(
+internal sealed record RunReport(
     string RunId,
     string Branch,
     string WorktreePath,
@@ -41,7 +41,7 @@ public sealed record RunReport(
     IReadOnlyList<string> Ledger);
 
 /// <summary>What the fixer gets when a group's build or tests fail after the bump.</summary>
-public sealed record FixContext(
+internal sealed record FixContext(
     RunWorkspace Workspace,
     UpdateGroup Group,
     BumpResult Bump,
@@ -51,9 +51,9 @@ public sealed record FixContext(
 
 /// <param name="Attempted">False when no fixer ran (for example, the agent is disabled).</param>
 /// <param name="Details">The agent's structured account of the group, when it produced one.</param>
-public sealed record FixOutcome(bool Attempted, string Summary, GroupSummary? Details = null, AgentStats? Stats = null);
+internal sealed record FixOutcome(bool Attempted, string Summary, GroupSummary? Details = null, AgentStats? Stats = null);
 
-public sealed record AgentStats(
+internal sealed record AgentStats(
     string? Model,
     int ModelCalls,
     int ToolCalls,
@@ -69,12 +69,12 @@ public sealed record AgentStats(
 /// Fixes a broken group. The app never trusts the fixer's claims: afterwards it rebuilds, retests
 /// and runs the guardrails itself.
 /// </summary>
-public interface IGroupFixer
+internal interface IGroupFixer
 {
     Task<FixOutcome> FixAsync(FixContext context, CancellationToken cancellationToken);
 }
 
-public sealed class NoAgentFixer : IGroupFixer
+internal sealed class NoAgentFixer : IGroupFixer
 {
     public Task<FixOutcome> FixAsync(FixContext context, CancellationToken cancellationToken) =>
         Task.FromResult(new FixOutcome(false, "no agent configured; the group needs code changes"));

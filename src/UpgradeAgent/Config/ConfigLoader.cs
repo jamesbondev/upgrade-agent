@@ -3,9 +3,9 @@ using Microsoft.Extensions.Configuration;
 namespace UpgradeAgent.Config;
 
 /// <summary>Configuration with every path resolved to an absolute path.</summary>
-public sealed record ResolvedConfig(UpgradeAgentOptions Options, string RepoPath, string SolutionPath, string OutputDirectory);
+internal sealed record ResolvedConfig(UpgradeAgentOptions Options, string RepoPath, string SolutionPath, string OutputDirectory);
 
-public static class ConfigLoader
+internal static class ConfigLoader
 {
     /// <summary>
     /// Loads appsettings.json next to the executable, then the optional <paramref name="configPath"/>,
@@ -78,4 +78,4 @@ public static class ConfigLoader
     }
 }
 
-public sealed class ConfigurationException(string message) : Exception(message);
+internal sealed class ConfigurationException(string message) : Exception(message);

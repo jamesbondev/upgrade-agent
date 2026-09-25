@@ -9,7 +9,7 @@ namespace UpgradeAgent.Publishing;
 /// Pushes the verified branch and opens a draft PR. The credential is acquired when it's needed (after the
 /// agent sessions) and dropped afterwards; nothing about it reaches the agent's environment.
 /// </summary>
-public sealed class AzureDevOpsPublisher(AzureDevOpsOptions options, IProcessRunner processRunner)
+internal sealed class AzureDevOpsPublisher(AzureDevOpsOptions options, IProcessRunner processRunner)
 {
     public string Destination => $"{options.OrganizationUrl.TrimEnd('/')}/{options.Project}/_git/{options.Repository}";
 
@@ -40,7 +40,7 @@ public sealed class AzureDevOpsPublisher(AzureDevOpsOptions options, IProcessRun
         using var client = new AzureDevOpsClient(options.OrganizationUrl, credential);
         var repository = await client.GetRepositoryAsync(options.Project, options.Repository, cancellationToken);
         var pullRequest = await client.CreateDraftPullRequestAsync(repository, report.Branch, title, description, options.Label, cancellationToken);
-        return client.WebUrl(repository, pullRequest);
+        return AzureDevOpsClient.WebUrl(repository, pullRequest);
     }
 
     /// <summary>One-time demo setup: pushes the target repo's HEAD as <paramref name="branch"/>, only into an empty repository.</summary>

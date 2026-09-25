@@ -11,13 +11,13 @@ using UpgradeAgent.Workspace;
 
 namespace UpgradeAgent.Run;
 
-public sealed class RunAbortedException(string message) : Exception(message);
+internal sealed class RunAbortedException(string message) : Exception(message);
 
 /// <summary>
 /// The deterministic spine of a run: worktree, baseline, plan, then per group bump → restore → build →
 /// test → (fix) → rebuild → retest → guardrails → commit or revert.
 /// </summary>
-public sealed class RunOrchestrator(
+internal sealed class RunOrchestrator(
     ResolvedConfig config,
     IProcessRunner processRunner,
     IGroupFixer fixer,
@@ -127,7 +127,7 @@ public sealed class RunOrchestrator(
             }
 
             var startState = await new GuardrailRunner(_git).CaptureStartAsync(worktree, start, cancellationToken);
-            var label = $"{SafeName(group.Name)}";
+            var label = RepoPath.SafeFileName(group.Name);
             var (build, tests) = await BuildAndTestAsync(workspace, runnerMode, $"{label}-after-bump", cancellationToken);
 
             FixOutcome? fix = null;
@@ -198,8 +198,7 @@ public sealed class RunOrchestrator(
     {
         var sdk = await _dotnet.SdkVersionAsync(workspace.WorktreePath, cancellationToken);
         var cache = new BaselineCache(Path.Combine(workspace.WorkRoot, "baseline"));
-        var cachePath = cache.PathFor(commit, sdk, config.Options.Target.TestArgs);
-        if (cache.TryLoad(cachePath) is { } cached)
+        if (cache.TryLoad(commit, sdk, config.Options.Target.TestArgs) is { } cached)
         {
             renderer.Baseline(cached, fromCache: true);
             return cached;
@@ -224,7 +223,7 @@ public sealed class RunOrchestrator(
             commit, sdk, runnerMode, tests.Inventory, tests.Counts,
             TestProjects.FindTestFiles(workspace.WorktreePath, tracked).Order(StringComparer.Ordinal).ToList(),
             _time.GetUtcNow());
-        cache.Save(cachePath, baseline);
+        cache.Save(baseline, config.Options.Target.TestArgs);
         renderer.Baseline(baseline, fromCache: false);
         return baseline;
     }
@@ -234,7 +233,8 @@ public sealed class RunOrchestrator(
         var reports = await renderer.WithSpinnerAsync(
             "Detecting outdated packages (latest, highest minor, highest patch)...",
             () => new PackageListRunner(processRunner).ListAllAsync(workspace.SolutionPath, config.Options.Policy.IncludePrerelease, cancellationToken));
-        var planner = new Planner(config.Options.Policy, new NuGetPackageCompatibilityChecker(workspace.WorktreePath), _time);
+        using var compatibility = new NuGetPackageCompatibilityChecker(workspace.WorktreePath);
+        var planner = new Planner(config.Options.Policy, compatibility, _time);
         return await planner.CreateAsync(reports, workspace.WorktreePath, workspace.SolutionPath, only, cancellationToken);
     }
 
@@ -249,8 +249,6 @@ public sealed class RunOrchestrator(
             .ThenByDescending(g => g.Count())
             .Select(g => $"{g.Key.Code} ×{g.Count()}: {g.Key.Message}")
             .ToList();
-
-    private static string SafeName(string name) => string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c is '.' or '-' ? c : '_'));
 
     /// <summary>Runs even when the run is being cancelled: a half-applied group must never survive.</summary>
     private async Task RevertAsync(string worktree, string commit)

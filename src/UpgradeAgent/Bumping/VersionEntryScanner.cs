@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace UpgradeAgent.Bumping;
 
 /// <param name="ValueStart">Offset of the version value in the file text; null when the entry has no version.</param>
-public sealed record VersionEntry(
+internal sealed record VersionEntry(
     string Element,
     string Id,
     string? Version,
@@ -16,7 +16,7 @@ public sealed record VersionEntry(
 /// the raw text rather than round-tripping XML, so an edit changes exactly one value and nothing else.
 /// Entries inside XML comments are ignored.
 /// </summary>
-public static partial class VersionEntryScanner
+internal static partial class VersionEntryScanner
 {
     public static IReadOnlyList<VersionEntry> Scan(string text)
     {

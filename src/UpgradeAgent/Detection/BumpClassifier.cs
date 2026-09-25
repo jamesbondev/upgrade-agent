@@ -2,14 +2,14 @@ using NuGet.Versioning;
 
 namespace UpgradeAgent.Detection;
 
-public enum BumpKind
+internal enum BumpKind
 {
     Patch,
     Minor,
     Major,
 }
 
-public static class BumpClassifier
+internal static class BumpClassifier
 {
     /// <summary>SemVer classification. Under 1.0 a minor change can break, so <c>0.x</c> minor bumps count as major.</summary>
     public static BumpKind Classify(NuGetVersion from, NuGetVersion to)

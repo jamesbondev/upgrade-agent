@@ -2,11 +2,11 @@ using System.Text.RegularExpressions;
 
 namespace UpgradeAgent.Build;
 
-public sealed record Diagnostic(string Severity, string Code, string Message, string? File, int? Line);
+internal sealed record Diagnostic(string Severity, string Code, string Message, string? File, int? Line);
 
-public sealed record TestCounts(int Total, int Passed, int Failed, int Skipped);
+internal sealed record TestCounts(int Total, int Passed, int Failed, int Skipped);
 
-public static partial class BuildOutputParser
+internal static partial class BuildOutputParser
 {
     /// <summary>
     /// Parses MSBuild's canonical error format. Each diagnostic appears once per project that reports it,

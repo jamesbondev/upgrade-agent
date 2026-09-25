@@ -1,6 +1,8 @@
+using UpgradeAgent.Infrastructure;
+
 namespace UpgradeAgent.Guardrails;
 
-public static class TestProjects
+internal static class TestProjects
 {
     private static readonly string[] Markers =
     [
@@ -11,13 +13,13 @@ public static class TestProjects
     public static IReadOnlySet<string> FindTestFiles(string repoRoot, IReadOnlyList<string> trackedFiles)
     {
         var testDirectories = trackedFiles
-            .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".csproj" or ".fsproj" or ".vbproj")
+            .Where(MsBuildFiles.IsProjectFile)
             .Where(f => IsTestProject(Path.Combine(repoRoot, f)))
-            .Select(f => (Path.GetDirectoryName(f) ?? "").Replace('\\', '/'))
+            .Select(f => RepoPath.Normalize(Path.GetDirectoryName(f) ?? ""))
             .ToList();
 
         return trackedFiles
-            .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".cs" or ".fs" or ".vb")
+            .Where(MsBuildFiles.IsSourceFile)
             .Where(f => testDirectories.Any(d => d.Length == 0 || f.StartsWith(d + "/", StringComparison.Ordinal)))
             .ToHashSet(StringComparer.Ordinal);
     }

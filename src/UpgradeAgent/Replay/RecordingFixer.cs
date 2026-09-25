@@ -8,7 +8,7 @@ namespace UpgradeAgent.Replay;
 /// Wraps the real fixer and saves what it did: the activity lines, and a patch of only the agent's
 /// changes (diffed against a snapshot taken after the app's bump, so replay can bump and then apply).
 /// </summary>
-public sealed class RecordingFixer(IGroupFixer inner, Recording recording, AgentActivityRenderer activity, GitCli git) : IGroupFixer, IAsyncDisposable
+internal sealed class RecordingFixer(IGroupFixer inner, Recording recording, AgentActivityRenderer activity, GitCli git) : IGroupFixer, IAsyncDisposable
 {
     public async Task<FixOutcome> FixAsync(FixContext context, CancellationToken cancellationToken)
     {
@@ -29,10 +29,7 @@ public sealed class RecordingFixer(IGroupFixer inner, Recording recording, Agent
         }
 
         // Worktree paths differ per run and machine; keep recordings relative.
-        var root = Path.TrimEndingDirectorySeparator(worktree);
-        var lines = activity.LastCapture
-            .Select(l => l with { Markup = l.Markup.Replace(root + Path.DirectorySeparatorChar, "", StringComparison.Ordinal).Replace(root, ".", StringComparison.Ordinal) })
-            .ToList();
+        var lines = activity.LastCapture.Select(l => l with { Markup = RepoPath.RelativeInText(worktree, l.Markup) }).ToList();
 
         // Intent-to-add makes the agent's new files show up in the diff; the index is reset right after.
         await git.RunAsync(worktree, ["add", "--all", "--intent-to-add"], cancellationToken);

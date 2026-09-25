@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using GitHub.Copilot;
 using GitHub.Copilot.Rpc;
-using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.GitHub.Copilot;
 using UpgradeAgent.Build;
 using UpgradeAgent.Config;
@@ -19,7 +18,7 @@ namespace UpgradeAgent.Agent;
 /// caps time and tool calls, and reports what happened. It never decides whether the work is kept:
 /// the orchestrator rebuilds, retests and runs the guardrails afterwards.
 /// </summary>
-public sealed class CopilotFixer(
+internal sealed class CopilotFixer(
     AgentOptions options,
     IProcessRunner processRunner,
     AgentActivityRenderer activity,
@@ -49,7 +48,7 @@ public sealed class CopilotFixer(
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(TimeSpan.FromMinutes(options.MaxMinutesPerGroup));
 
-        var solution = Path.GetRelativePath(worktree, context.Workspace.SolutionPath).Replace('\\', '/');
+        var solution = RepoPath.Relative(worktree, context.Workspace.SolutionPath);
         var excluded = options.AllowWebFetch ? ExcludedTools : [.. ExcludedTools, "web_fetch"];
         var config = new SessionConfig
         {
@@ -74,7 +73,7 @@ public sealed class CopilotFixer(
             OnEvent = e => Observe(e, meter, budget),
         };
 
-        activity.StartLog(Path.Combine(context.Workspace.OutputDirectory, "agent", $"{SafeName(context.Group.Name)}.log"), worktree);
+        activity.StartLog(Path.Combine(context.Workspace.OutputDirectory, "agent", $"{RepoPath.SafeFileName(context.Group.Name)}.log"), worktree);
         activity.Note($"agent: GitHub Copilot{(options.Model is null ? "" : $" ({options.Model})")} · budget {options.MaxMinutesPerGroup} min / {options.MaxToolCallsPerGroup} tool calls");
 
         await using var agent = new GitHubCopilotAgent(client, config, ownsClient: false, name: "UpgradeAgent");
@@ -202,7 +201,7 @@ public sealed class CopilotFixer(
         var environment = AgentEnvironment.Build(
             Environment.GetEnvironmentVariables(),
             options.RemoveEnvironmentVariables.Concat(string.IsNullOrWhiteSpace(options.GitHubTokenEnvVar) ? [] : [options.GitHubTokenEnvVar]),
-            DotnetCli.Environment);
+            DotnetCli.BaseEnvironment);
 
         _client = new CopilotClient(new CopilotClientOptions
         {
@@ -335,8 +334,6 @@ public sealed class CopilotFixer(
 
     private static string Describe(AgentStats stats) =>
         $"{stats.Duration.TotalMinutes:0.0} min · {stats.ModelCalls} model calls · {stats.ToolCalls} tool calls · {stats.InputTokens / 1000}k in / {stats.OutputTokens / 1000}k out tokens";
-
-    private static string SafeName(string name) => string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c is '.' or '-' ? c : '_'));
 
     private sealed class Meter
     {

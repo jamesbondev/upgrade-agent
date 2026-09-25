@@ -8,7 +8,7 @@ namespace UpgradeAgent.Replay;
 /// Plays back a recorded agent session instead of calling the model: the recorded activity at a readable
 /// pace, then the recorded patch. Everything after (rebuild, retest, guardrails, commit) runs for real.
 /// </summary>
-public sealed class ReplayFixer(Recording recording, IAnsiConsole console, object consoleLock, GitCli git, double maxGapSeconds) : IGroupFixer
+internal sealed class ReplayFixer(Recording recording, IAnsiConsole console, object consoleLock, GitCli git, double maxGapSeconds) : IGroupFixer
 {
     public async Task<FixOutcome> FixAsync(FixContext context, CancellationToken cancellationToken)
     {

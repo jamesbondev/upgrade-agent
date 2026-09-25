@@ -2,7 +2,7 @@ using Spectre.Console;
 
 namespace UpgradeAgent.Ui;
 
-public static class ConsoleFactory
+internal static class ConsoleFactory
 {
     /// <summary>
     /// The default console. When output is redirected (CI logs, recordings) Spectre assumes 80 columns;

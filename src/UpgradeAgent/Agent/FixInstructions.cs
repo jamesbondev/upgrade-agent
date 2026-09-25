@@ -1,11 +1,13 @@
+using System.Globalization;
 using System.Text;
 using UpgradeAgent.Build;
 using UpgradeAgent.Detection;
+using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Agent;
 
 /// <summary>Builds the agent's instructions and prompts. Pure, so the exact wording is unit-tested and reviewable.</summary>
-public static class FixInstructions
+internal static class FixInstructions
 {
     private const int MaxErrorsListed = 25;
 
@@ -63,10 +65,10 @@ public static class FixInstructions
         UpdateGroup group, IReadOnlyList<PackageDocs> docs, BuildResult build, TestRunResult? tests, string worktree, Func<string, string> readFile)
     {
         var builder = new StringBuilder();
-        builder.AppendLine($"Package group \"{group.Name}\" was updated:");
+        builder.AppendLine(CultureInfo.InvariantCulture, $"Package group \"{group.Name}\" was updated:");
         foreach (var update in group.Updates)
         {
-            builder.AppendLine($"- {update.Id} {update.From} -> {update.To} ({update.Kind.ToString().ToLowerInvariant()})");
+            builder.AppendLine(CultureInfo.InvariantCulture, $"- {update.Id} {update.From} -> {update.To} ({update.Kind.ToString().ToLowerInvariant()})");
         }
 
         var inlined = new List<(PackageDocs Doc, string File, string Content)>();
@@ -106,7 +108,7 @@ public static class FixInstructions
 
             if (doc.ReleaseNotes is not null)
             {
-                parts.Add($"release notes: \"{Truncate(doc.ReleaseNotes, 400)}\"");
+                parts.Add($"release notes: \"{doc.ReleaseNotes.Truncate(400)}\"");
             }
 
             if ((doc.RepositoryUrl ?? doc.ProjectUrl) is { } url)
@@ -114,33 +116,33 @@ public static class FixInstructions
                 parts.Add($"project: {url}");
             }
 
-            builder.AppendLine($"- {doc.Id} {doc.Version}: {(parts.Count == 0 ? "none found in the package" : string.Join("; ", parts))}");
+            builder.AppendLine(CultureInfo.InvariantCulture, $"- {doc.Id} {doc.Version}: {(parts.Count == 0 ? "none found in the package" : string.Join("; ", parts))}");
         }
 
         foreach (var (doc, file, content) in inlined)
         {
-            builder.AppendLine().AppendLine($"=== {Path.GetFileName(file)} from {doc.Id} {doc.Version} ===").AppendLine(content.Trim()).AppendLine("=== end ===");
+            builder.AppendLine().AppendLine(CultureInfo.InvariantCulture, $"=== {Path.GetFileName(file)} from {doc.Id} {doc.Version} ===").AppendLine(content.Trim()).AppendLine("=== end ===");
         }
 
         builder.AppendLine();
         if (!build.Succeeded)
         {
-            builder.AppendLine($"Current build: {build.Errors.Count} error(s).");
+            builder.AppendLine(CultureInfo.InvariantCulture, $"Current build: {build.Errors.Count} error(s).");
             foreach (var error in build.Errors.Take(MaxErrorsListed))
             {
-                var file = error.File is null ? "" : Path.GetRelativePath(worktree, error.File).Replace('\\', '/');
-                builder.AppendLine($"- {file}{(error.Line is { } line ? $":{line}" : "")} {error.Code}: {error.Message}");
+                var file = error.File is null ? "" : RepoPath.Relative(worktree, error.File);
+                builder.AppendLine(CultureInfo.InvariantCulture, $"- {file}{(error.Line is { } line ? $":{line}" : "")} {error.Code}: {error.Message}");
             }
 
             if (build.Errors.Count > MaxErrorsListed)
             {
-                builder.AppendLine($"- … and {build.Errors.Count - MaxErrorsListed} more");
+                builder.AppendLine(CultureInfo.InvariantCulture, $"- … and {build.Errors.Count - MaxErrorsListed} more");
             }
         }
         else if (tests is not null)
         {
             var failed = tests.Inventory?.Failed ?? tests.Counts?.Failed;
-            builder.AppendLine($"The build succeeds, but tests fail ({failed?.ToString() ?? "unknown number"} failed). Run the tests to see which.");
+            builder.AppendLine(CultureInfo.InvariantCulture, $"The build succeeds, but tests fail ({failed?.ToString(CultureInfo.InvariantCulture) ?? "unknown number"} failed). Run the tests to see which.");
         }
 
         builder.AppendLine().Append("Fix the code, then build and test until both pass. Finish with a short plain-text summary of each change and why.");
@@ -158,10 +160,4 @@ public static class FixInstructions
         argument.Length > 0 && argument.All(c => char.IsLetterOrDigit(c) || c is '.' or '_' or '-' or '/' or ':' or '=' or '~' or ',')
             ? argument
             : $"\"{argument.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
-
-    private static string Truncate(string text, int length)
-    {
-        var singleLine = text.ReplaceLineEndings(" ");
-        return singleLine.Length <= length ? singleLine : singleLine[..(length - 1)] + "…";
-    }
 }

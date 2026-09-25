@@ -9,7 +9,7 @@ namespace UpgradeAgent.Agent;
 /// or several builds in a row that don't beat the lowest error count so far. A green build resets the count.
 /// Limits of 0 disable a check. Thread-safe: permission requests and tool events arrive on different threads.
 /// </summary>
-public sealed partial class ProgressMonitor(int maxRefusals, int maxBuildsWithoutProgress, int initialErrors)
+internal sealed partial class ProgressMonitor(int maxRefusals, int maxBuildsWithoutProgress, int initialErrors)
 {
     private readonly Lock _lock = new();
     private int _refusals;

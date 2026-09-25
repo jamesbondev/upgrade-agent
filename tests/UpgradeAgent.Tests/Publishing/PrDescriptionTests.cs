@@ -15,7 +15,7 @@ public class PrDescriptionTests
         var markdown = PrDescription.Create(Report());
 
         Assert.StartsWith("# chore(deps): NuGet updates 2026-09-23 (1 group)", markdown, StringComparison.Ordinal);
-        Assert.Contains("| Newtonsoft.Json | 13.0.1 | 13.0.4 | patch | ✅ included (`aaaaaaa`) |", markdown, StringComparison.Ordinal);
+        Assert.Contains("| Newtonsoft.Json | 13.0.1 | 13.0.4 | patch | ✅ included (`aaaaaaaa`) |", markdown, StringComparison.Ordinal);
         Assert.Contains("| Fixture.Lib | 1.1.0 | 2.0.0 | major | ❌ rejected |", markdown, StringComparison.Ordinal);
         Assert.Contains("| FluentAssertions | 6.12.0 | 8.0.0 | major | ⏭ skipped |", markdown, StringComparison.Ordinal);
         Assert.Contains("- ❌ **Fixture.Lib** (Fixture.Lib 1.1.0 → 2.0.0): Build: 7 error(s)", markdown, StringComparison.Ordinal);

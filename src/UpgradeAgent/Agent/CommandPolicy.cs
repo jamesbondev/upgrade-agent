@@ -1,6 +1,8 @@
+using UpgradeAgent.Infrastructure;
+
 namespace UpgradeAgent.Agent;
 
-public enum PolicyVerdict
+internal enum PolicyVerdict
 {
     Approve,
     AskOperator,
@@ -8,7 +10,7 @@ public enum PolicyVerdict
 }
 
 /// <param name="Reason">For a rejection, this goes back to the agent as feedback, so it says what to do instead.</param>
-public sealed record PolicyDecision(PolicyVerdict Verdict, string Reason)
+internal sealed record PolicyDecision(PolicyVerdict Verdict, string Reason)
 {
     public static PolicyDecision Approve(string reason) => new(PolicyVerdict.Approve, reason);
 
@@ -25,7 +27,7 @@ public sealed record PolicyDecision(PolicyVerdict Verdict, string Reason)
 /// This is a usability layer on a non-sandboxed shell, not a security boundary: the deterministic
 /// guardrails after the agent finishes are what decide whether its work is kept.
 /// </summary>
-public sealed class CommandPolicy
+internal sealed class CommandPolicy
 {
     private static readonly HashSet<string> SourceExtensions = new(StringComparer.OrdinalIgnoreCase) { ".cs", ".fs", ".vb", ".razor", ".cshtml" };
 
@@ -132,7 +134,7 @@ public sealed class CommandPolicy
             return PolicyDecision.Reject($"'{path}' is outside the working copy; only files in the repository may be edited.");
         }
 
-        var relative = Path.GetRelativePath(_worktree, full).Replace('\\', '/');
+        var relative = RepoPath.Relative(_worktree, full);
         if (relative == ".git" || relative.StartsWith(".git/", StringComparison.Ordinal))
         {
             return PolicyDecision.Reject("The .git folder must not be edited.");

@@ -96,15 +96,15 @@ public class CommandPolicyTests
     }
 
     [Theory]
-    [InlineData("src/LoanLedger/StatementService.cs", PolicyVerdict.Approve)]
-    [InlineData("src/LoanLedger/LoanLedger.csproj", PolicyVerdict.AskOperator)]
-    [InlineData("Directory.Packages.props", PolicyVerdict.AskOperator)]
-    [InlineData(".editorconfig", PolicyVerdict.AskOperator)]
-    [InlineData(".git/config", PolicyVerdict.Reject)]
-    [InlineData("../other-repo/a.cs", PolicyVerdict.Reject)]
-    public void WritesAreApprovedOnlyForSourceFilesInTheWorktree(string relativePath, PolicyVerdict expected)
+    [InlineData("src/LoanLedger/StatementService.cs", nameof(PolicyVerdict.Approve))]
+    [InlineData("src/LoanLedger/LoanLedger.csproj", nameof(PolicyVerdict.AskOperator))]
+    [InlineData("Directory.Packages.props", nameof(PolicyVerdict.AskOperator))]
+    [InlineData(".editorconfig", nameof(PolicyVerdict.AskOperator))]
+    [InlineData(".git/config", nameof(PolicyVerdict.Reject))]
+    [InlineData("../other-repo/a.cs", nameof(PolicyVerdict.Reject))]
+    public void WritesAreApprovedOnlyForSourceFilesInTheWorktree(string relativePath, string expected)
     {
-        Assert.Equal(expected, _policy.EvaluateWrite(Path.Combine(Worktree, relativePath)).Verdict);
+        Assert.Equal(Enum.Parse<PolicyVerdict>(expected), _policy.EvaluateWrite(Path.Combine(Worktree, relativePath)).Verdict);
     }
 
     [Fact]

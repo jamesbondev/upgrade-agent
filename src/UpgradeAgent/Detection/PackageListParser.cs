@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace UpgradeAgent.Detection;
 
 /// <summary>One top-level package reference as reported by <c>dotnet package list --outdated --format json</c>.</summary>
-public sealed record ReportedPackage(
+internal sealed record ReportedPackage(
     string ProjectPath,
     string Framework,
     string Id,
@@ -11,12 +11,12 @@ public sealed record ReportedPackage(
     string ResolvedVersion,
     string? LatestVersion);
 
-public sealed class PackageListException(string message, string rawOutput, Exception? inner = null) : Exception(message, inner)
+internal sealed class PackageListException(string message, string rawOutput, Exception? inner = null) : Exception(message, inner)
 {
     public string RawOutput { get; } = rawOutput;
 }
 
-public static class PackageListParser
+internal static class PackageListParser
 {
     /// <summary>
     /// Parses JSON output (format version 1). Projects with nothing outdated have no <c>frameworks</c>

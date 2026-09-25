@@ -3,7 +3,7 @@ using UpgradeAgent.Infrastructure;
 namespace UpgradeAgent.Publishing;
 
 /// <summary>Pushes with an auth header passed through git's environment-based config, never argv or .git/config.</summary>
-public sealed class GitPush(IProcessRunner processRunner)
+internal sealed class GitPush(IProcessRunner processRunner)
 {
     public async Task<ProcessResult> PushAsync(string worktree, string remoteUrl, string branch, AzureDevOpsCredential credential, CancellationToken cancellationToken) =>
         await processRunner.RunAsync(

@@ -1,11 +1,11 @@
 namespace UpgradeAgent.Infrastructure;
 
-public sealed class GitException(string message, string output) : Exception($"{message}{Environment.NewLine}{output}".TrimEnd());
+internal sealed class GitException(string message, string output) : Exception($"{message}{Environment.NewLine}{output}".TrimEnd());
 
 /// <summary>Thin wrapper over the git CLI. Never prompts: a hidden credential dialog would hang a live demo.</summary>
-public sealed class GitCli(IProcessRunner processRunner)
+internal sealed class GitCli(IProcessRunner processRunner)
 {
-    private static readonly Dictionary<string, string?> Environment = new()
+    private static readonly Dictionary<string, string?> NonInteractiveEnvironment = new()
     {
         ["GIT_TERMINAL_PROMPT"] = "0",
         ["GIT_OPTIONAL_LOCKS"] = "0",
@@ -20,7 +20,7 @@ public sealed class GitCli(IProcessRunner processRunner)
     }
 
     public Task<ProcessResult> TryRunAsync(string repoPath, IReadOnlyList<string> arguments, CancellationToken cancellationToken = default) =>
-        processRunner.RunAsync("git", ["-c", "core.quotepath=false", .. arguments], repoPath, Environment, cancellationToken);
+        processRunner.RunAsync("git", ["-c", "core.quotepath=false", .. arguments], repoPath, NonInteractiveEnvironment, cancellationToken);
 
     public async Task<string> HeadAsync(string repoPath, CancellationToken cancellationToken = default) =>
         (await RunAsync(repoPath, ["rev-parse", "HEAD"], cancellationToken)).Trim();

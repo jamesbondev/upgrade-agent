@@ -1,10 +1,9 @@
-using UpgradeAgent.Run;
 using UpgradeAgent.Ui;
 
 namespace UpgradeAgent.Publishing;
 
 /// <summary>Gets the operator's approval for push_branch and runs it.</summary>
-public interface IPushPublisher
+internal interface IPushPublisher
 {
     Task<PushResult> PublishAsync(PushBranchTool tool, CancellationToken cancellationToken);
 }
@@ -13,7 +12,7 @@ public interface IPushPublisher
 /// Used when no model is live (replay, --agent none): the app calls push_branch itself, behind the same
 /// approval prompt the agent would trigger.
 /// </summary>
-public sealed class DirectPushPublisher(IApprovalPrompter prompter) : IPushPublisher
+internal sealed class DirectPushPublisher(IApprovalPrompter prompter) : IPushPublisher
 {
     public async Task<PushResult> PublishAsync(PushBranchTool tool, CancellationToken cancellationToken)
     {

@@ -2,13 +2,13 @@ using Spectre.Console;
 
 namespace UpgradeAgent.Ui;
 
-public interface IApprovalPrompter
+internal interface IApprovalPrompter
 {
     /// <summary>Asks the operator. Implementations must return false rather than wait when nobody can answer.</summary>
     Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken);
 }
 
-public sealed class ConsoleApprovalPrompter(IAnsiConsole console, object consoleLock) : IApprovalPrompter
+internal sealed class ConsoleApprovalPrompter(IAnsiConsole console, object consoleLock) : IApprovalPrompter
 {
     public Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken)
     {
@@ -26,7 +26,7 @@ public sealed class ConsoleApprovalPrompter(IAnsiConsole console, object console
 }
 
 /// <summary>For pipelines and redirected output: anything that needs a human is declined, never left waiting.</summary>
-public sealed class DeclineAllPrompter : IApprovalPrompter
+internal sealed class DeclineAllPrompter : IApprovalPrompter
 {
     public Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken) => Task.FromResult(false);
 }

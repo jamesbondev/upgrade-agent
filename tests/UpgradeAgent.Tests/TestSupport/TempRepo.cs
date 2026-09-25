@@ -3,7 +3,7 @@ using UpgradeAgent.Infrastructure;
 namespace UpgradeAgent.Tests.TestSupport;
 
 /// <summary>A throwaway git repo in the temp folder.</summary>
-public sealed class TempRepo : IDisposable
+internal sealed class TempRepo : IDisposable
 {
     public TempRepo()
     {

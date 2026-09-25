@@ -4,9 +4,9 @@ using System.Text.Json.Serialization;
 namespace UpgradeAgent.Agent;
 
 /// <summary>The agent's own account of a group. Informational: the app checks the claims against the diff.</summary>
-public sealed record GroupSummary(IReadOnlyList<PackageSummary> Packages);
+internal sealed record GroupSummary(IReadOnlyList<PackageSummary> Packages);
 
-public sealed record PackageSummary(
+internal sealed record PackageSummary(
     string Id,
     string From,
     string To,
@@ -16,9 +16,9 @@ public sealed record PackageSummary(
     IReadOnlyList<string> UpcomingDeprecations,
     IReadOnlyList<string> Unresolved);
 
-public sealed record AppliedFix(string File, string Reason);
+internal sealed record AppliedFix(string File, string Reason);
 
-public static class GroupSummaryParser
+internal static class GroupSummaryParser
 {
     private static readonly JsonSerializerOptions Options = new()
     {

@@ -12,7 +12,7 @@ namespace UpgradeAgent.Publishing;
 /// It lives only in this process: it's never written to .git/config, a remote URL, a command line or the
 /// agent's environment.
 /// </summary>
-public sealed record AzureDevOpsCredential(string Source, string AuthorizationHeader, VssCredentials VssCredentials)
+internal sealed record AzureDevOpsCredential(string Source, string AuthorizationHeader, VssCredentials VssCredentials)
 {
     /// <summary>Azure DevOps' Entra resource ID.</summary>
     private const string Scope = "499b84ac-1321-427f-aa17-267ca6975798/.default";

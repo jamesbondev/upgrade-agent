@@ -1,10 +1,11 @@
 using System.Text.Json;
 using UpgradeAgent.Detection;
 using UpgradeAgent.Run;
+using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Replay;
 
-public sealed record RecordingHeader(
+internal sealed record RecordingHeader(
     string Name,
     DateTimeOffset RecordedUtc,
     string TargetCommit,
@@ -13,13 +14,13 @@ public sealed record RecordingHeader(
     UpgradePlan Plan);
 
 /// <summary>One rendered line of agent activity and when it appeared, relative to the start of the group.</summary>
-public sealed record ActivityLine(double OffsetSeconds, string Markup);
+internal sealed record ActivityLine(double OffsetSeconds, string Markup);
 
 /// <summary>
 /// A recording lives in <c>recordings/&lt;name&gt;/</c>: header.json plus, per group the agent worked on,
 /// the activity it showed, the patch of its changes, and its outcome.
 /// </summary>
-public sealed class Recording(string directory)
+internal sealed class Recording(string directory)
 {
     public string Directory { get; } = directory;
 
@@ -65,5 +66,5 @@ public sealed class Recording(string directory)
     }
 
     private string GroupFolder(string group) =>
-        Path.Combine(Directory, "groups", string.Concat(group.Select(c => char.IsLetterOrDigit(c) || c is '.' or '-' ? c : '_')));
+        Path.Combine(Directory, "groups", RepoPath.SafeFileName(group));
 }

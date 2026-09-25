@@ -1,8 +1,9 @@
 using UpgradeAgent.Infrastructure;
+using UpgradeAgent.Build;
 
 namespace UpgradeAgent.Detection;
 
-public enum OutdatedScope
+internal enum OutdatedScope
 {
     Latest,
     HighestMinor,
@@ -10,19 +11,17 @@ public enum OutdatedScope
 }
 
 /// <summary>The three views of "outdated" that two-step planning needs.</summary>
-public sealed record OutdatedReports(
+internal sealed record OutdatedReports(
     IReadOnlyList<ReportedPackage> Latest,
     IReadOnlyList<ReportedPackage> HighestMinor,
     IReadOnlyList<ReportedPackage> HighestPatch);
 
-public sealed class PackageListRunner(IProcessRunner processRunner)
+internal sealed class PackageListRunner(IProcessRunner processRunner)
 {
     // NuGet audit queries a live vulnerability feed; it adds noise and nondeterminism to detection.
-    private static readonly Dictionary<string, string?> Environment = new()
+    private static readonly Dictionary<string, string?> DetectionEnvironment = new(DotnetCli.BaseEnvironment)
     {
         ["NuGetAudit"] = "false",
-        ["DOTNET_CLI_UI_LANGUAGE"] = "en",
-        ["DOTNET_NOLOGO"] = "1",
     };
 
     public async Task<OutdatedReports> ListAllAsync(string solutionPath, bool includePrerelease, CancellationToken cancellationToken)
@@ -62,7 +61,7 @@ public sealed class PackageListRunner(IProcessRunner processRunner)
         }
 
         var result = await processRunner.RunAsync(
-            "dotnet", arguments, Path.GetDirectoryName(solutionPath)!, Environment, cancellationToken);
+            "dotnet", arguments, Path.GetDirectoryName(solutionPath)!, DetectionEnvironment, cancellationToken);
 
         if (!result.Succeeded)
         {

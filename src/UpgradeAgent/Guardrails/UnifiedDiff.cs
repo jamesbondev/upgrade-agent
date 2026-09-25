@@ -1,9 +1,9 @@
 namespace UpgradeAgent.Guardrails;
 
-public sealed record FileDiff(string Path, IReadOnlyList<string> Added, IReadOnlyList<string> Removed, bool IsNew, bool IsDeleted);
+internal sealed record FileDiff(string Path, IReadOnlyList<string> Added, IReadOnlyList<string> Removed, bool IsNew, bool IsDeleted);
 
 /// <summary>Parses <c>git diff -U0</c> output.</summary>
-public static class UnifiedDiff
+internal static class UnifiedDiff
 {
     public static IReadOnlyList<FileDiff> Parse(string diff)
     {

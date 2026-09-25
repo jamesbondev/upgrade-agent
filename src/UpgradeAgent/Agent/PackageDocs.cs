@@ -4,7 +4,7 @@ using UpgradeAgent.Infrastructure;
 namespace UpgradeAgent.Agent;
 
 /// <summary>Migration material for one package version, found by the app so the agent never has to search the disk.</summary>
-public sealed record PackageDocs(string Id, string Version, string? PackageFolder, IReadOnlyList<string> DocFiles, string? ReleaseNotes, string? ProjectUrl, string? RepositoryUrl)
+internal sealed record PackageDocs(string Id, string Version, string? PackageFolder, IReadOnlyList<string> DocFiles, string? ReleaseNotes, string? ProjectUrl, string? RepositoryUrl)
 {
     /// <summary>Files that describe how to migrate, as opposed to general READMEs.</summary>
     public IEnumerable<string> MigrationFiles => DocFiles.Where(IsMigrationDoc);
@@ -18,7 +18,7 @@ public sealed record PackageDocs(string Id, string Version, string? PackageFolde
     }
 }
 
-public sealed class PackageDocsLocator(IProcessRunner processRunner)
+internal sealed class PackageDocsLocator(IProcessRunner processRunner)
 {
     private static readonly string[] DocPatterns = ["MIGRATION*", "CHANGELOG*", "CHANGES*", "RELEASE*NOTES*", "BREAKING*", "UPGRADING*", "README*"];
 

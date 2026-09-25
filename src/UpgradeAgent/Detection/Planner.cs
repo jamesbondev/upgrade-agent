@@ -5,7 +5,7 @@ using UpgradeAgent.Infrastructure;
 namespace UpgradeAgent.Detection;
 
 /// <summary>Turns <c>dotnet package list</c> reports into an ordered, policy-checked plan. Deterministic; no model involved.</summary>
-public sealed class Planner(PolicyOptions policy, IPackageCompatibilityChecker compatibility, TimeProvider? timeProvider = null)
+internal sealed class Planner(PolicyOptions policy, IPackageCompatibilityChecker compatibility, TimeProvider? timeProvider = null)
 {
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
 
@@ -43,7 +43,7 @@ public sealed class Planner(PolicyOptions policy, IPackageCompatibilityChecker c
             .ThenBy(u => NuGetVersion.Parse(u.From))
             .ToList();
 
-        return new UpgradePlan(_time.GetUtcNow(), Relative(repoRoot, solutionPath), ordered, groups);
+        return new UpgradePlan(_time.GetUtcNow(), RepoPath.Relative(repoRoot, solutionPath), ordered, groups);
     }
 
     private sealed record Step(string Id, NuGetVersion From, NuGetVersion To, BumpKind Kind, ProjectTarget Project, string? ManualReason);
@@ -56,7 +56,7 @@ public sealed class Planner(PolicyOptions policy, IPackageCompatibilityChecker c
             yield break;
         }
 
-        var project = new ProjectTarget(Relative(repoRoot, package.ProjectPath), package.Framework);
+        var project = new ProjectTarget(RepoPath.Relative(repoRoot, package.ProjectPath), package.Framework);
         var final = latest;
         if (policy.TargetOverrides.TryGetValue(package.Id, out var overrideVersion))
         {
@@ -215,9 +215,6 @@ public sealed class Planner(PolicyOptions policy, IPackageCompatibilityChecker c
             return u with { Group = family ?? u.Id };
         }).ToList();
     }
-
-    private static string Relative(string repoRoot, string path) =>
-        Path.GetRelativePath(repoRoot, path).Replace('\\', '/');
 
     private string? FamilyOf(string id) =>
         policy.EffectiveGroups.FirstOrDefault(g => Glob.IsMatchAny(g.Value, id)).Key;

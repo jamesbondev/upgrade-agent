@@ -1,11 +1,13 @@
+using System.Globalization;
 using System.Text;
 using UpgradeAgent.Detection;
 using UpgradeAgent.Run;
+using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Publishing;
 
 /// <summary>Markdown for the pull request, built only from the run report (what the app verified, not what the agent claimed).</summary>
-public static class PrDescription
+internal static class PrDescription
 {
     public static string Title(RunReport report) =>
         $"chore(deps): NuGet updates {report.StartedUtc:yyyy-MM-dd} ({report.Ledger.Count} group{(report.Ledger.Count == 1 ? "" : "s")})";
@@ -13,9 +15,8 @@ public static class PrDescription
     public static string Create(RunReport report)
     {
         var md = new StringBuilder();
-        md.AppendLine($"# {Title(report)}").AppendLine();
-        md.AppendLine($"Automated by **UpgradeAgent** (run `{report.RunId}`, branch `{report.Branch}`). Each group below was bumped, built, tested and " +
-                      "checked by deterministic guardrails before it was committed. The agent's own claims were not trusted. **Please review before merging.**");
+        md.AppendLine(CultureInfo.InvariantCulture, $"# {Title(report)}").AppendLine();
+        md.AppendLine(CultureInfo.InvariantCulture, $"Automated by **UpgradeAgent** (run `{report.RunId}`, branch `{report.Branch}`). Each group below was bumped, built, tested and checked by deterministic guardrails before it was committed. The agent's own claims were not trusted. **Please review before merging.**");
         md.AppendLine();
 
         AppendSummaryTable(md, report);
@@ -37,7 +38,7 @@ public static class PrDescription
             var group = report.Groups.FirstOrDefault(g => string.Equals(g.Name, update.Group, StringComparison.OrdinalIgnoreCase));
             var status = (update.Decision, group?.Status) switch
             {
-                (UpdateDecision.Planned, GroupStatus.Accepted) => $"✅ included (`{group!.Commit![..7]}`)",
+                (UpdateDecision.Planned, GroupStatus.Accepted) => $"✅ included (`{group!.Commit!.ShortSha()}`)",
                 (UpdateDecision.Planned, GroupStatus.Rejected) => "❌ rejected",
                 (UpdateDecision.Planned, GroupStatus.Cancelled) => "⏹ cancelled",
                 (UpdateDecision.Planned, GroupStatus.NothingToDo) => "➖ nothing to do",
@@ -46,7 +47,7 @@ public static class PrDescription
                 (UpdateDecision.NeedsTfmUpgrade, _) => "⚠️ needs TFM upgrade",
                 _ => "⏭ skipped",
             };
-            md.AppendLine($"| {update.Id} | {update.From} | {update.To} | {update.Kind.ToString().ToLowerInvariant()} | {status} |");
+            md.AppendLine(CultureInfo.InvariantCulture, $"| {update.Id} | {update.From} | {update.To} | {update.Kind.ToString().ToLowerInvariant()} | {status} |");
         }
 
         md.AppendLine();
@@ -57,7 +58,7 @@ public static class PrDescription
         md.AppendLine("## Changes by group").AppendLine();
         foreach (var group in report.Groups.Where(g => g.Status == GroupStatus.Accepted))
         {
-            md.AppendLine($"### {group.Name} ✅ `{group.Commit![..7]}`").AppendLine();
+            md.AppendLine(CultureInfo.InvariantCulture, $"### {group.Name} ✅ `{group.Commit!.ShortSha()}`").AppendLine();
             md.AppendLine(string.Join(", ", group.Edits.Select(e => $"{e.Id} {e.From} → {e.To}").Distinct()) + ".").AppendLine();
 
             if (group.Fix is not { Attempted: true })
@@ -69,10 +70,10 @@ public static class PrDescription
             {
                 if (package.BreakingChanges.Count > 0)
                 {
-                    md.AppendLine($"**Breaking changes in {package.Id} {package.To}**");
+                    md.AppendLine(CultureInfo.InvariantCulture, $"**Breaking changes in {package.Id} {package.To}**");
                     foreach (var change in package.BreakingChanges)
                     {
-                        md.AppendLine($"- {change}");
+                        md.AppendLine(CultureInfo.InvariantCulture, $"- {change}");
                     }
 
                     md.AppendLine();
@@ -83,7 +84,7 @@ public static class PrDescription
                     md.AppendLine("**Fixes applied**");
                     foreach (var fix in package.Fixes)
                     {
-                        md.AppendLine($"- `{fix.File}`: {fix.Reason}");
+                        md.AppendLine(CultureInfo.InvariantCulture, $"- `{fix.File}`: {fix.Reason}");
                     }
 
                     md.AppendLine();
@@ -94,7 +95,7 @@ public static class PrDescription
                     md.AppendLine("**Upcoming deprecations**");
                     foreach (var item in package.UpcomingDeprecations)
                     {
-                        md.AppendLine($"- {item}");
+                        md.AppendLine(CultureInfo.InvariantCulture, $"- {item}");
                     }
 
                     md.AppendLine();
@@ -111,7 +112,7 @@ public static class PrDescription
                 md.AppendLine("**Build warnings after the update**");
                 foreach (var warning in warnings.Take(10))
                 {
-                    md.AppendLine($"- {Truncate(warning, 160)}");
+                    md.AppendLine(CultureInfo.InvariantCulture, $"- {warning.Truncate(160)}");
                 }
 
                 md.AppendLine();
@@ -122,7 +123,7 @@ public static class PrDescription
                 md.AppendLine("**Reviewer attention**");
                 foreach (var warning in guardrails.Warnings)
                 {
-                    md.AppendLine($"- {warning}");
+                    md.AppendLine(CultureInfo.InvariantCulture, $"- {warning}");
                 }
 
                 md.AppendLine();
@@ -130,10 +131,10 @@ public static class PrDescription
 
             if (group.Guardrails is { } report2)
             {
-                md.AppendLine($"<details><summary>Guardrails: {report2.Checks.Count(c => c.Passed)}/{report2.Checks.Count} passed</summary>").AppendLine();
+                md.AppendLine(CultureInfo.InvariantCulture, $"<details><summary>Guardrails: {report2.Checks.Count(c => c.Passed)}/{report2.Checks.Count} passed</summary>").AppendLine();
                 foreach (var check in report2.Checks)
                 {
-                    md.AppendLine($"- {(check.Passed ? "✅" : "❌")} {check.Name}: {check.Detail}");
+                    md.AppendLine(CultureInfo.InvariantCulture, $"- {(check.Passed ? "✅" : "❌")} {check.Name}: {check.Detail}");
                 }
 
                 md.AppendLine().AppendLine("</details>").AppendLine();
@@ -142,7 +143,7 @@ public static class PrDescription
             if (group.Fix?.Stats is { } stats)
             {
                 var replayed = group.Fix.Summary.StartsWith("replayed:", StringComparison.Ordinal) ? " (replayed from a recording)" : "";
-                md.AppendLine($"<sub>Agent{replayed}: {stats.Model ?? "unknown model"} · {stats.Duration.TotalMinutes:0.0} min · {stats.ModelCalls} model calls · " +
+                md.AppendLine(CultureInfo.InvariantCulture, $"<sub>Agent{replayed}: {stats.Model ?? "unknown model"} · {stats.Duration.TotalMinutes:0.0} min · {stats.ModelCalls} model calls · " +
                               $"{stats.ToolCalls} tool calls · {stats.InputTokens / 1000}k/{stats.OutputTokens / 1000}k tokens" +
                               $"{(stats.OperatorApprovals > 0 ? $" · {stats.OperatorApprovals} operator approval(s)" : "")}</sub>").AppendLine();
             }
@@ -161,16 +162,16 @@ public static class PrDescription
         md.AppendLine("## Not included").AppendLine();
         foreach (var group in rejected)
         {
-            md.AppendLine($"- ❌ **{group.Name}** ({string.Join(", ", group.Edits.Select(e => $"{e.Id} {e.From} → {e.To}").Distinct())}): {group.Reason}");
+            md.AppendLine(CultureInfo.InvariantCulture, $"- ❌ **{group.Name}** ({string.Join(", ", group.Edits.Select(e => $"{e.Id} {e.From} → {e.To}").Distinct())}): {group.Reason}");
             foreach (var item in group.Fix?.Details?.Packages.SelectMany(p => p.Unresolved) ?? [])
             {
-                md.AppendLine($"  - unresolved: {item}");
+                md.AppendLine(CultureInfo.InvariantCulture, $"  - unresolved: {item}");
             }
         }
 
         foreach (var update in notPlanned)
         {
-            md.AppendLine($"- {update.Id} {update.From} → {update.To}: {update.Decision switch
+            md.AppendLine(CultureInfo.InvariantCulture, $"- {update.Id} {update.From} → {update.To}: {update.Decision switch
             {
                 UpdateDecision.Manual => "needs a manual update",
                 UpdateDecision.NeedsTfmUpgrade => "needs a newer target framework",
@@ -185,17 +186,15 @@ public static class PrDescription
     {
         var stats = report.Groups.Select(g => g.Fix?.Stats).OfType<AgentStats>().ToList();
         md.AppendLine("## Run").AppendLine();
-        md.AppendLine($"- Duration: {report.Duration.TotalMinutes:0.0} min");
-        md.AppendLine($"- Groups: {report.Groups.Count(g => g.Status == GroupStatus.Accepted)} accepted, {report.Groups.Count(g => g.Status == GroupStatus.Rejected)} rejected");
+        md.AppendLine(CultureInfo.InvariantCulture, $"- Duration: {report.Duration.TotalMinutes:0.0} min");
+        md.AppendLine(CultureInfo.InvariantCulture, $"- Groups: {report.Groups.Count(g => g.Status == GroupStatus.Accepted)} accepted, {report.Groups.Count(g => g.Status == GroupStatus.Rejected)} rejected");
         if (stats.Count > 0)
         {
-            md.AppendLine($"- Agent: {stats.Sum(s => s.ModelCalls)} model calls, {stats.Sum(s => s.ToolCalls)} tool calls, " +
+            md.AppendLine(CultureInfo.InvariantCulture, $"- Agent: {stats.Sum(s => s.ModelCalls)} model calls, {stats.Sum(s => s.ToolCalls)} tool calls, " +
                           $"{stats.Sum(s => s.InputTokens) / 1000}k input / {stats.Sum(s => s.OutputTokens) / 1000}k output tokens" +
                           $"{(stats.Sum(s => s.AiCredits) > 0 ? $", {stats.Sum(s => s.AiCredits):0.##} Copilot AI units" : "")}");
         }
 
-        md.AppendLine($"- Target commit: `{report.TargetCommit[..8]}` · SDK {report.SdkVersion}").AppendLine();
+        md.AppendLine(CultureInfo.InvariantCulture, $"- Target commit: `{report.TargetCommit.ShortSha()}` · SDK {report.SdkVersion}").AppendLine();
     }
-
-    private static string Truncate(string text, int length) => text.Length <= length ? text : text[..(length - 1)] + "…";
 }

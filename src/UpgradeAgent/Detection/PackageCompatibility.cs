@@ -8,16 +8,16 @@ using NuGet.Versioning;
 
 namespace UpgradeAgent.Detection;
 
-public enum CompatibilityStatus
+internal enum CompatibilityStatus
 {
     Compatible,
     Incompatible,
     Unknown,
 }
 
-public sealed record CompatibilityResult(CompatibilityStatus Status, string? Detail = null);
+internal sealed record CompatibilityResult(CompatibilityStatus Status, string? Detail = null);
 
-public interface IPackageCompatibilityChecker
+internal interface IPackageCompatibilityChecker
 {
     Task<CompatibilityResult> CheckAsync(string id, string version, IReadOnlyCollection<string> projectFrameworks, CancellationToken cancellationToken);
 }
@@ -28,7 +28,7 @@ public interface IPackageCompatibilityChecker
 /// Failures (for example a private feed that needs credentials) return Unknown; restore is the
 /// authoritative check later (NU1202).
 /// </summary>
-public sealed class NuGetPackageCompatibilityChecker : IPackageCompatibilityChecker
+internal sealed class NuGetPackageCompatibilityChecker : IPackageCompatibilityChecker, IDisposable
 {
     private static readonly TimeSpan SourceTimeout = TimeSpan.FromSeconds(30);
 
@@ -78,6 +78,8 @@ public sealed class NuGetPackageCompatibilityChecker : IPackageCompatibilityChec
             CompatibilityStatus.Unknown,
             failures.Count == 0 ? "package not found on configured sources" : string.Join("; ", failures));
     }
+
+    public void Dispose() => _cache.Dispose();
 
     internal static CompatibilityResult Evaluate(PackageReaderBase reader, IReadOnlyCollection<string> projectFrameworks)
     {

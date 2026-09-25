@@ -5,7 +5,7 @@ using UpgradeAgent.Preflight;
 namespace UpgradeAgent.Ui;
 
 /// <summary>Append-only rendering. Nothing here is live, so prompts can safely follow any output.</summary>
-public static class PlanRenderer
+internal static class PlanRenderer
 {
     public static void RenderPreflight(IAnsiConsole console, IReadOnlyList<PreflightCheck> checks)
     {

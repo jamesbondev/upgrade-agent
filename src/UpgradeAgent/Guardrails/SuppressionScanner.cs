@@ -2,14 +2,14 @@ using System.Text.RegularExpressions;
 
 namespace UpgradeAgent.Guardrails;
 
-public sealed record Violation(string File, string Rule, string Line);
+internal sealed record Violation(string File, string Rule, string Line);
 
 /// <summary>
 /// Looks for ways to make a build or test run pass without fixing anything. Only lines that are
 /// genuinely new to a file count: a line removed and re-added (moved or reformatted) is ignored,
 /// so pre-existing suppressions don't cause false rejections.
 /// </summary>
-public static partial class SuppressionScanner
+internal static partial class SuppressionScanner
 {
     private static readonly (string Rule, Regex Pattern)[] Rules =
     [

@@ -7,7 +7,7 @@ namespace UpgradeAgent.Agent;
 /// exactly this dictionary (verified: it replaces the inherited environment), so dropping a name here
 /// really hides it.
 /// </summary>
-public static class AgentEnvironment
+internal static class AgentEnvironment
 {
     private static readonly string[] SecretNames =
     [

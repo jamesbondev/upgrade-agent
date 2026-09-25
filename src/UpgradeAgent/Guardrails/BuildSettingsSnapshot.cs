@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using UpgradeAgent.Bumping;
+using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Guardrails;
 
@@ -7,7 +8,7 @@ namespace UpgradeAgent.Guardrails;
 /// Everything the agent must not change: package version entries, TargetFramework(s), LangVersion and
 /// global.json. Taken after the app's bump and compared after the agent finishes.
 /// </summary>
-public static partial class BuildSettingsSnapshot
+internal static partial class BuildSettingsSnapshot
 {
     public static IReadOnlySet<string> Take(string repoRoot, IEnumerable<string> relativeFiles)
     {
@@ -27,7 +28,7 @@ public static partial class BuildSettingsSnapshot
                 continue;
             }
 
-            if (!IsMsBuildFile(relative))
+            if (!MsBuildFiles.IsMsBuildFile(relative))
             {
                 continue;
             }
@@ -46,9 +47,6 @@ public static partial class BuildSettingsSnapshot
 
         return entries;
     }
-
-    public static bool IsMsBuildFile(string path) =>
-        Path.GetExtension(path).ToLowerInvariant() is ".csproj" or ".fsproj" or ".vbproj" or ".props" or ".targets";
 
     [GeneratedRegex(@"<(?<name>TargetFrameworks?|LangVersion|ManagePackageVersionsCentrally|CentralPackageTransitivePinningEnabled)\b[^>]*>(?<value>[^<]*)</\k<name>>")]
     private static partial Regex GuardedProperty();

@@ -4,9 +4,9 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Guardrails;
 
-public sealed record GuardrailCheck(string Name, bool Passed, string Detail);
+internal sealed record GuardrailCheck(string Name, bool Passed, string Detail);
 
-public sealed record GuardrailReport(IReadOnlyList<GuardrailCheck> Checks, IReadOnlyList<string> Warnings)
+internal sealed record GuardrailReport(IReadOnlyList<GuardrailCheck> Checks, IReadOnlyList<string> Warnings)
 {
     public bool Passed => Checks.All(c => c.Passed);
 
@@ -14,10 +14,10 @@ public sealed record GuardrailReport(IReadOnlyList<GuardrailCheck> Checks, IRead
 }
 
 /// <summary>What the reviewer notes compare against: the files the agent says it fixed, and the files the app itself changed.</summary>
-public sealed record ReviewContext(IReadOnlyCollection<string>? ClaimedFiles, IReadOnlyCollection<string> AppChangedFiles);
+internal sealed record ReviewContext(IReadOnlyCollection<string>? ClaimedFiles, IReadOnlyCollection<string> AppChangedFiles);
 
 /// <summary>State captured when a group starts (after the app's bump), compared when it ends.</summary>
-public sealed record GroupStartState(
+internal sealed record GroupStartState(
     string Commit,
     IReadOnlySet<string> BuildSettings,
     IReadOnlySet<string> IgnoredFiles);
@@ -26,7 +26,7 @@ public sealed record GroupStartState(
 /// Deterministic checks run by the app after every group. The agent can't see or influence them;
 /// a failure reverts the group.
 /// </summary>
-public sealed partial class GuardrailRunner(GitCli git)
+internal sealed partial class GuardrailRunner(GitCli git)
 {
     public async Task<GroupStartState> CaptureStartAsync(string worktree, string commit, CancellationToken cancellationToken)
     {
@@ -52,7 +52,7 @@ public sealed partial class GuardrailRunner(GitCli git)
         var head = await git.HeadAsync(worktree, cancellationToken);
         checks.Add(head == start.Commit
             ? new GuardrailCheck("Git state", true, "HEAD unchanged")
-            : new GuardrailCheck("Git state", false, $"HEAD moved from {start.Commit[..8]} to {head[..8]}; only the app may commit"));
+            : new GuardrailCheck("Git state", false, $"HEAD moved from {start.Commit.ShortSha()} to {head.ShortSha()}; only the app may commit"));
 
         checks.Add(build.Succeeded
             ? new GuardrailCheck("Build", true, $"{build.Warnings.Count} warning(s)")
@@ -65,7 +65,7 @@ public sealed partial class GuardrailRunner(GitCli git)
         checks.Add(violations.Count == 0
             ? new GuardrailCheck("No suppressions or skips", true, $"{diffs.Count} file(s) changed")
             : new GuardrailCheck("No suppressions or skips", false,
-                string.Join("; ", violations.Take(5).Select(v => $"{v.Rule} in {v.File}")) + (violations.Count > 5 ? $" (+{violations.Count - 5} more)" : "")));
+                violations.Select(v => $"{v.Rule} in {v.File}").JoinLimited(5)));
 
         var tracked = await git.ListFilesAsync(worktree, cancellationToken);
         var untracked = await git.ListUntrackedAsync(worktree, cancellationToken);
@@ -75,7 +75,7 @@ public sealed partial class GuardrailRunner(GitCli git)
         checks.Add(added.Count == 0 && removed.Count == 0
             ? new GuardrailCheck("Package versions and build settings", true, "unchanged since the bump")
             : new GuardrailCheck("Package versions and build settings", false,
-                string.Join("; ", removed.Select(r => $"- {r}").Concat(added.Select(a => $"+ {a}")).Take(4))));
+                removed.Select(r => $"- {r}").Concat(added.Select(a => $"+ {a}")).JoinLimited(4)));
 
         var deletedTests = diffs.Where(d => d.IsDeleted && baseline.TestFiles.Contains(d.Path)).Select(d => d.Path).ToList();
         var newIgnored = (await IgnoredFilesAsync(worktree, cancellationToken)).Except(start.IgnoredFiles).ToList();
@@ -114,14 +114,8 @@ public sealed partial class GuardrailRunner(GitCli git)
             yield break;
         }
 
-        static string Normalize(string path)
-        {
-            var normalized = path.Replace('\\', '/');
-            return normalized.StartsWith("./", StringComparison.Ordinal) ? normalized[2..] : normalized;
-        }
-
-        var changed = diffs.Select(d => Normalize(d.Path)).Except(review.AppChangedFiles.Select(Normalize), StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var claimed = review.ClaimedFiles.Select(Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var changed = diffs.Select(d => RepoPath.Normalize(d.Path)).Except(review.AppChangedFiles.Select(RepoPath.Normalize), StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var claimed = review.ClaimedFiles.Select(RepoPath.Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var file in claimed.Where(c => !changed.Contains(c)).Order(StringComparer.Ordinal))
         {
@@ -158,7 +152,7 @@ public sealed partial class GuardrailRunner(GitCli git)
             return shortfalls.Count == 0
                 ? new GuardrailCheck(Name, true, $"{tests.Inventory.Passed} passed; every baseline test method still passes")
                 : new GuardrailCheck(Name, false,
-                    $"{shortfalls.Count} test method(s) missing or with fewer passing rows: {string.Join(", ", shortfalls.Take(3))}");
+                    $"{shortfalls.Count} test method(s) missing or with fewer passing rows: {shortfalls.JoinLimited(3, ", ")}");
         }
 
         // No TRX on one side: fall back to totals, and say so.
@@ -212,7 +206,7 @@ public sealed partial class GuardrailRunner(GitCli git)
         }
     }
 
-    internal static int CountAssertions(string code) => Assertion().Matches(code).Count;
+    internal static int CountAssertions(string code) => Assertion().Count(code);
 
     [GeneratedRegex(@"(^|/)(bin|obj|TestResults|\.vs|\.idea)(/|$)")]
     private static partial Regex BuildOutput();

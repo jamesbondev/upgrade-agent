@@ -4,13 +4,13 @@ using System.Text.RegularExpressions;
 namespace UpgradeAgent.Agent;
 
 /// <summary>A command line split into simple commands (by <c>&amp;&amp;</c>, <c>||</c>, <c>;</c> and <c>|</c>).</summary>
-public sealed record ParsedCommand(IReadOnlyList<IReadOnlyList<string>> Segments);
+internal sealed record ParsedCommand(IReadOnlyList<IReadOnlyList<string>> Segments);
 
 /// <summary>
 /// A deliberately small POSIX/PowerShell-ish tokenizer. Anything it can't reason about (substitution,
 /// redirection, background jobs, script blocks, multi-line input) is refused rather than guessed at.
 /// </summary>
-public static partial class ShellCommandParser
+internal static partial class ShellCommandParser
 {
     public static ParsedCommand Parse(string commandLine, out string? error)
     {

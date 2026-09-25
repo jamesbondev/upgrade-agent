@@ -5,11 +5,12 @@ using UpgradeAgent.Detection;
 using UpgradeAgent.Guardrails;
 using UpgradeAgent.Run;
 using UpgradeAgent.Workspace;
+using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Ui;
 
 /// <summary>Append-only run output: every call writes new lines and never redraws, so prompts are safe anywhere.</summary>
-public sealed class RunRenderer(IAnsiConsole console)
+internal sealed class RunRenderer(IAnsiConsole console)
 {
     private const int MaxErrorsShown = 8;
 
@@ -63,7 +64,7 @@ public sealed class RunRenderer(IAnsiConsole console)
         var detail = baseline.Tests is not null
             ? $"{baseline.Tests.Passed} tests passed across {baseline.Tests.Methods.Count} test methods"
             : $"{baseline.PassedCount} tests passed (no TRX: count-only)";
-        console.MarkupLine($"[green]✓[/] Baseline ({source}, {Markup.Escape(baseline.Commit[..8])}): {Markup.Escape(detail)}");
+        console.MarkupLine($"[green]✓[/] Baseline ({source}, {Markup.Escape(baseline.Commit.ShortSha())}): {Markup.Escape(detail)}");
         console.WriteLine();
     }
 
@@ -101,7 +102,7 @@ public sealed class RunRenderer(IAnsiConsole console)
         console.MarkupLine($"  [red]✗[/] {label} failed [grey]{seconds}[/]: {build.Errors.Count} error(s)");
         if (build.Errors.Count == 0)
         {
-            console.WriteLine(Tail(build.Output, 15));
+            console.WriteLine(string.Join(Environment.NewLine, build.Output.TailLines(15)));
             return;
         }
 
@@ -112,7 +113,7 @@ public sealed class RunRenderer(IAnsiConsole console)
             table.AddRow(
                 new Markup($"[red]{Markup.Escape(error.Code)}[/]"),
                 new Markup(Markup.Escape(location)),
-                new Markup(Markup.Escape(Truncate(error.Message, 110))));
+                new Markup(Markup.Escape(error.Message.Truncate(110))));
         }
 
         console.Write(table);
@@ -182,7 +183,7 @@ public sealed class RunRenderer(IAnsiConsole console)
     {
         var line = result.Status switch
         {
-            GroupStatus.Accepted => $"[green]Accepted[/] → commit [blue]{Markup.Escape(result.Commit![..8])}[/]",
+            GroupStatus.Accepted => $"[green]Accepted[/] → commit [blue]{Markup.Escape(result.Commit!.ShortSha())}[/]",
             GroupStatus.NothingToDo => $"[grey]Nothing to do:[/] {Markup.Escape(result.Reason ?? "")}",
             GroupStatus.Cancelled => $"[yellow]Cancelled:[/] {Markup.Escape(result.Reason ?? "")}",
             _ => $"[red]Rejected and reverted:[/] {Markup.Escape(result.Reason ?? "")}",
@@ -209,7 +210,7 @@ public sealed class RunRenderer(IAnsiConsole console)
                 new Markup(Markup.Escape(group.Name)),
                 new Markup(status),
                 new Markup(Markup.Escape(changes)),
-                new Markup(Markup.Escape(group.Status == GroupStatus.Accepted ? group.Commit![..8] : Truncate(group.Reason ?? "", 90))));
+                new Markup(Markup.Escape(group.Status == GroupStatus.Accepted ? group.Commit!.ShortSha() : (group.Reason ?? "").Truncate(90))));
         }
 
         console.Write(table);
@@ -225,8 +226,4 @@ public sealed class RunRenderer(IAnsiConsole console)
     private static string TopCodes(IReadOnlyList<Diagnostic> diagnostics) =>
         string.Join(", ", diagnostics.GroupBy(d => d.Code).OrderByDescending(g => g.Count()).Take(3).Select(g => $"{g.Key}×{g.Count()}"));
 
-    private static string Truncate(string text, int length) => text.Length <= length ? text : text[..(length - 1)] + "…";
-
-    private static string Tail(string text, int lines) =>
-        string.Join(Environment.NewLine, text.Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Length > 0).TakeLast(lines));
 }

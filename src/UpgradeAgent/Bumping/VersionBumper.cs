@@ -1,14 +1,15 @@
 using System.Text;
 using NuGet.Versioning;
 using UpgradeAgent.Detection;
+using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Bumping;
 
-public sealed record VersionEdit(string File, string Id, string From, string To);
+internal sealed record VersionEdit(string File, string Id, string From, string To);
 
-public sealed record ManualUpdate(PlannedUpdate Update, string Reason);
+internal sealed record ManualUpdate(PlannedUpdate Update, string Reason);
 
-public sealed record BumpResult(IReadOnlyList<VersionEdit> Edits, IReadOnlyList<ManualUpdate> Manual);
+internal sealed record BumpResult(IReadOnlyList<VersionEdit> Edits, IReadOnlyList<ManualUpdate> Manual);
 
 /// <summary>
 /// Applies a group's version steps to the files that govern each project: the project file, the nearest
@@ -16,10 +17,8 @@ public sealed record BumpResult(IReadOnlyList<VersionEdit> Edits, IReadOnlyList<
 /// "from" version, or an older one (an earlier step for that package was rejected). Anything else is left
 /// for a human.
 /// </summary>
-public static class VersionBumper
+internal static class VersionBumper
 {
-    private static readonly string[] InheritedFiles = ["Directory.Packages.props", "Directory.Build.props", "Directory.Build.targets"];
-
     public static BumpResult Apply(string repoRoot, IReadOnlyList<PlannedUpdate> updates)
     {
         var texts = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -40,7 +39,7 @@ public static class VersionBumper
                     text = texts[file] = File.ReadAllText(file);
                 }
 
-                var relative = Path.GetRelativePath(repoRoot, file).Replace('\\', '/');
+                var relative = RepoPath.Relative(repoRoot, file);
                 foreach (var entry in VersionEntryScanner.Scan(text).Where(e => string.Equals(e.Id, update.Id, StringComparison.OrdinalIgnoreCase)))
                 {
                     if (entry.HasVersionOverride)
@@ -102,18 +101,12 @@ public static class VersionBumper
             yield return project;
         }
 
-        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(repoRoot));
-        foreach (var name in InheritedFiles)
+        // MSBuild imports only the nearest one of each (unless it imports its parent explicitly).
+        foreach (var name in MsBuildFiles.VersionGoverning)
         {
-            // MSBuild imports only the nearest one of each (unless it imports its parent explicitly).
-            for (var directory = Path.GetDirectoryName(project); directory is not null && directory.Length >= root.Length; directory = Path.GetDirectoryName(directory))
+            if (MsBuildFiles.FindNearest(Path.GetDirectoryName(project)!, name, repoRoot) is { } nearest)
             {
-                var candidate = Path.Combine(directory, name);
-                if (File.Exists(candidate))
-                {
-                    yield return candidate;
-                    break;
-                }
+                yield return nearest;
             }
         }
     }

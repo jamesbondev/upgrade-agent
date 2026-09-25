@@ -173,15 +173,15 @@ public class PlannerTests
     }
 
     [Theory]
-    [InlineData("10.0.0", UpdateDecision.Planned)]
-    [InlineData("11.0.0", UpdateDecision.Manual)]
-    public async Task MaxMajorJumpAppliesToTargetOverrides(string target, UpdateDecision expected)
+    [InlineData("10.0.0", nameof(UpdateDecision.Planned))]
+    [InlineData("11.0.0", nameof(UpdateDecision.Manual))]
+    public async Task MaxMajorJumpAppliesToTargetOverrides(string target, string expected)
     {
         var policy = new PolicyOptions { TargetOverrides = { ["Old.Lib"] = target } };
 
         var plan = await CreatePlanAsync(new Reports().Add(App, "Old.Lib", "8.0.0", latest: "16.0.0"), policy);
 
-        Assert.Equal(expected, Assert.Single(plan.Updates).Decision);
+        Assert.Equal(Enum.Parse<UpdateDecision>(expected), Assert.Single(plan.Updates).Decision);
     }
 
     [Fact]

@@ -7,7 +7,7 @@ namespace UpgradeAgent.Workspace;
 /// MSBuild and NuGet read Directory.Build.*, Directory.Packages.props, nuget.config and global.json
 /// from parent folders, so a worktree elsewhere could build differently from the real repo.
 /// </summary>
-public sealed record RunWorkspace(
+internal sealed record RunWorkspace(
     string RepoPath,
     string WorkRoot,
     string RunId,
@@ -16,14 +16,6 @@ public sealed record RunWorkspace(
     string SolutionPath,
     string OutputDirectory)
 {
-    // Matched case-insensitively against the files that actually exist: probing "nuget.config" and
-    // "NuGet.Config" separately finds the same file twice on case-insensitive file systems (Windows).
-    private static readonly HashSet<string> InheritedConfigFiles = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "Directory.Build.props", "Directory.Build.targets", "Directory.Build.rsp", "Directory.Packages.props",
-        "nuget.config", "global.json", ".editorconfig",
-    };
-
     public static string DefaultWorkRoot(string repoPath) =>
         Path.Combine(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(repoPath))!, ".ua-work");
 
@@ -59,7 +51,9 @@ public sealed record RunWorkspace(
              current is not null;
              current = Path.GetDirectoryName(current))
         {
-            foreach (var file in FilesIn(current).Where(f => InheritedConfigFiles.Contains(Path.GetFileName(f))))
+            // Matched case-insensitively against the files that actually exist: probing "nuget.config" and
+            // "NuGet.Config" separately finds the same file twice on case-insensitive file systems (Windows).
+            foreach (var file in FilesIn(current).Where(f => MsBuildFiles.InheritedConfig.Contains(Path.GetFileName(f))))
             {
                 yield return file;
             }

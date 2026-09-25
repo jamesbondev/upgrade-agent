@@ -113,7 +113,8 @@ static async Task<int> RunPlanAsync(FileInfo? configFile, string[] only, FileInf
         var reports = await new PackageListRunner(processRunner)
             .ListAllAsync(config.SolutionPath, config.Options.Policy.IncludePrerelease, cancellationToken);
 
-        var planner = new Planner(config.Options.Policy, new NuGetPackageCompatibilityChecker(config.RepoPath));
+        using var compatibility = new NuGetPackageCompatibilityChecker(config.RepoPath);
+        var planner = new Planner(config.Options.Policy, compatibility);
         var plan = await planner.CreateAsync(reports, config.RepoPath, config.SolutionPath, only, cancellationToken);
         PlanRenderer.RenderPlan(console, plan, config.RepoPath);
 
@@ -184,7 +185,7 @@ static async Task<int> RunUpgradeAsync(
             if (header.TargetCommit != head)
             {
                 throw new ConfigurationException(
-                    $"Recording '{replayName}' was made at commit {header.TargetCommit[..8]}; the repo is at {head[..8]}. The recorded patches only apply to the same commit. Record again.");
+                    $"Recording '{replayName}' was made at commit {header.TargetCommit.ShortSha()}; the repo is at {head.ShortSha()}. The recorded patches only apply to the same commit. Record again.");
             }
 
             if (header.SdkVersion != sdk)

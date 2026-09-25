@@ -3,14 +3,14 @@ using System.Text;
 
 namespace UpgradeAgent.Infrastructure;
 
-public sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError)
+internal sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError)
 {
     public bool Succeeded => ExitCode == 0;
 
     public string CombinedOutput => StandardError.Length == 0 ? StandardOutput : $"{StandardOutput}{Environment.NewLine}{StandardError}";
 }
 
-public interface IProcessRunner
+internal interface IProcessRunner
 {
     /// <param name="environment">Variables to set; a null value removes the variable from the child's environment.</param>
     Task<ProcessResult> RunAsync(
@@ -21,7 +21,7 @@ public interface IProcessRunner
         CancellationToken cancellationToken = default);
 }
 
-public sealed class ProcessRunner : IProcessRunner
+internal sealed class ProcessRunner : IProcessRunner
 {
     public async Task<ProcessResult> RunAsync(
         string fileName,

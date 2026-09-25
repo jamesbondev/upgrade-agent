@@ -2,13 +2,13 @@ using System.Xml.Linq;
 
 namespace UpgradeAgent.Guardrails;
 
-public sealed record MethodStats(int Passed, int Failed, int Skipped);
+internal sealed record MethodStats(int Passed, int Failed, int Skipped);
 
 /// <summary>
 /// Test results keyed by <c>assembly [framework] Class.Method</c>. Theory rows are counted under
 /// their method: display names embed arguments, which legitimately change when a parameter type does.
 /// </summary>
-public sealed record TestInventory(IReadOnlyDictionary<string, MethodStats> Methods)
+internal sealed record TestInventory(IReadOnlyDictionary<string, MethodStats> Methods)
 {
     public int Passed => Methods.Values.Sum(m => m.Passed);
 
@@ -19,7 +19,7 @@ public sealed record TestInventory(IReadOnlyDictionary<string, MethodStats> Meth
     public int Total => Passed + Failed + Skipped;
 }
 
-public static class TrxParser
+internal static class TrxParser
 {
     private static readonly XNamespace Ns = "http://microsoft.com/schemas/VisualStudio/TeamTest/2010";
 

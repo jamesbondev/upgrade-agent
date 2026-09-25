@@ -4,7 +4,7 @@ using UpgradeAgent.Run;
 
 namespace UpgradeAgent.Publishing;
 
-public sealed record PushResult(bool Pushed, bool Refused, string Message);
+internal sealed record PushResult(bool Pushed, bool Refused, string Message);
 
 /// <summary>
 /// The only way a run's branch leaves the machine. It is exposed to the agent as an approval-required
@@ -12,7 +12,7 @@ public sealed record PushResult(bool Pushed, bool Refused, string Message);
 /// HEAD must be the last commit in the ledger and the worktree must be clean.
 /// </summary>
 /// <param name="destination">Where a real push goes (shown in the approval prompt); null means the repo's origin.</param>
-public sealed class PushBranchTool(GitCli git, RunReport report, bool dryRun, Func<CancellationToken, Task<PushResult>>? push = null, string? destination = null)
+internal sealed class PushBranchTool(GitCli git, RunReport report, bool dryRun, Func<CancellationToken, Task<PushResult>>? push = null, string? destination = null)
 {
     public const string Name = "push_branch";
 
@@ -47,7 +47,7 @@ public sealed class PushBranchTool(GitCli git, RunReport report, bool dryRun, Fu
         var head = await git.HeadAsync(worktree, cancellationToken);
         if (head != report.Ledger[^1])
         {
-            return new PushResult(false, true, $"Refused: HEAD {head[..8]} is not the last verified commit {report.Ledger[^1][..8]}.");
+            return new PushResult(false, true, $"Refused: HEAD {head.ShortSha()} is not the last verified commit {report.Ledger[^1].ShortSha()}.");
         }
 
         var changes = (await git.StatusAsync(worktree, includeIgnored: false, cancellationToken)).Count;

@@ -127,7 +127,7 @@ public sealed class CheckOrchestratorTests : IAsyncLifetime, IDisposable
         var accepted = Enumerable.Range(0, issues).Select(_ => new ReadmeIssue { Kind = IssueKind.Other, Quote = "q", SuggestedFix = "f" }).ToList();
         var outcome = new AssessmentOutcome(verdict is null ? null : Enum.Parse<AssessedVerdict>(verdict), accepted, [], null, null, failure);
 
-        var report = CheckOrchestrator.Combine(RepoReport.For(new RepoTarget("r", null, "/r", null), RepoVerdict.Unassessed), scan, outcome);
+        var report = RepoInspector.Combine(RepoReport.For(new RepoTarget("r", null, "/r", null), RepoVerdict.Unassessed), scan, outcome);
 
         Assert.Equal(Enum.Parse<RepoVerdict>(expected), report.Verdict);
     }
@@ -141,7 +141,8 @@ public sealed class CheckOrchestratorTests : IAsyncLifetime, IDisposable
         var config = new ResolvedConfig(options, repos, _out.Path, _work.Path);
         var credentials = new AzureDevOpsCredentialProvider(new AzureDevOpsAuthOptions { UseAzureIdentity = false }, _ => null);
         var assessor = new ReadmeAssessor(factory, options.Agent, TimeProvider.System);
-        return new CheckOrchestrator(config, new GitCli(new ProcessRunner()), credentials, assessor, progress, TimeProvider.System);
+        var inspector = new RepoInspector(config, new GitCli(new ProcessRunner()), credentials, assessor, TimeProvider.System);
+        return new CheckOrchestrator(inspector, progress, TimeProvider.System);
     }
 
     private static RepoTarget Local(string name, TempRepo repo) => new(name, null, repo.Path, null);

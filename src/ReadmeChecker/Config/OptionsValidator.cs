@@ -44,6 +44,21 @@ internal sealed class OptionsValidator : IValidateOptions<ReadmeCheckerOptions>
         RequirePositive(options.Agent.MaxToolCalls, "Agent:MaxToolCalls");
         RequirePositive(options.Agent.MaxRefusals, "Agent:MaxRefusals");
         RequirePositive(options.Output.CloneTimeoutMinutes, "Output:CloneTimeoutMinutes");
+        if (options.Readme.MinKeptRatio is < 0 or > 1)
+        {
+            failures.Add("Readme:MinKeptRatio must be between 0 and 1.");
+        }
+
+        if (options.Publish.CooldownDays < 0)
+        {
+            failures.Add("Publish:CooldownDays must be 0 or more.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Publish.BranchPrefix) || options.Publish.BranchPrefix.Contains(' ', StringComparison.Ordinal))
+        {
+            failures.Add("Publish:BranchPrefix must be a branch name prefix with no spaces, like agent/readme-refresh-.");
+        }
+
         if (options.Agent.MaxAiCreditsPerRun < 0)
         {
             failures.Add("Agent:MaxAiCreditsPerRun must be 0 (no cap) or more.");

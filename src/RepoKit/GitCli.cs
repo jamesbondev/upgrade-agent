@@ -6,6 +6,8 @@ public sealed class GitException(string message, string output) : Exception($"{m
 
 public sealed record GitCommit(string Sha, DateTimeOffset Date);
 
+public sealed record GitIdentity(string Name, string Email);
+
 public sealed class GitCli
 {
     private static readonly Dictionary<string, string?> NonInteractiveEnvironment = new()
@@ -121,6 +123,56 @@ public sealed class GitCli
         arguments.AddRange([sinceCommit, "HEAD"]);
         return SplitNul(await RunAsync(repoPath, arguments, cancellationToken));
     }
+
+    public async Task<string> DefaultBranchAsync(string repoPath, CancellationToken cancellationToken = default)
+    {
+        var remoteHead = await TryRunAsync(repoPath, ["rev-parse", "--abbrev-ref", "origin/HEAD"], cancellationToken);
+        return remoteHead.Succeeded && remoteHead.StandardOutput.Trim() is var name && name.StartsWith("origin/", StringComparison.Ordinal)
+            ? name["origin/".Length..]
+            : (await RunAsync(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"], cancellationToken)).Trim();
+    }
+
+    public Task CreateBranchAsync(string repoPath, string branch, CancellationToken cancellationToken = default) =>
+        RunAsync(repoPath, ["switch", "-q", "-c", branch], cancellationToken);
+
+    public async Task<bool> HasIdentityAsync(string repoPath, CancellationToken cancellationToken = default) =>
+        (await TryRunAsync(repoPath, ["config", "user.email"], cancellationToken)).Succeeded
+        && (await TryRunAsync(repoPath, ["config", "user.name"], cancellationToken)).Succeeded;
+
+    public async Task<string> CommitPathsAsync(
+        string repoPath, IReadOnlyList<string> paths, string message, GitIdentity fallbackIdentity, bool runHooks = false, CancellationToken cancellationToken = default)
+    {
+        var start = await HeadAsync(repoPath, cancellationToken);
+        await RunAsync(repoPath, ["add", "--", .. paths.Select(Literal)], cancellationToken);
+        var verifiedTree = (await RunAsync(repoPath, ["write-tree"], cancellationToken)).Trim();
+
+        List<string> arguments = await HasIdentityAsync(repoPath, cancellationToken)
+            ? []
+            : ["-c", $"user.name={fallbackIdentity.Name}", "-c", $"user.email={fallbackIdentity.Email}"];
+        arguments.AddRange(["commit", "-q", "-m", message]);
+        if (!runHooks)
+        {
+            arguments.Add("--no-verify");
+        }
+
+        var result = await TryRunAsync(repoPath, arguments, cancellationToken);
+        if (!result.Succeeded)
+        {
+            await RunAsync(repoPath, ["reset", "-q", start], CancellationToken.None);
+            throw new GitException("git commit was refused (a pre-commit or commit-msg hook?).", result.CombinedOutput);
+        }
+
+        if ((await RunAsync(repoPath, ["rev-parse", "HEAD^{tree}"], cancellationToken)).Trim() != verifiedTree)
+        {
+            await RunAsync(repoPath, ["reset", "-q", "--hard", start], CancellationToken.None);
+            throw new GitException("A git hook changed the committed files after they were checked, so the commit was undone.", "");
+        }
+
+        return await HeadAsync(repoPath, cancellationToken);
+    }
+
+    public Task<string> PushAsync(string repoPath, string remoteUrl, string branch, CancellationToken cancellationToken = default) =>
+        RunAsync(repoPath, ["push", "--porcelain", GitAuth.CleanUrl(remoteUrl), $"HEAD:refs/heads/{branch}"], cancellationToken);
 
     internal static IReadOnlyList<string> SplitLines(string output) =>
         output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);

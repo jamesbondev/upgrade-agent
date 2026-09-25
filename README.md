@@ -9,8 +9,8 @@ The repo also holds the pieces for apps that work across many repos:
 | Component | What it is |
 |---|---|
 | [RepoKit](src/RepoKit/README.md) | Standalone library with no packages: processes, git, and clones of a repo into a throwaway workspace. |
-| [RepoKit.AzureDevOps](src/RepoKit.AzureDevOps/README.md) | Standalone library: Azure DevOps credentials and repo addresses. |
-| [ReadmeChecker](src/ReadmeChecker/README.md) | App: clones the repos you list and reports the READMEs that no longer match their repo. |
+| [RepoKit.AzureDevOps](src/RepoKit.AzureDevOps/README.md) | Standalone library: Azure DevOps credentials, repo addresses and draft pull requests. |
+| [ReadmeChecker](src/ReadmeChecker/README.md) | App: clones the repos you list, reports the READMEs that no longer match their repo, and can open draft PRs that fix them. |
 
 See [PLAN.md](PLAN.md) for the design and milestones. **Current status: M8.** The full pipeline works, including publishing to Azure DevOps, and the codebase has been through a maintainability cleanup (see [How it works with the LLM](#how-it-works-with-the-llm)).
 

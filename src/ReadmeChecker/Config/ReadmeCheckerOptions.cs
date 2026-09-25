@@ -13,6 +13,8 @@ internal sealed class ReadmeCheckerOptions
     public AgentOptions Agent { get; set; } = new();
 
     public OutputOptions Output { get; set; } = new();
+
+    public PublishOptions Publish { get; set; } = new();
 }
 
 internal sealed class AzureDevOpsSettings
@@ -56,6 +58,8 @@ internal sealed class ReadmeOptions
     public int RecentCommits { get; set; } = 20;
 
     public int MaxCandidates { get; set; } = 25;
+
+    public double MinKeptRatio { get; set; } = 0.5;
 }
 
 internal enum AgentProvider
@@ -96,4 +100,17 @@ internal sealed class OutputOptions
     public bool KeepClones { get; set; }
 
     public int CloneTimeoutMinutes { get; set; } = 5;
+}
+
+internal sealed class PublishOptions
+{
+    public string BranchPrefix { get; set; } = "agent/readme-refresh-";
+
+    public string Label { get; set; } = "agent-generated";
+
+    public int CooldownDays { get; set; } = 30;
+
+    public string CommitName { get; set; } = "ReadmeChecker";
+
+    public string CommitEmail { get; set; } = "readme-checker@localhost";
 }

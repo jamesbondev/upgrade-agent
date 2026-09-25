@@ -4,7 +4,9 @@ using Microsoft.Extensions.Options;
 using ReadmeChecker.Agent;
 using ReadmeChecker.Cli;
 using ReadmeChecker.Config;
+using ReadmeChecker.Fixing;
 using ReadmeChecker.Infrastructure;
+using ReadmeChecker.Publishing;
 using ReadmeChecker.Run;
 using ReadmeChecker.Ui;
 using RepoKit;
@@ -40,8 +42,17 @@ internal static class AppServices
 
         services.AddSingleton<IAgentBackendFactory, CopilotBackendFactory>();
         services.AddSingleton<IReadmeAssessor, ReadmeAssessor>();
+        services.AddSingleton<IReadmeFixer, ReadmeFixer>();
+        services.AddSingleton<RepoInspector>();
         services.AddSingleton<CheckOrchestrator>();
         services.AddSingleton<CheckCommandHandler>();
+
+        services.AddSingleton<HttpClient>();
+        services.AddSingleton<IPullRequestHosts>(sp => new AzureDevOpsPullRequestHosts(
+            sp.GetRequiredService<HttpClient>(), sp.GetRequiredService<ResolvedConfig>().Options.Publish));
+        services.AddSingleton<IFixProgress, ConsoleFixProgress>();
+        services.AddSingleton<FixOrchestrator>();
+        services.AddSingleton<FixCommandHandler>();
 
         var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
         provider.GetRequiredService<IStartupValidator>().Validate();

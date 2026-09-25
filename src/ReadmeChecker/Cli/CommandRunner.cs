@@ -53,6 +53,9 @@ internal static class CommandRunner
                 console.MarkupLine($"[red]Copilot isn't ready:[/] {Markup.Escape(exception.Message)}");
                 console.MarkupLine("[grey]Use --agent none to report the script's signals without the agent.[/]");
                 return ExitCodes.AgentUnavailable;
+            case AzureDevOpsApiException:
+                console.MarkupLine($"[red]Azure DevOps:[/] {Markup.Escape(exception.Message)}");
+                return ExitCodes.ConfigurationError;
             case ProcessStartException:
                 console.MarkupLine($"[red]{Markup.Escape(exception.Message)}[/]");
                 return ExitCodes.UnexpectedError;

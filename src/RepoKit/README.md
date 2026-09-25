@@ -54,4 +54,24 @@ take paths literally (no pathspec magic):
 | `CommitCountSinceAsync` | Commits since a commit, leaving out ones that touch only the excluded paths. |
 | `PathsChangedSinceAsync` | Paths changed since a commit; `diffFilter: "A"` for added only. |
 
+| `DefaultBranchAsync` | The branch the clone's origin points `HEAD` at (e.g. `main`). |
+| `CreateBranchAsync` | Creates a branch and switches to it. |
+| `CommitPathsAsync` | Commits exactly the given paths and returns the commit. See below. |
+| `PushAsync` | Pushes `HEAD` to a branch on the remote. Never forced. |
+
 `WithEnvironment` returns a copy that adds environment variables to every call.
+
+## Committing and pushing a change
+
+```csharp
+var branch = "agent/readme-refresh-20260925-1200";
+await workspace.Git.CreateBranchAsync(workspace.Path, branch);
+// ... change README.md, then check the change ...
+await workspace.Git.CommitPathsAsync(workspace.Path, ["README.md"], "docs: update README", new GitIdentity("MyTool", "my-tool@localhost"));
+await workspace.Git.PushAsync(workspace.Path, workspace.Source.Location, branch);
+```
+
+`CommitPathsAsync` stages only the paths you give it, so anything else in the working tree stays out of the commit.
+It uses the git identity if one is configured, and the fallback otherwise. Hooks don't run unless you pass
+`runHooks: true`. If a hook refuses the commit, or changes the files after they were staged, the branch is put back
+where it was and a `GitException` explains why.

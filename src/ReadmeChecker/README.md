@@ -2,7 +2,8 @@
 
 Clones the repos you list and reports the READMEs that no longer match their repo: broken links, commands and paths
 that point at things that are gone, versions that don't match the projects, and new projects the README doesn't
-mention. It changes nothing. It is built on [AgentHarness](../AgentHarness/README.md), [RepoKit](../RepoKit/README.md)
+mention. `check` only reports; `fix` has an agent correct each stale README, checks the change with a script, and
+opens a draft pull request in Azure DevOps. It is built on [AgentHarness](../AgentHarness/README.md), [RepoKit](../RepoKit/README.md)
 and [RepoKit.AzureDevOps](../RepoKit.AzureDevOps/README.md).
 
 ## Run it
@@ -43,8 +44,50 @@ The run prints one line per repo and a summary table, and writes `out/run-<utc>/
 | `<repo>/assessment.json` | One repo's result. |
 | `<repo>/agent.log` | Every agent event: messages, tool calls and their output. |
 
-Exit codes: 0 when at least one repo was checked, 2 for configuration or sign-in problems, 3 when every repo failed,
-4 when Copilot isn't ready, 130 when cancelled.
+Exit codes: 0 when at least one repo was checked, 2 for configuration, sign-in or Azure DevOps problems, 3 when every
+repo failed, 4 when Copilot isn't ready, 130 when cancelled.
+
+## Fix and open pull requests
+
+```sh
+dotnet run --project src/ReadmeChecker -- fix --config readme-checker.json --only payments-api --dry-run
+dotnet run --project src/ReadmeChecker -- fix --config readme-checker.json --only payments-api
+```
+
+`fix` runs the same check first, then for each repo that is `Stale` with at least one confirmed issue or broken link:
+
+1. **Skips the repo** if a pull request from a `Publish:BranchPrefix` (`agent/readme-refresh-`) branch is still open,
+   or was opened in the last `Publish:CooldownDays` (30), whatever happened to it. Each run uses a new branch
+   (`agent/readme-refresh-<run>`), so a merged or abandoned branch never blocks a later run.
+2. **Has the agent edit the README.** The session can read, run read-only commands, and write only the README. It is
+   given the confirmed issues and broken links and told to fix only those, keep the structure and tone, and invent
+   nothing.
+3. **Checks the change with a script.** It is rejected if:
+   - any other file changed, or the README didn't change
+   - fewer than `Readme:MinKeptRatio` (half) of the README's original lines are left
+   - it refers to a file, folder or command target that isn't in the repository and wasn't already in the README
+   - a broken link is still there
+   - it links to a site that the README and the repository don't already mention
+4. **Asks you** (`Go ahead?`) before pushing, unless you pass `--yes`. Without a console and without `--yes`, nothing is
+   pushed.
+5. **Commits only the README** (as your git identity, or `Publish:CommitName`/`CommitEmail` when there is none),
+   pushes the branch, and opens a **draft** pull request labelled `Publish:Label` (`agent-generated`) against the
+   default branch. The description lists what was out of date, the agent's own account of its changes (escaped, with
+   `@` mentions defused) and says the text is unverified.
+
+`--dry-run` does steps 2 and 3 and pushes nothing. Local repos (`Path`) never push: the change is saved as a patch.
+Either way the run writes `out/run-<utc>/fix-report.md`, `fix-report.json`, and per repo `fix.json`, `readme.patch`
+and `fix-agent.log`.
+
+| Result | Meaning |
+|---|---|
+| Opened | A draft pull request is open; the report links it. |
+| Ready | The fix passed the checks; dry run or local repo, so it's only a patch. |
+| Declined | You said no; the patch is saved. |
+| Rejected | The fix failed the checks; the report says which. |
+| Failed | The agent failed or stopped, or pushing or opening the pull request failed. |
+| Skipped | A pull request is open or recent. |
+| NothingToFix | The README isn't stale, or there was nothing specific to fix. |
 
 ## How it decides
 
@@ -96,4 +139,6 @@ The README and the repo's files are sent to Copilot. Only list repos where that 
 The agent works in the clone with a read-only policy (AgentHarness `WorkspacePolicy`: reads and read-only commands
 inside the clone, nothing else), and its environment has no Azure DevOps credential. Everything it reads is treated as
 data: the prompt says so, the README is passed inside tags, and its answer is checked against the README and
-`git ls-files` before it is reported. Nothing is written back to any repo.
+`git ls-files` before it is reported. `check` writes nothing back to any repo. In `fix`, the write session can change
+only the README, the script checks the result, only the README is committed, a person approves each push, and the
+pull request is a draft. The branch is pushed with your Azure DevOps credential, which the agent never sees.

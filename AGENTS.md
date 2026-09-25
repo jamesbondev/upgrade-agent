@@ -13,9 +13,9 @@ to do it → verify → open a PR.
 |---|---|
 | `src/AgentHarness` | Standalone library: Copilot sessions, tool policy, budgets, events, structured replies. See its README. |
 | `src/RepoKit` | Standalone library, no packages: processes, git, clones of a repo into a throwaway workspace. No LLM concepts. |
-| `src/RepoKit.AzureDevOps` | Standalone library: Azure DevOps credentials and repo addresses. Doesn't reference RepoKit. |
+| `src/RepoKit.AzureDevOps` | Standalone library: Azure DevOps credentials, repo addresses and draft PRs (REST). Doesn't reference RepoKit. |
 | `src/UpgradeAgent` | App: NuGet upgrades with an agent fixing breaking changes, published as a draft PR in Azure DevOps. |
-| `src/ReadmeChecker` | App: clones the repos you list and reports READMEs that no longer match their repo. |
+| `src/ReadmeChecker` | App: finds READMEs that no longer match their repo, and opens draft PRs that fix them. |
 | `samples/HelloAgent` | The smallest runnable use of AgentHarness. `--scripted` needs no model. |
 | `tests/` | xUnit. `*.IntegrationTests` replay recorded agent sessions end to end. |
 | `fixtures/` | Source for the sample repo and package the integration tests run against. |
@@ -57,6 +57,10 @@ and every test project passes.
   system. Parse its files defensively: XML with DTDs prohibited, and a malformed file is skipped, not fatal.
 - **One repo's failure never stops a multi-repo run.** Catch per repo and report it as that repo's result; only
   configuration, sign-in and "Copilot isn't ready" errors end the run.
+- **Publishing is gated.** An agent's write session may change only the files the task owns (an exact path, not an
+  extension). After the script's checks, a person approves each push unless they pass `--yes`, pull requests are
+  drafts, and agent text in a PR is escaped with `@` mentions defused. Use a new branch per run, and decide whether
+  to skip from the PR history (open or recent), not from whether a branch exists.
 - **Credentials reach git only through the environment** (`GitAuth.HeaderEnvironment`), never in a URL or in
   `.git/config`, where the agent could read them. Hide credential env vars from the agent's environment.
 - **Known duplication:** `src/UpgradeAgent/Infrastructure` and parts of `Publishing` are copies of what RepoKit now

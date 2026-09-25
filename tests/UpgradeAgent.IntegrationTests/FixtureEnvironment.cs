@@ -3,23 +3,33 @@ using System.Text.Json;
 
 namespace UpgradeAgent.IntegrationTests;
 
-/// <summary>Builds the fixture once into a temp folder and runs the UpgradeAgent CLI against it.</summary>
-public sealed class FixtureEnvironment : IDisposable
+/// <summary>
+/// Builds the fixture once into a temp folder and runs the UpgradeAgent CLI against it. Every child process
+/// gets its own NuGet packages folder, so the tests never touch the developer's global cache.
+/// </summary>
+public sealed class FixtureEnvironment : IAsyncLifetime
 {
-    public FixtureEnvironment()
-    {
-        RepoRoot = FindRepoRoot();
-        Root = Directory.CreateTempSubdirectory("ua-it-").FullName;
-        FixtureRepo = Path.Combine(Root, "fixture", "SampleRepo");
+    private static readonly TimeSpan ProcessTimeout = TimeSpan.FromMinutes(5);
 
-        var build = Run("pwsh", ["-NoProfile", "-File", Path.Combine(RepoRoot, "scripts", "build-fixture.ps1"), "-OutputRoot", Path.Combine(Root, "fixture")], RepoRoot);
+    public string RepoRoot { get; } = FindRepoRoot();
+
+    public string Root { get; } = Directory.CreateTempSubdirectory("ua-it-").FullName;
+
+    public string FixtureRepo => Path.Combine(Root, "fixture", "SampleRepo");
+
+    public string ConfigPath => Path.Combine(Root, "config.json");
+
+    private string PackagesFolder => Path.Combine(Root, "nuget-packages");
+
+    public async Task InitializeAsync()
+    {
+        var build = await RunAsync("pwsh", ["-NoProfile", "-File", Path.Combine(RepoRoot, "scripts", "build-fixture.ps1"), "-OutputRoot", Path.Combine(Root, "fixture")], RepoRoot);
         if (build.ExitCode != 0)
         {
             throw new InvalidOperationException($"build-fixture.ps1 failed:\n{build.Output}");
         }
 
-        ConfigPath = Path.Combine(Root, "config.json");
-        File.WriteAllText(ConfigPath, JsonSerializer.Serialize(new
+        await File.WriteAllTextAsync(ConfigPath, JsonSerializer.Serialize(new
         {
             Target = new { RepoPath = FixtureRepo, Solution = "LoanLedger.slnx" },
             Policy = new { Deny = new[] { new { Id = "xunit*", Reason = "pinned" }, new { Id = "Microsoft.NET.Test.Sdk", Reason = "pinned" } } },
@@ -27,19 +37,11 @@ public sealed class FixtureEnvironment : IDisposable
         }));
     }
 
-    public string RepoRoot { get; }
-
-    public string Root { get; }
-
-    public string FixtureRepo { get; }
-
-    public string ConfigPath { get; }
-
-    public (int ExitCode, string Output, JsonElement Report, string Worktree) Replay(string recording)
+    public async Task<(int ExitCode, string Output, JsonElement Report, string Worktree)> ReplayAsync(string recording)
     {
-        Reset();
+        await ResetAsync();
         var cli = Path.Combine(AppContext.BaseDirectory, "UpgradeAgent.dll");
-        var (exitCode, output) = Run("dotnet", [cli, "run", "--config", ConfigPath, "--replay", recording, "--replay-max-gap", "0", "--non-interactive"], Root);
+        var (exitCode, output) = await RunAsync("dotnet", [cli, "run", "--config", ConfigPath, "--replay", recording, "--replay-max-gap", "0", "--non-interactive"], Root);
 
         var outDirectory = Path.Combine(Root, "out");
         var runJson = Directory.Exists(outDirectory) ? Directory.GetFiles(outDirectory, "run.json", SearchOption.AllDirectories).SingleOrDefault() : null;
@@ -48,29 +50,13 @@ public sealed class FixtureEnvironment : IDisposable
             throw new InvalidOperationException($"The run produced no run.json (exit code {exitCode}):\n{output}");
         }
 
-        var report = JsonDocument.Parse(File.ReadAllText(runJson)).RootElement.Clone();
+        var report = JsonDocument.Parse(await File.ReadAllTextAsync(runJson)).RootElement.Clone();
         return (exitCode, output, report, report.GetProperty("worktreePath").GetString()!);
     }
 
-    public static (int ExitCode, string Output) Run(string file, IReadOnlyList<string> arguments, string workingDirectory)
+    public async Task DisposeAsync()
     {
-        var startInfo = new ProcessStartInfo(file) { WorkingDirectory = workingDirectory, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var argument in arguments)
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
-
-        startInfo.Environment["COLUMNS"] = "200";
-        using var process = Process.Start(startInfo)!;
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
-        process.WaitForExit();
-        return (process.ExitCode, stdout.Result + stderr.Result);
-    }
-
-    public void Dispose()
-    {
-        Run("dotnet", ["build-server", "shutdown"], Root);
+        await RunAsync("dotnet", ["build-server", "shutdown"], Root);
         try
         {
             // git marks object files read-only; Windows refuses to delete read-only files.
@@ -87,9 +73,38 @@ public sealed class FixtureEnvironment : IDisposable
         }
     }
 
-    private void Reset()
+    private async Task<(int ExitCode, string Output)> RunAsync(string file, IReadOnlyList<string> arguments, string workingDirectory)
     {
-        var reset = Run("pwsh", ["-NoProfile", "-File", Path.Combine(RepoRoot, "scripts", "reset-demo.ps1"), "-RepoPath", FixtureRepo, "-OutputDirectory", Path.Combine(Root, "out")], Root);
+        var startInfo = new ProcessStartInfo(file) { WorkingDirectory = workingDirectory, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        startInfo.Environment["COLUMNS"] = "200";
+        startInfo.Environment["NUGET_PACKAGES"] = PackagesFolder;
+        using var process = Process.Start(startInfo)!;
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+
+        using var timeout = new CancellationTokenSource(ProcessTimeout);
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            process.Kill(entireProcessTree: true);
+            throw new TimeoutException($"'{file} {string.Join(' ', arguments)}' did not finish within {ProcessTimeout.TotalMinutes} minutes.");
+        }
+
+        return (process.ExitCode, await stdout + await stderr);
+    }
+
+    private async Task ResetAsync()
+    {
+        var reset = await RunAsync(
+            "pwsh", ["-NoProfile", "-File", Path.Combine(RepoRoot, "scripts", "reset-demo.ps1"), "-RepoPath", FixtureRepo, "-OutputDirectory", Path.Combine(Root, "out")], Root);
         if (reset.ExitCode != 0)
         {
             throw new InvalidOperationException($"reset-demo.ps1 failed:\n{reset.Output}");

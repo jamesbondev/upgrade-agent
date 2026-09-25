@@ -1,4 +1,6 @@
+using System.Globalization;
 using UpgradeAgent.Infrastructure;
+using UpgradeAgent.MsBuild;
 
 namespace UpgradeAgent.Workspace;
 
@@ -19,26 +21,31 @@ internal sealed record RunWorkspace(
     public static string DefaultWorkRoot(string repoPath) =>
         Path.Combine(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(repoPath))!, ".ua-work");
 
-    public static async Task<RunWorkspace> CreateAsync(
+    /// <summary>Names the run, its branch and folders. Creates nothing, so checks can run before anything exists.</summary>
+    public static async Task<RunWorkspace> PlanAsync(
         GitCli git, string repoPath, string solutionPath, string workRoot, string outputRoot, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        var runId = now.UtcDateTime.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
-        var branch = $"agent/nuget-updates-{now.UtcDateTime:yyyyMMdd-HHmm}";
+        var runId = now.UtcDateTime.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+        var branch = string.Create(CultureInfo.InvariantCulture, $"agent/nuget-updates-{now.UtcDateTime:yyyyMMdd-HHmm}");
         if (await git.BranchExistsAsync(repoPath, branch, cancellationToken))
         {
-            branch = $"{branch}{now.UtcDateTime:ss}";
+            branch = string.Create(CultureInfo.InvariantCulture, $"{branch}{now.UtcDateTime:ss}");
         }
 
         var worktree = Path.Combine(workRoot, runId);
-        Directory.CreateDirectory(workRoot);
-        await git.RunAsync(repoPath, ["worktree", "add", "-b", branch, worktree, "HEAD"], cancellationToken);
-
-        var relativeSolution = Path.GetRelativePath(repoPath, solutionPath);
         return new RunWorkspace(
-            repoPath, workRoot, runId, branch, worktree, Path.Combine(worktree, relativeSolution), Path.Combine(outputRoot, $"run-{runId}"));
+            repoPath, workRoot, runId, branch, worktree, Path.Combine(worktree, Path.GetRelativePath(repoPath, solutionPath)), Path.Combine(outputRoot, $"run-{runId}"));
     }
 
-    /// <summary>Inherited config files that affect the worktree but not the original repo.</summary>
+    /// <summary>Adds the worktree on a new branch from HEAD, and the output folder.</summary>
+    public async Task CreateAsync(GitCli git, CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(WorkRoot);
+        Directory.CreateDirectory(OutputDirectory);
+        await git.RunAsync(RepoPath, ["worktree", "add", "-b", BranchName, WorktreePath, "HEAD"], cancellationToken);
+    }
+
+    /// <summary>Inherited config files that would affect the worktree but not the original repo.</summary>
     public static IReadOnlyList<string> FindConfigLeaks(string repoPath, string worktreePath)
     {
         var original = InheritedConfigFilesAbove(repoPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -64,7 +71,7 @@ internal sealed record RunWorkspace(
     {
         try
         {
-            return Directory.GetFiles(directory);
+            return Directory.Exists(directory) ? Directory.GetFiles(directory) : [];
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {

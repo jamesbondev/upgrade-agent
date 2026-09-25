@@ -13,7 +13,7 @@ public class ApprovalPrompterTests
         var console = new TestConsole().Interactive();
         console.Input.PushTextWithEnter(answer);
 
-        var approved = await new ConsoleApprovalPrompter(console, new object())
+        var approved = await new ConsoleApprovalPrompter(new SynchronizedConsole(console))
             .ConfirmAsync("edit src/App/App.csproj", "edit to a non-source file: src/App/App.csproj", CancellationToken.None);
 
         Assert.Equal(expected, approved);
@@ -28,7 +28,17 @@ public class ApprovalPrompterTests
         var console = new TestConsole().Interactive();
         console.Input.PushKey(ConsoleKey.Enter);
 
-        Assert.False(await new ConsoleApprovalPrompter(console, new object()).ConfirmAsync("rm src/Old.cs", "file operation: rm", CancellationToken.None));
+        Assert.False(await new ConsoleApprovalPrompter(new SynchronizedConsole(console)).ConfirmAsync("rm src/Old.cs", "file operation: rm", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CancellingDeclines()
+    {
+        var console = new TestConsole().Interactive();
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        Assert.False(await new ConsoleApprovalPrompter(new SynchronizedConsole(console)).ConfirmAsync("rm src/Old.cs", "reason", cancelled.Token));
     }
 
     [Fact]

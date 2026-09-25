@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 
@@ -9,6 +10,10 @@ internal sealed record ProcessResult(int ExitCode, string StandardOutput, string
 
     public string CombinedOutput => StandardError.Length == 0 ? StandardOutput : $"{StandardOutput}{Environment.NewLine}{StandardError}";
 }
+
+/// <summary>The program couldn't be started at all (not installed, not on PATH).</summary>
+internal sealed class ProcessStartException(string fileName, Exception inner)
+    : Exception($"Could not start '{fileName}': {inner.Message}. Is it installed and on PATH?", inner);
 
 internal interface IProcessRunner
 {
@@ -58,7 +63,14 @@ internal sealed class ProcessRunner : IProcessRunner
         }
 
         using var process = new Process { StartInfo = startInfo };
-        process.Start();
+        try
+        {
+            process.Start();
+        }
+        catch (Win32Exception ex)
+        {
+            throw new ProcessStartException(fileName, ex);
+        }
 
         var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var stderr = process.StandardError.ReadToEndAsync(cancellationToken);

@@ -1,14 +1,18 @@
 using Spectre.Console;
+using UpgradeAgent.Agent.Activities;
 using UpgradeAgent.Infrastructure;
 using UpgradeAgent.Run;
+using UpgradeAgent.Ui;
 
 namespace UpgradeAgent.Replay;
 
 /// <summary>
 /// Plays back a recorded agent session instead of calling the model: the recorded activity at a readable
-/// pace, then the recorded patch. Everything after (rebuild, retest, guardrails, commit) runs for real.
+/// pace, through the same sinks as a live session, then the recorded patch. Everything after (rebuild,
+/// retest, guardrails, commit) runs for real.
 /// </summary>
-internal sealed class ReplayFixer(Recording recording, IAnsiConsole console, object consoleLock, GitCli git, double maxGapSeconds) : IGroupFixer
+internal sealed class ReplayFixer(Recording recording, AgentActivity activity, SynchronizedConsole console, GitCli git, double maxGapSeconds, TimeProvider time)
+    : IGroupFixer
 {
     public async Task<FixOutcome> FixAsync(FixContext context, CancellationToken cancellationToken)
     {
@@ -17,31 +21,30 @@ internal sealed class ReplayFixer(Recording recording, IAnsiConsole console, obj
             return new FixOutcome(false, $"replay: recording '{recording.Name}' has no agent session for this group");
         }
 
-        var (activity, patchPath, outcome) = recording.LoadGroup(context.Group.Name);
-        lock (consoleLock)
+        var session = recording.LoadGroup(context.Group.Name);
+        console.Write(c => c.MarkupLine(
+            $"  [black on yellow] REPLAY [/] [yellow]recorded agent session from '{Markup.Escape(recording.Name)}'; the checks below run live[/]"));
+
+        using var log = new FileActivitySink(Path.Combine(context.OutputDirectory, "agent", $"{RepoPath.SafeFileName(context.Group.Name)}.log"), time);
+        using (activity.Attach(log))
         {
-            console.MarkupLine($"  [black on yellow] REPLAY [/] [yellow]recorded agent session from '{Markup.Escape(recording.Name)}'; the checks below run live[/]");
+            var previous = 0.0;
+            foreach (var recorded in session.Activity)
+            {
+                var gap = Math.Clamp(recorded.OffsetSeconds - previous, 0, maxGapSeconds);
+                previous = recorded.OffsetSeconds;
+                if (gap > 0)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(gap), time, cancellationToken);
+                }
+
+                activity.Write(recorded.Event);
+            }
         }
 
-        var previous = 0.0;
-        foreach (var line in activity)
+        if (new FileInfo(session.PatchPath).Length > 0)
         {
-            var gap = Math.Clamp(line.OffsetSeconds - previous, 0, maxGapSeconds);
-            previous = line.OffsetSeconds;
-            if (gap > 0)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(gap), cancellationToken);
-            }
-
-            lock (consoleLock)
-            {
-                console.MarkupLine(line.Markup);
-            }
-        }
-
-        if (new FileInfo(patchPath).Length > 0)
-        {
-            var apply = await git.TryRunAsync(context.Workspace.WorktreePath, ["apply", "--whitespace=nowarn", patchPath], cancellationToken);
+            var apply = await git.TryRunAsync(context.WorktreePath, ["apply", "--whitespace=nowarn", session.PatchPath], cancellationToken);
             if (!apply.Succeeded)
             {
                 throw new RunAbortedException(
@@ -49,6 +52,8 @@ internal sealed class ReplayFixer(Recording recording, IAnsiConsole console, obj
             }
         }
 
-        return outcome with { Summary = $"replayed: {outcome.Summary}" };
+        return session.Outcome with { Replayed = true };
     }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

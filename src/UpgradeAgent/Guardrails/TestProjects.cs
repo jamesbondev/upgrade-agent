@@ -1,4 +1,5 @@
 using UpgradeAgent.Infrastructure;
+using UpgradeAgent.MsBuild;
 
 namespace UpgradeAgent.Guardrails;
 

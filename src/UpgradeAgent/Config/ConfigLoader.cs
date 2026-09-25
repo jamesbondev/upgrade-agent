@@ -1,31 +1,35 @@
 using Microsoft.Extensions.Configuration;
+using UpgradeAgent.Workspace;
 
 namespace UpgradeAgent.Config;
 
 /// <summary>Configuration with every path resolved to an absolute path.</summary>
-internal sealed record ResolvedConfig(UpgradeAgentOptions Options, string RepoPath, string SolutionPath, string OutputDirectory);
+/// <param name="WorkRoot">Run worktrees and the baseline cache.</param>
+internal sealed record ResolvedConfig(
+    UpgradeAgentOptions Options,
+    string RepoPath,
+    string SolutionPath,
+    string OutputDirectory,
+    string WorkRoot,
+    string RecordingsDirectory);
 
 internal static class ConfigLoader
 {
     /// <summary>
-    /// Loads appsettings.json next to the executable, then the optional <paramref name="configPath"/>,
+    /// Layers appsettings.json next to the executable, then the optional <paramref name="configPath"/>,
     /// user secrets and <c>UPGRADEAGENT_</c> environment variables, in increasing precedence.
     /// </summary>
-    public static ResolvedConfig Load(string? configPath)
+    /// <returns>The configuration, and the folder relative paths in it resolve against.</returns>
+    public static (IConfiguration Configuration, string BaseDirectory) Load(string? configPath)
     {
         var builder = new ConfigurationBuilder()
             .SetBasePath(AppContext.BaseDirectory)
             .AddJsonFile("appsettings.json", optional: true);
 
-        string baseDirectory = Directory.GetCurrentDirectory();
+        var baseDirectory = Directory.GetCurrentDirectory();
         if (configPath is not null)
         {
             var fullConfigPath = Path.GetFullPath(configPath);
-            if (!File.Exists(fullConfigPath))
-            {
-                throw new ConfigurationException($"Config file not found: {fullConfigPath}");
-            }
-
             builder.AddJsonFile(fullConfigPath, optional: false);
             baseDirectory = Path.GetDirectoryName(fullConfigPath)!;
         }
@@ -35,19 +39,15 @@ internal static class ConfigLoader
             .AddEnvironmentVariables("UPGRADEAGENT_")
             .Build();
 
-        var options = new UpgradeAgentOptions();
-        configuration.Bind(options);
-
-        return Resolve(options, baseDirectory);
+        return (configuration, baseDirectory);
     }
 
+    /// <summary>
+    /// Target paths resolve against the config file's folder, the work root against the repo, and output
+    /// folders against the current directory.
+    /// </summary>
     internal static ResolvedConfig Resolve(UpgradeAgentOptions options, string baseDirectory)
     {
-        if (string.IsNullOrWhiteSpace(options.Target.RepoPath))
-        {
-            throw new ConfigurationException("Target:RepoPath is not set. Pass --config <file> or set UPGRADEAGENT_Target__RepoPath.");
-        }
-
         var repoPath = Path.GetFullPath(options.Target.RepoPath, baseDirectory);
         if (!Directory.Exists(repoPath))
         {
@@ -58,9 +58,18 @@ internal static class ConfigLoader
             ? FindSingleSolution(repoPath)
             : Path.GetFullPath(options.Target.Solution, repoPath);
 
-        var outputDirectory = Path.GetFullPath(options.Output.Directory, Directory.GetCurrentDirectory());
+        var workRoot = string.IsNullOrWhiteSpace(options.Target.WorkRoot)
+            ? RunWorkspace.DefaultWorkRoot(repoPath)
+            : Path.GetFullPath(options.Target.WorkRoot, repoPath);
 
-        return new ResolvedConfig(options, repoPath, solutionPath, outputDirectory);
+        var currentDirectory = Directory.GetCurrentDirectory();
+        return new ResolvedConfig(
+            options,
+            repoPath,
+            solutionPath,
+            Path.GetFullPath(options.Output.Directory, currentDirectory),
+            workRoot,
+            Path.GetFullPath(options.Output.RecordingsDirectory, currentDirectory));
     }
 
     private static string FindSingleSolution(string repoPath)

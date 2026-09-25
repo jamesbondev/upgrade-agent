@@ -8,20 +8,31 @@ internal interface IApprovalPrompter
     Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken);
 }
 
-internal sealed class ConsoleApprovalPrompter(IAnsiConsole console, object consoleLock) : IApprovalPrompter
+/// <summary>Asks at the console. Cancelling (Ctrl+C, or a budget running out) counts as declining.</summary>
+internal sealed class ConsoleApprovalPrompter(SynchronizedConsole console) : IApprovalPrompter
 {
-    public Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken)
+    public async Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken)
     {
-        lock (consoleLock)
+        try
         {
-            console.WriteLine();
-            console.Write(new Panel(new Markup($"{Markup.Escape(action)}\n[grey]{Markup.Escape(reason)}[/]"))
-                .Header("[yellow] approval needed [/]")
-                .BorderColor(Color.Yellow));
-            var approved = console.Confirm("Allow this?", defaultValue: false);
-            console.MarkupLine(approved ? "  [green]approved by operator[/]" : "  [red]declined by operator[/]");
-            return Task.FromResult(approved);
+            return await console.ExclusiveAsync(c => AskAsync(c, action, reason, cancellationToken), cancellationToken);
         }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task<bool> AskAsync(IAnsiConsole console, string action, string reason, CancellationToken cancellationToken)
+    {
+        console.WriteLine();
+        console.Write(new Panel(new Markup($"{Markup.Escape(action)}\n[grey]{Markup.Escape(reason)}[/]"))
+            .Header("[yellow] approval needed [/]")
+            .BorderColor(Color.Yellow));
+
+        var approved = await new ConfirmationPrompt("Allow this?") { DefaultValue = false }.ShowAsync(console, cancellationToken);
+        console.MarkupLine(approved ? "  [green]approved by operator[/]" : "  [red]declined by operator[/]");
+        return approved;
     }
 }
 

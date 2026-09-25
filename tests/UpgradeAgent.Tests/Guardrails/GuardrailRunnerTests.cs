@@ -8,18 +8,22 @@ namespace UpgradeAgent.Tests.Guardrails;
 /// "Bad agent" scenarios against a real git repo: the app bumps, the agent makes a change, the
 /// guardrails must accept honest fixes and reject every shortcut.
 /// </summary>
-public sealed class GuardrailRunnerTests : IDisposable
+public sealed class GuardrailRunnerTests : IAsyncLifetime
 {
     private const string TestKey = "App.Tests [net10.0] App.Tests.CodeTests.Works";
 
-    private readonly TempRepo _repo = new();
-    private readonly GuardrailRunner _runner;
-    private readonly Baseline _baseline;
+    private TempRepo _repo = null!;
+    private GuardrailRunner _runner = null!;
+    private Baseline _baseline = null!;
     private GroupStartState _start = null!;
 
-    public GuardrailRunnerTests()
+    public async Task InitializeAsync()
     {
-        _runner = new GuardrailRunner(_repo.Git);
+        _repo = await TempRepo.CreateAsync();
+        _runner = new GuardrailRunner(
+            _repo.Git,
+            [new GitStateGuardrail(), new BuildGuardrail(), new TestsGuardrail(), new SuppressionGuardrail(), new BuildSettingsGuardrail(), new FilesGuardrail()],
+            [new TestFileNotes(_repo.Git), new PublicApiNotes(), new ClaimNotes()]);
         _repo
             .Write(".gitignore", "bin/\nobj/\n*.user\n")
             .Write("Directory.Packages.props", """<Project><ItemGroup><PackageVersion Include="Foo" Version="1.0.0" /></ItemGroup></Project>""")
@@ -35,11 +39,11 @@ public sealed class GuardrailRunnerTests : IDisposable
             .Write("src/App/Code.cs", "class Code { string M() => Formatter.Format(1m); }\n")
             .Write("tests/App.Tests/App.Tests.csproj", """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Microsoft.NET.Test.Sdk" /></ItemGroup></Project>""")
             .Write("tests/App.Tests/CodeTests.cs", "class CodeTests { [Fact] void Works() { Assert.Equal(1, 1); Assert.True(true); } }\n");
-        var commit = _repo.Commit("initial");
+        var commit = await _repo.CommitAsync("initial");
 
         _baseline = new Baseline(
             commit, "10.0.112", TestRunnerMode.VSTest, Inventory(passed: 1), null,
-            TestProjects.FindTestFiles(_repo.Path, _repo.Git.ListFilesAsync(_repo.Path).GetAwaiter().GetResult()).ToList(),
+            TestProjects.FindTestFiles(_repo.Path, await _repo.Git.ListFilesAsync(_repo.Path)).ToList(),
             DateTimeOffset.UtcNow);
     }
 
@@ -52,7 +56,7 @@ public sealed class GuardrailRunnerTests : IDisposable
         var report = await RunAsync();
 
         Assert.True(report.Passed, report.FailureSummary);
-        Assert.Empty(report.Warnings);
+        Assert.Empty(report.Notes);
     }
 
     [Fact]
@@ -71,7 +75,7 @@ public sealed class GuardrailRunnerTests : IDisposable
         _repo.Write("tests/App.Tests/CodeTests.cs", "class CodeTests { [Fact(Skip = \"later\")] void Works() { Assert.Equal(1, 1); Assert.True(true); } }\n");
 
         var report = await AssertRejectedAsync("No suppressions or skips", "Skip =");
-        Assert.Contains("test file modified: tests/App.Tests/CodeTests.cs", report.Warnings);
+        Assert.Contains("test file modified: tests/App.Tests/CodeTests.cs", report.Notes.Select(n => n.Message));
     }
 
     [Fact]
@@ -108,7 +112,7 @@ public sealed class GuardrailRunnerTests : IDisposable
     {
         await BumpAsync();
         _repo.Write("src/App/Code.cs", "class Code { }\n");
-        _repo.Commit("agent sneaks a commit");
+        await _repo.CommitAsync("agent sneaks a commit");
 
         await AssertRejectedAsync("Git state", "HEAD moved");
     }
@@ -141,7 +145,7 @@ public sealed class GuardrailRunnerTests : IDisposable
         var report = await RunAsync();
 
         Assert.True(report.Passed, report.FailureSummary);
-        Assert.Contains("assertion count dropped in tests/App.Tests/CodeTests.cs: 2 → 1", report.Warnings);
+        Assert.Contains("assertion count dropped in tests/App.Tests/CodeTests.cs: 2 → 1", report.Notes.Select(n => n.Message));
     }
 
     [Fact]
@@ -159,13 +163,17 @@ public sealed class GuardrailRunnerTests : IDisposable
     {
         var baseline = _baseline with { Tests = null, Counts = new TestCounts(3, 3, 0, 0) };
 
-        var check = GuardrailRunner.CheckTests(baseline, new TestRunResult(true, null, new TestCounts(3, 3, 0, 0), "", TimeSpan.Zero));
+        var check = TestsGuardrail.Evaluate(baseline, new TestRunResult(true, null, new TestCounts(3, 3, 0, 0), "", TimeSpan.Zero));
 
         Assert.True(check.Passed);
         Assert.Contains("weaker", check.Detail, StringComparison.Ordinal);
     }
 
-    public void Dispose() => _repo.Dispose();
+    public Task DisposeAsync()
+    {
+        _repo.Dispose();
+        return Task.CompletedTask;
+    }
 
     /// <summary>The app's bump happens before the start state is captured, exactly as in a run.</summary>
     private async Task BumpAsync()
@@ -176,11 +184,13 @@ public sealed class GuardrailRunnerTests : IDisposable
 
     private Task<GuardrailReport> RunAsync(TestRunResult? tests = null) =>
         _runner.RunAsync(
-            _repo.Path,
-            _start,
-            _baseline,
-            new BuildResult(true, [], [], "", TimeSpan.Zero),
-            tests ?? new TestRunResult(true, Inventory(passed: 1), null, "", TimeSpan.Zero),
+            new GuardrailInput(
+                _repo.Path,
+                _start,
+                _baseline,
+                TestData.Build(),
+                tests ?? new TestRunResult(true, Inventory(passed: 1), null, "", TimeSpan.Zero),
+                new ReviewContext(null, [])),
             CancellationToken.None);
 
     private async Task<GuardrailReport> AssertRejectedAsync(string check, string detail)

@@ -1,14 +1,15 @@
 using System.Xml.Linq;
+using UpgradeAgent.Build;
 using UpgradeAgent.Config;
 using UpgradeAgent.Infrastructure;
-using UpgradeAgent.Build;
+using UpgradeAgent.MsBuild;
 
 namespace UpgradeAgent.Preflight;
 
 internal sealed record PreflightCheck(string Name, bool Passed, string Detail);
 
 /// <summary>Cheap checks that fail fast, before any restore, detection or model call.</summary>
-internal sealed class TargetPreflight(IProcessRunner processRunner)
+internal sealed class TargetPreflight(GitCli git, DotnetCli dotnet)
 {
     /// <param name="requireCleanRepo">A run branches from HEAD; uncommitted changes would silently be left out.</param>
     public async Task<IReadOnlyList<PreflightCheck>> RunAsync(ResolvedConfig config, bool requireCleanRepo, CancellationToken cancellationToken)
@@ -17,7 +18,7 @@ internal sealed class TargetPreflight(IProcessRunner processRunner)
         {
             await CheckSdkAsync(config.RepoPath, cancellationToken),
             File.Exists(config.SolutionPath)
-                ? new PreflightCheck("Solution", true, Path.GetRelativePath(config.RepoPath, config.SolutionPath))
+                ? new PreflightCheck("Solution", true, RepoPath.Relative(config.RepoPath, config.SolutionPath))
                 : new PreflightCheck("Solution", false, $"not found: {config.SolutionPath}"),
             CheckProjectStyle(config.RepoPath),
         };
@@ -38,7 +39,6 @@ internal sealed class TargetPreflight(IProcessRunner processRunner)
     internal async Task<PreflightCheck> CheckUncommittedConfigAsync(string repoPath, CancellationToken cancellationToken)
     {
         const string Name = "Build config in worktree";
-        var git = new GitCli(processRunner);
         var listing = await git.TryRunAsync(repoPath, ["ls-files"], cancellationToken);
         if (!listing.Succeeded)
         {
@@ -63,8 +63,16 @@ internal sealed class TargetPreflight(IProcessRunner processRunner)
 
     private async Task<PreflightCheck> CheckGitAsync(string repoPath, CancellationToken cancellationToken)
     {
-        var git = new GitCli(processRunner);
-        var head = await git.TryRunAsync(repoPath, ["rev-parse", "--short", "HEAD"], cancellationToken);
+        ProcessResult head;
+        try
+        {
+            head = await git.TryRunAsync(repoPath, ["rev-parse", "--short", "HEAD"], cancellationToken);
+        }
+        catch (ProcessStartException ex)
+        {
+            return new PreflightCheck("Git repo", false, ex.Message);
+        }
+
         if (!head.Succeeded)
         {
             return new PreflightCheck("Git repo", false, "not a git repository with at least one commit");
@@ -81,8 +89,16 @@ internal sealed class TargetPreflight(IProcessRunner processRunner)
 
     private async Task<PreflightCheck> CheckSdkAsync(string repoPath, CancellationToken cancellationToken)
     {
-        // Run in the repo so its global.json decides which SDK is selected.
-        var result = await processRunner.RunAsync("dotnet", ["--version"], repoPath, DotnetCli.BaseEnvironment, cancellationToken);
+        ProcessResult result;
+        try
+        {
+            result = await dotnet.VersionAsync(repoPath, cancellationToken);
+        }
+        catch (ProcessStartException ex)
+        {
+            return new PreflightCheck(".NET SDK", false, ex.Message);
+        }
+
         var version = result.StandardOutput.Trim();
         if (!result.Succeeded)
         {

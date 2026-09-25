@@ -37,7 +37,7 @@ internal static partial class SuppressionScanner
                 violations.Add(new Violation(diff.Path, "new GlobalSuppressions.cs", ""));
             }
 
-            foreach (var line in GenuinelyAdded(diff))
+            foreach (var line in diff.GenuinelyAdded)
             {
                 foreach (var (rule, pattern) in Rules)
                 {
@@ -50,29 +50,6 @@ internal static partial class SuppressionScanner
         }
 
         return violations;
-    }
-
-    internal static IEnumerable<string> GenuinelyAdded(FileDiff diff) => Unmatched(diff.Added, diff.Removed);
-
-    /// <summary>Lines in <paramref name="lines"/> with no whitespace-insensitive counterpart in <paramref name="counterparts"/> (multiset).</summary>
-    internal static IEnumerable<string> Unmatched(IReadOnlyList<string> lines, IReadOnlyList<string> counterparts)
-    {
-        var remaining = counterparts
-            .Select(l => l.Trim())
-            .GroupBy(l => l, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
-
-        foreach (var line in lines)
-        {
-            var key = line.Trim();
-            if (remaining.TryGetValue(key, out var count) && count > 0)
-            {
-                remaining[key] = count - 1;
-                continue;
-            }
-
-            yield return line;
-        }
     }
 
     [GeneratedRegex(@"#\s*pragma\s+warning\s+disable", RegexOptions.IgnoreCase)]

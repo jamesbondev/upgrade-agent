@@ -23,25 +23,22 @@ internal static class TrxParser
 {
     private static readonly XNamespace Ns = "http://microsoft.com/schemas/VisualStudio/TeamTest/2010";
 
-    public static TestInventory Parse(IEnumerable<string> trxFiles)
+    public static TestInventory Parse(IEnumerable<string> trxFiles) => FromDocuments(trxFiles.Select(XDocument.Load));
+
+    public static TestInventory ParseXml(string xml) => FromDocuments([XDocument.Parse(xml)]);
+
+    private static TestInventory FromDocuments(IEnumerable<XDocument> documents)
     {
-        var methods = new Dictionary<string, (int Passed, int Failed, int Skipped)>(StringComparer.Ordinal);
-        foreach (var file in trxFiles)
+        var methods = new Dictionary<string, MethodStats>(StringComparer.Ordinal);
+        foreach (var document in documents)
         {
-            Accumulate(XDocument.Load(file), methods);
+            Accumulate(document, methods);
         }
 
-        return new TestInventory(methods.ToDictionary(kv => kv.Key, kv => new MethodStats(kv.Value.Passed, kv.Value.Failed, kv.Value.Skipped), StringComparer.Ordinal));
+        return new TestInventory(methods);
     }
 
-    public static TestInventory ParseXml(string xml)
-    {
-        var methods = new Dictionary<string, (int Passed, int Failed, int Skipped)>(StringComparer.Ordinal);
-        Accumulate(XDocument.Parse(xml), methods);
-        return new TestInventory(methods.ToDictionary(kv => kv.Key, kv => new MethodStats(kv.Value.Passed, kv.Value.Failed, kv.Value.Skipped), StringComparer.Ordinal));
-    }
-
-    private static void Accumulate(XDocument document, Dictionary<string, (int Passed, int Failed, int Skipped)> methods)
+    private static void Accumulate(XDocument document, Dictionary<string, MethodStats> methods)
     {
         var keys = document.Descendants(Ns + "UnitTest").ToDictionary(
             t => (string)t.Attribute("id")!,
@@ -63,7 +60,7 @@ internal static class TrxParser
 
             foreach (var outcome in outcomes)
             {
-                methods.TryGetValue(key, out var stats);
+                var stats = methods.GetValueOrDefault(key) ?? new MethodStats(0, 0, 0);
                 methods[key] = outcome switch
                 {
                     "Passed" => stats with { Passed = stats.Passed + 1 },

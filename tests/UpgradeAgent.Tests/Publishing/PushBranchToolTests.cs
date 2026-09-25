@@ -1,41 +1,41 @@
-using UpgradeAgent.Detection;
 using UpgradeAgent.Publishing;
 using UpgradeAgent.Run;
 using UpgradeAgent.Tests.TestSupport;
-using UpgradeAgent.Ui;
 
 namespace UpgradeAgent.Tests.Publishing;
 
-public sealed class PushBranchToolTests : IDisposable
+public sealed class PushBranchToolTests : IAsyncLifetime
 {
-    private readonly TempRepo _repo = new();
-    private readonly string _verified;
+    private TempRepo _repo = null!;
+    private string _verified = null!;
 
-    public PushBranchToolTests()
+    public async Task InitializeAsync()
     {
-        _repo.Write("a.txt", "1").Commit("base");
-        _verified = _repo.Write("a.txt", "2").Commit("verified group");
+        _repo = await TempRepo.CreateAsync();
+        await _repo.Write("a.txt", "1").CommitAsync("base");
+        _verified = await _repo.Write("a.txt", "2").CommitAsync("verified group");
     }
 
     [Fact]
     public async Task DryRunReportsWhatWouldBePushed()
     {
-        var tool = Tool([_verified]);
+        var tool = Tool(accepted: true);
 
-        var message = await tool.PushBranchAsync();
+        var result = await tool.PushAsync(CancellationToken.None);
 
-        Assert.StartsWith("Dry run: would push agent/test (1 verified commit(s))", message, StringComparison.Ordinal);
-        Assert.False(tool.Result!.Refused);
+        Assert.Equal(PushOutcome.DryRun, result.Outcome);
+        Assert.StartsWith("Dry run: would push agent/nuget-updates-20260923-1200 (1 verified commit(s))", result.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task RefusesWhenHeadIsNotTheLastVerifiedCommit()
     {
-        _repo.Write("a.txt", "3").Commit("unverified");
+        await _repo.Write("a.txt", "3").CommitAsync("unverified");
 
-        var message = await Tool([_verified]).PushBranchAsync();
+        var result = await Tool(accepted: true).PushAsync(CancellationToken.None);
 
-        Assert.Contains("is not the last verified commit", message, StringComparison.Ordinal);
+        Assert.Equal(PushOutcome.Refused, result.Outcome);
+        Assert.Contains("is not the last verified commit", result.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -43,49 +43,50 @@ public sealed class PushBranchToolTests : IDisposable
     {
         _repo.Write("a.txt", "dirty");
 
-        Assert.Contains("uncommitted change", await Tool([_verified]).PushBranchAsync(), StringComparison.Ordinal);
+        Assert.Contains("uncommitted change", (await Tool(accepted: true).PushAsync(CancellationToken.None)).Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task RefusesWhenNothingWasAccepted()
     {
-        Assert.Contains("nothing to publish", await Tool([]).PushBranchAsync(), StringComparison.Ordinal);
+        Assert.Contains("nothing to publish", (await Tool(accepted: false).PushAsync(CancellationToken.None)).Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task RunsOnlyOnce()
     {
-        var pushes = 0;
-        var tool = Tool([_verified], dryRun: false, push: _ => { pushes++; return Task.FromResult(new PushResult(true, false, "pushed")); });
+        var destination = new CountingDestination();
+        var tool = Tool(accepted: true, destination);
 
         await tool.PushBranchAsync();
         var second = await tool.PushBranchAsync();
 
-        Assert.Equal(1, pushes);
+        Assert.Equal(1, destination.Pushes);
         Assert.StartsWith("push_branch was already called", second, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task DirectPublisherPushesOnlyAfterApproval()
+    public Task DisposeAsync()
     {
-        var declined = await new DirectPushPublisher(new DeclineAllPrompter()).PublishAsync(Tool([_verified]), CancellationToken.None);
-        var approved = await new DirectPushPublisher(new ApproveAll()).PublishAsync(Tool([_verified]), CancellationToken.None);
-
-        Assert.StartsWith("Not pushed: the operator declined", declined.Message, StringComparison.Ordinal);
-        Assert.StartsWith("Dry run:", approved.Message, StringComparison.Ordinal);
+        _repo.Dispose();
+        return Task.CompletedTask;
     }
 
-    public void Dispose() => _repo.Dispose();
-
-    private PushBranchTool Tool(IReadOnlyList<string> ledger, bool dryRun = true, Func<CancellationToken, Task<PushResult>>? push = null) =>
-        new(_repo.Git, Report(ledger), dryRun, push);
-
-    private RunReport Report(IReadOnlyList<string> ledger) =>
-        new("run", "agent/test", _repo.Path, "base", "10.0.112", DateTimeOffset.UtcNow, TimeSpan.Zero,
-            new UpgradePlan(DateTimeOffset.UtcNow, "x.slnx", [], []), [], ledger);
-
-    private sealed class ApproveAll : IApprovalPrompter
+    internal PushBranchTool Tool(bool accepted, IPushDestination? destination = null)
     {
-        public Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken) => Task.FromResult(true);
+        var groups = accepted ? [TestData.Group("patch-minor", GroupStatus.Accepted, _verified)] : Array.Empty<GroupResult>();
+        return new PushBranchTool(_repo.Git, TestData.Report(groups: groups, worktree: _repo.Path), destination ?? new DryRunDestination(_repo.Git, _repo.Path));
+    }
+
+    private sealed class CountingDestination : IPushDestination
+    {
+        public int Pushes { get; private set; }
+
+        public Task<string> DescribeAsync(CancellationToken cancellationToken) => Task.FromResult("test remote");
+
+        public Task<PushResult> PushAsync(RunReport report, CancellationToken cancellationToken)
+        {
+            Pushes++;
+            return Task.FromResult(PushResult.Success("pushed"));
+        }
     }
 }

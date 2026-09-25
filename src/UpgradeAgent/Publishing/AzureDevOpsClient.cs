@@ -24,7 +24,7 @@ internal sealed class AzureDevOpsClient(string organizationUrl, AzureDevOpsCrede
         GitRepository repository, string branch, string title, string description, string label, CancellationToken cancellationToken)
     {
         var git = await _connection.GetClientAsync<GitHttpClient>(cancellationToken);
-        var fitted = FitDescription(description);
+        var fitted = PrDescription.Fit(description, MaxDescriptionLength);
         var pullRequest = await git.CreatePullRequestAsync(
             new GitPullRequest
             {
@@ -87,26 +87,6 @@ internal sealed class AzureDevOpsClient(string organizationUrl, AzureDevOpsCrede
         {
             throw new InvalidOperationException($"Could not delete {branch.Name}: {failure.UpdateStatus}");
         }
-    }
-
-    /// <summary>Drops collapsible detail sections first, then truncates at a line boundary with a pointer to the full text.</summary>
-    public static string FitDescription(string markdown, int limit = MaxDescriptionLength)
-    {
-        if (markdown.Length <= limit)
-        {
-            return markdown;
-        }
-
-        var withoutDetails = System.Text.RegularExpressions.Regex.Replace(markdown, @"<details>.*?</details>\s*", "", System.Text.RegularExpressions.RegexOptions.Singleline);
-        if (withoutDetails.Length <= limit)
-        {
-            return withoutDetails;
-        }
-
-        const string Notice = "\n\n_Truncated to fit Azure DevOps' 4,000-character limit. The full report is the first comment._";
-        var cut = withoutDetails[..(limit - Notice.Length)];
-        var lastLine = cut.LastIndexOf('\n');
-        return (lastLine > 0 ? cut[..lastLine] : cut) + Notice;
     }
 
     public void Dispose() => _connection.Dispose();

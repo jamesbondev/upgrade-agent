@@ -56,6 +56,16 @@ internal sealed class GitCli(IProcessRunner processRunner)
         (await TryRunAsync(repoPath, ["config", "user.email"], cancellationToken)).Succeeded
         && (await TryRunAsync(repoPath, ["config", "user.name"], cancellationToken)).Succeeded;
 
+    /// <summary>
+    /// Puts the worktree back exactly at <paramref name="commit"/>: tracked changes reset, new files removed.
+    /// Deliberately not cancellable: a half-applied change must never survive, even when the run is being cancelled.
+    /// </summary>
+    public async Task RevertToAsync(string worktree, string commit)
+    {
+        await RunAsync(worktree, ["reset", "--hard", "-q", commit], CancellationToken.None);
+        await RunAsync(worktree, ["clean", "-fd", "-q"], CancellationToken.None);
+    }
+
     internal static IReadOnlyList<string> SplitLines(string output) =>
         output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
 }

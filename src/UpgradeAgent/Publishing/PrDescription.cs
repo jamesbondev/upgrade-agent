@@ -1,22 +1,32 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using UpgradeAgent.Detection;
-using UpgradeAgent.Run;
+using UpgradeAgent.Guardrails;
 using UpgradeAgent.Infrastructure;
+using UpgradeAgent.Run;
 
 namespace UpgradeAgent.Publishing;
 
-/// <summary>Markdown for the pull request, built only from the run report (what the app verified, not what the agent claimed).</summary>
-internal static class PrDescription
+/// <summary>
+/// Markdown for the pull request. Facts (versions, commits, checks, reviewer notes) come from what the app
+/// verified. The agent's own account is shown only for accepted groups, marked unverified, and escaped: it is
+/// model output and must not be able to reshape the page.
+/// </summary>
+internal static partial class PrDescription
 {
+    private const int MaxBuildWarnings = 10;
+    private const int MaxLineLength = 160;
+
     public static string Title(RunReport report) =>
-        $"chore(deps): NuGet updates {report.StartedUtc:yyyy-MM-dd} ({report.Ledger.Count} group{(report.Ledger.Count == 1 ? "" : "s")})";
+        string.Create(CultureInfo.InvariantCulture, $"chore(deps): NuGet updates {report.StartedUtc:yyyy-MM-dd} ({report.Ledger.Count} group{(report.Ledger.Count == 1 ? "" : "s")})");
 
     public static string Create(RunReport report)
     {
         var md = new StringBuilder();
         md.AppendLine(CultureInfo.InvariantCulture, $"# {Title(report)}").AppendLine();
-        md.AppendLine(CultureInfo.InvariantCulture, $"Automated by **UpgradeAgent** (run `{report.RunId}`, branch `{report.Branch}`). Each group below was bumped, built, tested and checked by deterministic guardrails before it was committed. The agent's own claims were not trusted. **Please review before merging.**");
+        md.AppendLine(CultureInfo.InvariantCulture,
+            $"Automated by **UpgradeAgent** (run `{report.RunId}`, branch `{report.Branch}`). Each group below was bumped, built, tested and checked by deterministic guardrails before it was committed. The agent's own claims were not trusted. **Please review before merging.**");
         md.AppendLine();
 
         AppendSummaryTable(md, report);
@@ -28,6 +38,29 @@ internal static class PrDescription
         return md.ToString();
     }
 
+    /// <summary>
+    /// Fits a description into <paramref name="limit"/> characters: collapsible detail sections go first, then the
+    /// text is cut at a line boundary with a pointer to the full report.
+    /// </summary>
+    public static string Fit(string markdown, int limit)
+    {
+        if (markdown.Length <= limit)
+        {
+            return markdown;
+        }
+
+        var withoutDetails = DetailsSection().Replace(markdown, "");
+        if (withoutDetails.Length <= limit)
+        {
+            return withoutDetails;
+        }
+
+        var notice = string.Create(CultureInfo.InvariantCulture, $"\n\n_Truncated to fit the {limit:N0}-character limit. The full report is the first comment._");
+        var cut = withoutDetails[..(limit - notice.Length)];
+        var lastLine = cut.LastIndexOf('\n');
+        return (lastLine > 0 ? cut[..lastLine] : cut) + notice;
+    }
+
     private static void AppendSummaryTable(StringBuilder md, RunReport report)
     {
         md.AppendLine("## Summary").AppendLine();
@@ -35,7 +68,7 @@ internal static class PrDescription
         md.AppendLine("|---|---|---|---|---|");
         foreach (var update in report.Plan.Updates)
         {
-            var group = report.Groups.FirstOrDefault(g => string.Equals(g.Name, update.Group, StringComparison.OrdinalIgnoreCase));
+            var group = report.GroupFor(update);
             var status = (update.Decision, group?.Status) switch
             {
                 (UpdateDecision.Planned, GroupStatus.Accepted) => $"✅ included (`{group!.Commit!.ShortSha()}`)",
@@ -59,80 +92,25 @@ internal static class PrDescription
         foreach (var group in report.Groups.Where(g => g.Status == GroupStatus.Accepted))
         {
             md.AppendLine(CultureInfo.InvariantCulture, $"### {group.Name} ✅ `{group.Commit!.ShortSha()}`").AppendLine();
-            md.AppendLine(string.Join(", ", group.Edits.Select(e => $"{e.Id} {e.From} → {e.To}").Distinct()) + ".").AppendLine();
+            md.AppendLine(string.Join(", ", group.Changes) + ".").AppendLine();
 
             if (group.Fix is not { Attempted: true })
             {
                 md.AppendLine("Built and passed the tests with no code changes.").AppendLine();
             }
 
-            foreach (var package in group.Fix?.Details?.Packages ?? [])
-            {
-                if (package.BreakingChanges.Count > 0)
-                {
-                    md.AppendLine(CultureInfo.InvariantCulture, $"**Breaking changes in {package.Id} {package.To}**");
-                    foreach (var change in package.BreakingChanges)
-                    {
-                        md.AppendLine(CultureInfo.InvariantCulture, $"- {change}");
-                    }
-
-                    md.AppendLine();
-                }
-
-                if (package.Fixes.Count > 0)
-                {
-                    md.AppendLine("**Fixes applied**");
-                    foreach (var fix in package.Fixes)
-                    {
-                        md.AppendLine(CultureInfo.InvariantCulture, $"- `{fix.File}`: {fix.Reason}");
-                    }
-
-                    md.AppendLine();
-                }
-
-                if (package.UpcomingDeprecations.Count > 0)
-                {
-                    md.AppendLine("**Upcoming deprecations**");
-                    foreach (var item in package.UpcomingDeprecations)
-                    {
-                        md.AppendLine(CultureInfo.InvariantCulture, $"- {item}");
-                    }
-
-                    md.AppendLine();
-                }
-            }
-
-            if (group.Fix is { Attempted: true, Details: null })
-            {
-                md.AppendLine("_The agent changed code but gave no structured summary; see the commit diff._").AppendLine();
-            }
+            AppendAgentAccount(md, group.Fix);
 
             if (group.BuildWarnings is { Count: > 0 } warnings)
             {
-                md.AppendLine("**Build warnings after the update**");
-                foreach (var warning in warnings.Take(10))
-                {
-                    md.AppendLine(CultureInfo.InvariantCulture, $"- {warning.Truncate(160)}");
-                }
-
-                md.AppendLine();
+                AppendList(md, "Build warnings after the update", warnings.Take(MaxBuildWarnings).Select(w => w.Truncate(MaxLineLength)));
             }
 
-            if (group.Guardrails is { Warnings.Count: > 0 } guardrails)
+            if (group.Guardrails is { } guardrails)
             {
-                md.AppendLine("**Reviewer attention**");
-                foreach (var warning in guardrails.Warnings)
-                {
-                    md.AppendLine(CultureInfo.InvariantCulture, $"- {warning}");
-                }
-
-                md.AppendLine();
-            }
-
-            if (group.Guardrails is { } report2)
-            {
-                md.AppendLine(CultureInfo.InvariantCulture, $"<details><summary>Guardrails: {report2.Checks.Count(c => c.Passed)}/{report2.Checks.Count} passed</summary>").AppendLine();
-                foreach (var check in report2.Checks)
+                AppendReviewNotes(md, guardrails.Notes);
+                md.AppendLine(CultureInfo.InvariantCulture, $"<details><summary>Guardrails: {guardrails.Checks.Count(c => c.Passed)}/{guardrails.Checks.Count} passed</summary>").AppendLine();
+                foreach (var check in guardrails.Checks)
                 {
                     md.AppendLine(CultureInfo.InvariantCulture, $"- {(check.Passed ? "✅" : "❌")} {check.Name}: {check.Detail}");
                 }
@@ -142,11 +120,45 @@ internal static class PrDescription
 
             if (group.Fix?.Stats is { } stats)
             {
-                var replayed = group.Fix.Summary.StartsWith("replayed:", StringComparison.Ordinal) ? " (replayed from a recording)" : "";
-                md.AppendLine(CultureInfo.InvariantCulture, $"<sub>Agent{replayed}: {stats.Model ?? "unknown model"} · {stats.Duration.TotalMinutes:0.0} min · {stats.ModelCalls} model calls · " +
-                              $"{stats.ToolCalls} tool calls · {stats.InputTokens / 1000}k/{stats.OutputTokens / 1000}k tokens" +
-                              $"{(stats.OperatorApprovals > 0 ? $" · {stats.OperatorApprovals} operator approval(s)" : "")}</sub>").AppendLine();
+                md.AppendLine(CultureInfo.InvariantCulture,
+                    $"<sub>Agent{(group.Fix.Replayed ? " (replayed from a recording)" : "")}: {stats.Model ?? "unknown model"} · {stats.Duration.TotalMinutes:0.0} min · {stats.ModelCalls} model calls · {stats.ToolCalls} tool calls · {stats.InputTokens / 1000}k/{stats.OutputTokens / 1000}k tokens{(stats.OperatorApprovals > 0 ? $" · {stats.OperatorApprovals} operator approval(s)" : "")}</sub>").AppendLine();
             }
+        }
+    }
+
+    private static void AppendAgentAccount(StringBuilder md, FixOutcome? fix)
+    {
+        if (fix is { Attempted: true, Details: null })
+        {
+            md.AppendLine("_The agent changed code but gave no structured summary; see the commit diff._").AppendLine();
+        }
+
+        foreach (var package in fix?.Details?.Packages ?? [])
+        {
+            if (package.BreakingChanges.Count + package.Fixes.Count + package.UpcomingDeprecations.Count == 0)
+            {
+                continue;
+            }
+
+            md.AppendLine(CultureInfo.InvariantCulture, $"**Agent's account of {package.Id} {package.To}** _(unverified; the diff is the record)_").AppendLine();
+            AppendList(md, "Breaking changes", package.BreakingChanges.Select(Markdown.EscapeInline));
+            AppendList(md, "Fixes applied", package.Fixes.Select(f => $"`{f.File.Replace("`", "", StringComparison.Ordinal)}`: {Markdown.EscapeInline(f.Reason)}"));
+            AppendList(md, "Upcoming deprecations", package.UpcomingDeprecations.Select(Markdown.EscapeInline));
+        }
+    }
+
+    private static void AppendReviewNotes(StringBuilder md, IReadOnlyList<ReviewNote> notes)
+    {
+        foreach (var kind in notes.Select(n => n.Kind).Distinct())
+        {
+            var title = kind switch
+            {
+                ReviewNoteKind.TestFileModified => "Reviewer attention: test files changed",
+                ReviewNoteKind.AssertionsDropped => "Reviewer attention: fewer assertions",
+                ReviewNoteKind.PublicApiChanged => "Reviewer attention: public API changed",
+                _ => "Reviewer attention: summary and diff disagree",
+            };
+            AppendList(md, title, notes.Where(n => n.Kind == kind).Select(n => n.Message));
         }
     }
 
@@ -162,21 +174,22 @@ internal static class PrDescription
         md.AppendLine("## Not included").AppendLine();
         foreach (var group in rejected)
         {
-            md.AppendLine(CultureInfo.InvariantCulture, $"- ❌ **{group.Name}** ({string.Join(", ", group.Edits.Select(e => $"{e.Id} {e.From} → {e.To}").Distinct())}): {group.Reason}");
+            md.AppendLine(CultureInfo.InvariantCulture, $"- ❌ **{group.Name}** ({string.Join(", ", group.Changes)}): {group.Reason}");
             foreach (var item in group.Fix?.Details?.Packages.SelectMany(p => p.Unresolved) ?? [])
             {
-                md.AppendLine(CultureInfo.InvariantCulture, $"  - unresolved: {item}");
+                md.AppendLine(CultureInfo.InvariantCulture, $"  - unresolved (agent's account): {Markdown.EscapeInline(item)}");
             }
         }
 
         foreach (var update in notPlanned)
         {
-            md.AppendLine(CultureInfo.InvariantCulture, $"- {update.Id} {update.From} → {update.To}: {update.Decision switch
+            var why = update.Decision switch
             {
                 UpdateDecision.Manual => "needs a manual update",
                 UpdateDecision.NeedsTfmUpgrade => "needs a newer target framework",
                 _ => "skipped",
-            }}{(update.Reason is null ? "" : $" ({update.Reason})")}");
+            };
+            md.AppendLine(CultureInfo.InvariantCulture, $"- {update.Id} {update.From} → {update.To}: {why}{(update.Reason is null ? "" : $" ({update.Reason})")}");
         }
 
         md.AppendLine();
@@ -187,14 +200,35 @@ internal static class PrDescription
         var stats = report.Groups.Select(g => g.Fix?.Stats).OfType<AgentStats>().ToList();
         md.AppendLine("## Run").AppendLine();
         md.AppendLine(CultureInfo.InvariantCulture, $"- Duration: {report.Duration.TotalMinutes:0.0} min");
-        md.AppendLine(CultureInfo.InvariantCulture, $"- Groups: {report.Groups.Count(g => g.Status == GroupStatus.Accepted)} accepted, {report.Groups.Count(g => g.Status == GroupStatus.Rejected)} rejected");
+        md.AppendLine(CultureInfo.InvariantCulture,
+            $"- Groups: {report.Groups.Count(g => g.Status == GroupStatus.Accepted)} accepted, {report.Groups.Count(g => g.Status == GroupStatus.Rejected)} rejected");
         if (stats.Count > 0)
         {
-            md.AppendLine(CultureInfo.InvariantCulture, $"- Agent: {stats.Sum(s => s.ModelCalls)} model calls, {stats.Sum(s => s.ToolCalls)} tool calls, " +
-                          $"{stats.Sum(s => s.InputTokens) / 1000}k input / {stats.Sum(s => s.OutputTokens) / 1000}k output tokens" +
-                          $"{(stats.Sum(s => s.AiCredits) > 0 ? $", {stats.Sum(s => s.AiCredits):0.##} Copilot AI units" : "")}");
+            var credits = stats.Sum(s => s.AiCredits);
+            md.AppendLine(CultureInfo.InvariantCulture,
+                $"- Agent: {stats.Sum(s => s.ModelCalls)} model calls, {stats.Sum(s => s.ToolCalls)} tool calls, {stats.Sum(s => s.InputTokens) / 1000}k input / {stats.Sum(s => s.OutputTokens) / 1000}k output tokens{(credits > 0 ? $", {credits:0.##} Copilot AI units" : "")}");
         }
 
         md.AppendLine(CultureInfo.InvariantCulture, $"- Target commit: `{report.TargetCommit.ShortSha()}` · SDK {report.SdkVersion}").AppendLine();
     }
+
+    private static void AppendList(StringBuilder md, string title, IEnumerable<string> items)
+    {
+        var list = items.ToList();
+        if (list.Count == 0)
+        {
+            return;
+        }
+
+        md.AppendLine(CultureInfo.InvariantCulture, $"**{title}**");
+        foreach (var item in list)
+        {
+            md.AppendLine(CultureInfo.InvariantCulture, $"- {item}");
+        }
+
+        md.AppendLine();
+    }
+
+    [GeneratedRegex(@"<details>.*?</details>\s*", RegexOptions.Singleline)]
+    private static partial Regex DetailsSection();
 }

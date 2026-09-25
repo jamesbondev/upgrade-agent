@@ -26,12 +26,14 @@ internal static class BumpClassifier
 
         return BumpKind.Patch;
     }
+}
 
-    /// <summary>
-    /// True when the requested version is a plain minimum version (what CPM and most repos use).
-    /// Floating versions and explicit ranges are left for a human.
-    /// </summary>
-    public static bool IsPlainVersion(string requestedVersion) =>
-        requestedVersion.IndexOfAny(['*', '[', ']', '(', ')', ',']) < 0
-        && NuGetVersion.TryParse(requestedVersion, out _);
+/// <summary>
+/// The one definition of a version the app may rewrite: a plain minimum version, as CPM and most repos use.
+/// Floating versions (<c>1.*</c>), ranges (<c>[1.0,2.0)</c>) and MSBuild properties don't parse and are left for a human.
+/// </summary>
+internal static class PlainVersion
+{
+    public static bool TryParse(string? text, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out NuGetVersion? version) =>
+        NuGetVersion.TryParse(text, out version);
 }

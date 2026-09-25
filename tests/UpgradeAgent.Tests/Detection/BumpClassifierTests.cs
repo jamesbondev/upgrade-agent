@@ -13,7 +13,7 @@ public class BumpClassifierTests
     [InlineData("0.3.1", "0.4.0", nameof(BumpKind.Major))]
     [InlineData("1.0.0-beta.1", "1.0.0", nameof(BumpKind.Patch))]
     [InlineData("4.0.0.1", "4.0.0.2", nameof(BumpKind.Patch))]
-    public void Classify_UsesSemVerWithZeroMajorMinorsAsMajor(string from, string to, string expected)
+    public void ClassifiesBySemVerWithZeroXMinorsAsMajor(string from, string to, string expected)
     {
         Assert.Equal(Enum.Parse<BumpKind>(expected), BumpClassifier.Classify(NuGetVersion.Parse(from), NuGetVersion.Parse(to)));
     }
@@ -26,8 +26,8 @@ public class BumpClassifierTests
     [InlineData("[1.0.0]", false)]
     [InlineData("$(FooVersion)", false)]
     [InlineData("", false)]
-    public void IsPlainVersion_RejectsRangesAndFloatingVersions(string requested, bool expected)
+    public void OnlyPlainVersionsCanBeRewritten(string requested, bool expected)
     {
-        Assert.Equal(expected, BumpClassifier.IsPlainVersion(requested));
+        Assert.Equal(expected, PlainVersion.TryParse(requested, out _));
     }
 }

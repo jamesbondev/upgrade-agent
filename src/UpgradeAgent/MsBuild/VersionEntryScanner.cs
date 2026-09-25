@@ -1,15 +1,12 @@
 using System.Text.RegularExpressions;
 
-namespace UpgradeAgent.Bumping;
+namespace UpgradeAgent.MsBuild;
 
-/// <param name="ValueStart">Offset of the version value in the file text; null when the entry has no version.</param>
-internal sealed record VersionEntry(
-    string Element,
-    string Id,
-    string? Version,
-    bool HasVersionOverride,
-    int? ValueStart,
-    int? ValueLength);
+/// <summary>Where a version value sits in the file text, so an edit replaces exactly those characters.</summary>
+internal sealed record VersionValue(string Text, int Start, int Length);
+
+/// <param name="Value">Null when the entry has no version of its own (e.g. a PackageReference under central package management).</param>
+internal sealed record VersionEntry(string Element, string Id, VersionValue? Value, bool HasVersionOverride);
 
 /// <summary>
 /// Finds <c>PackageVersion</c>, <c>PackageReference</c> and <c>GlobalPackageReference</c> entries by scanning
@@ -20,18 +17,12 @@ internal static partial class VersionEntryScanner
 {
     public static IReadOnlyList<VersionEntry> Scan(string text)
     {
-        var comments = Comment().Matches(text).Select(m => (Start: m.Index, End: m.Index + m.Length)).ToList();
-        bool InComment(int index) => comments.Any(c => index >= c.Start && index < c.End);
+        // Blank out comments with spaces of the same length: offsets stay valid and nothing inside a comment matches.
+        var scannable = Comment().Replace(text, m => new string(' ', m.Length));
 
         var entries = new List<VersionEntry>();
-        foreach (Match tag in OpeningTag().Matches(text))
+        foreach (Match tag in OpeningTag().Matches(scannable))
         {
-            if (InComment(tag.Index))
-            {
-                continue;
-            }
-
-            var element = tag.Groups["name"].Value;
             var attributes = tag.Groups["attributes"];
             var idMatch = IdAttribute().Match(attributes.Value);
             if (!idMatch.Success)
@@ -39,34 +30,33 @@ internal static partial class VersionEntryScanner
                 continue;
             }
 
+            var element = tag.Groups["name"].Value;
             var hasOverride = VersionOverrideAttribute().IsMatch(attributes.Value);
-            string? version = null;
-            int? start = null;
-            int? length = null;
+            VersionValue? value = null;
 
             var versionAttribute = VersionAttribute().Match(attributes.Value);
             if (versionAttribute.Success)
             {
-                var value = versionAttribute.Groups["value"];
-                (version, start, length) = (value.Value, attributes.Index + value.Index, value.Length);
+                var group = versionAttribute.Groups["value"];
+                value = new VersionValue(group.Value, attributes.Index + group.Index, group.Length);
             }
             else if (tag.Groups["selfClose"].Value.Length == 0)
             {
-                var closing = text.IndexOf($"</{element}>", tag.Index + tag.Length, StringComparison.Ordinal);
+                var bodyStart = tag.Index + tag.Length;
+                var closing = scannable.IndexOf($"</{element}>", bodyStart, StringComparison.Ordinal);
                 if (closing > 0)
                 {
-                    var body = text[(tag.Index + tag.Length)..closing];
+                    var body = scannable[bodyStart..closing];
                     hasOverride |= body.Contains("<VersionOverride>", StringComparison.Ordinal);
-                    var child = VersionElement().Match(body);
-                    if (child.Success)
+                    if (VersionElement().Match(body) is { Success: true } child)
                     {
-                        var value = child.Groups["value"];
-                        (version, start, length) = (value.Value.Trim(), tag.Index + tag.Length + value.Index, value.Length);
+                        var group = child.Groups["value"];
+                        value = new VersionValue(group.Value.Trim(), bodyStart + group.Index, group.Length);
                     }
                 }
             }
 
-            entries.Add(new VersionEntry(element, idMatch.Groups["id"].Value.Trim(), version, hasOverride, start, length));
+            entries.Add(new VersionEntry(element, idMatch.Groups["id"].Value.Trim(), value, hasOverride));
         }
 
         return entries;
@@ -75,7 +65,8 @@ internal static partial class VersionEntryScanner
     [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
     private static partial Regex Comment();
 
-    [GeneratedRegex(@"<(?<name>PackageVersion|PackageReference|GlobalPackageReference)\b(?<attributes>[^>]*?)(?<selfClose>/?)>", RegexOptions.Singleline)]
+    // Attribute values may contain '>' (conditions such as "'$(X)' > '1'"), so quoted runs are matched whole.
+    [GeneratedRegex(@"<(?<name>PackageVersion|PackageReference|GlobalPackageReference)\b(?<attributes>(?:[^>""']|""[^""]*""|'[^']*')*?)(?<selfClose>/?)>", RegexOptions.Singleline)]
     private static partial Regex OpeningTag();
 
     [GeneratedRegex(@"\b(?:Include|Update)\s*=\s*(?<q>[""'])(?<id>[^""']*)\k<q>")]

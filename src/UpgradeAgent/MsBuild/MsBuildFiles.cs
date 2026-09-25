@@ -1,4 +1,4 @@
-namespace UpgradeAgent.Infrastructure;
+namespace UpgradeAgent.MsBuild;
 
 /// <summary>What MSBuild and NuGet read, in one place: file kinds and the config files inherited from parent folders.</summary>
 internal static class MsBuildFiles

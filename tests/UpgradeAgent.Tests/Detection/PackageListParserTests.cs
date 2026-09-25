@@ -29,7 +29,7 @@ public class PackageListParserTests
         """;
 
     [Fact]
-    public void Parse_ReadsPackagesPerProjectAndFramework()
+    public void ReadsPackagesPerProjectAndFramework()
     {
         var packages = PackageListParser.Parse(FixtureOutput);
 
@@ -41,7 +41,7 @@ public class PackageListParserTests
     }
 
     [Fact]
-    public void Parse_SkipsProjectsWithoutFrameworks()
+    public void SkipsProjectsWithoutFrameworks()
     {
         var packages = PackageListParser.Parse(FixtureOutput);
 
@@ -49,7 +49,7 @@ public class PackageListParserTests
     }
 
     [Fact]
-    public void Parse_ReadsMultiTargetedProjects()
+    public void ReadsMultiTargetedProjects()
     {
         const string output = """
             { "version": 1, "projects": [ { "path": "/repo/a.csproj", "frameworks": [
@@ -64,7 +64,7 @@ public class PackageListParserTests
     }
 
     [Fact]
-    public void Parse_AllowsMissingLatestVersion()
+    public void AllowsAMissingLatestVersion()
     {
         const string output = """
             { "version": 1, "projects": [ { "path": "/repo/a.csproj", "frameworks": [
@@ -76,7 +76,7 @@ public class PackageListParserTests
     }
 
     [Fact]
-    public void Parse_ThrowsWithRawOutputWhenOutputIsNotJson()
+    public void ThrowsWithTheRawOutputWhenItIsNotJson()
     {
         // Captured: an unreachable feed makes the CLI print plain text and exit 1.
         const string output = """
@@ -91,7 +91,7 @@ public class PackageListParserTests
     }
 
     [Fact]
-    public void Parse_ThrowsOnErrorProblems()
+    public void ThrowsOnErrorProblems()
     {
         const string output = """
             { "version": 1, "problems": [ { "level": "error", "text": "No assets file was found for /repo/a.csproj." } ], "projects": [] }
@@ -103,7 +103,7 @@ public class PackageListParserTests
     }
 
     [Fact]
-    public void Parse_IgnoresWarningProblems()
+    public void IgnoresWarningProblems()
     {
         const string output = """
             { "version": 1, "problems": [ { "level": "warning", "text": "something minor" } ], "projects": [] }

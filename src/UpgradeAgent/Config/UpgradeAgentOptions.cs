@@ -41,10 +41,18 @@ internal sealed class AzureDevOpsOptions
     public bool IsConfigured => OrganizationUrl.Length > 0 && Project.Length > 0 && Repository.Length > 0;
 }
 
+internal enum AgentProvider
+{
+    /// <summary>GitHub Copilot via the local Copilot CLI login (or a token in pipelines).</summary>
+    Copilot,
+
+    /// <summary>No agent: groups that need code changes are rejected.</summary>
+    None,
+}
+
 internal sealed class AgentOptions
 {
-    /// <summary><c>copilot</c> (GitHub Copilot via the local Copilot CLI login) or <c>none</c>.</summary>
-    public string Provider { get; set; } = "copilot";
+    public AgentProvider Provider { get; set; } = AgentProvider.Copilot;
 
     /// <summary>Copilot model ID; null lets Copilot choose.</summary>
     public string? Model { get; set; }

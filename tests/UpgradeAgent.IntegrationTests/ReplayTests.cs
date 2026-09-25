@@ -2,12 +2,13 @@ using System.Text.Json;
 
 namespace UpgradeAgent.IntegrationTests;
 
+[Trait("Category", "Integration")]
 public sealed class ReplayTests(FixtureEnvironment fixture) : IClassFixture<FixtureEnvironment>
 {
     [Fact]
-    public void RecordedFixIsAcceptedAndCommitted()
+    public async Task RecordedFixIsAcceptedAndCommitted()
     {
-        var (exitCode, output, report, worktree) = fixture.Replay("fixture");
+        var (exitCode, output, report, worktree) = await fixture.ReplayAsync("fixture");
 
         Assert.True(exitCode == 0, output);
         Assert.Equal(["accepted", "accepted"], Statuses(report));
@@ -17,12 +18,16 @@ public sealed class ReplayTests(FixtureEnvironment fixture) : IClassFixture<Fixt
         var props = File.ReadAllText(Path.Combine(worktree, "Directory.Packages.props"));
         Assert.Contains("\"Fixture.Lib\" Version=\"2.0.0\"", props, StringComparison.Ordinal);
         Assert.Contains("GetConfigAsync", File.ReadAllText(Path.Combine(worktree, "src", "LoanLedger", "InterestCalculator.cs")), StringComparison.Ordinal);
+
+        // What PLAN §10 promises: the test methods survive, and a PR description is written.
+        Assert.Contains("every baseline test method still passes", output, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(fixture.Root, "out", "pr-description.md")));
     }
 
     [Fact]
-    public void CheatingFixIsRejectedDespiteGreenBuildAndTests()
+    public async Task CheatingFixIsRejectedDespiteGreenBuildAndTests()
     {
-        var (exitCode, output, report, worktree) = fixture.Replay("fixture-cheat");
+        var (exitCode, output, report, worktree) = await fixture.ReplayAsync("fixture-cheat");
 
         Assert.True(exitCode == 0, output);
         Assert.Equal(["accepted", "rejected"], Statuses(report));

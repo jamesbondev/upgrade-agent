@@ -1,76 +1,79 @@
+using UpgradeAgent.Config;
 using UpgradeAgent.Run;
 using UpgradeAgent.Tests.TestSupport;
 
 namespace UpgradeAgent.Tests.Run;
 
 /// <summary>Real git hooks on a temp repo: the company's hooks (e.g. ggshield) must apply to agent commits.</summary>
-public sealed class GroupCommitterTests : IDisposable
+public sealed class GroupCommitterTests : IAsyncLifetime
 {
-    private readonly TempRepo _repo = new();
-    private readonly string _start;
+    private TempRepo _repo = null!;
+    private string _start = null!;
 
-    public GroupCommitterTests()
+    public async Task InitializeAsync()
     {
-        _start = _repo.Write("src/A.cs", "class A {}\n").Commit("base");
+        _repo = await TempRepo.CreateAsync();
+        _start = await _repo.Write("src/A.cs", "class A {}\n").CommitAsync("base");
         _repo.Write("src/A.cs", "class A { int X; }\n");
     }
 
     [Fact]
     public async Task CommitsTheVerifiedTree()
     {
-        var result = await new GroupCommitter(_repo.Git, runHooks: true).CommitAsync(_repo.Path, _start, "chore(deps): bump", CancellationToken.None);
+        var result = await CommitAsync(runHooks: true);
 
-        Assert.Null(result.Error);
-        Assert.Equal(await _repo.Git.HeadAsync(_repo.Path), result.Commit);
+        Assert.Equal(await _repo.Git.HeadAsync(_repo.Path), Assert.IsType<CommitResult.Committed>(result).Sha);
     }
 
     [Fact]
-    public async Task AFailingHookRejectsTheGroupWithItsOutput()
+    public async Task AFailingHookRefusesTheCommitWithItsOutput()
     {
-        InstallHook("echo 'ggshield: 1 secret detected' >&2; exit 1");
+        await InstallHookAsync("echo 'ggshield: 1 secret detected' >&2; exit 1");
 
-        var result = await new GroupCommitter(_repo.Git, runHooks: true).CommitAsync(_repo.Path, _start, "chore(deps): bump", CancellationToken.None);
+        var result = await CommitAsync(runHooks: true);
 
-        Assert.Null(result.Commit);
-        Assert.Contains("ggshield: 1 secret detected", result.Error, StringComparison.Ordinal);
+        Assert.Contains("ggshield: 1 secret detected", Assert.IsType<CommitResult.Refused>(result).Reason, StringComparison.Ordinal);
         Assert.Equal(_start, await _repo.Git.HeadAsync(_repo.Path));
     }
 
     [Fact]
-    public async Task AHookThatRewritesFilesIsUndone()
+    public async Task AHookThatRewritesFilesIsRefused()
     {
-        InstallHook("echo '// reformatted' >> src/A.cs; git add src/A.cs");
+        await InstallHookAsync("echo '// reformatted' >> src/A.cs; git add src/A.cs");
 
-        var result = await new GroupCommitter(_repo.Git, runHooks: true).CommitAsync(_repo.Path, _start, "chore(deps): bump", CancellationToken.None);
+        var result = await CommitAsync(runHooks: true);
 
-        Assert.Null(result.Commit);
-        Assert.Contains("changed the committed files after verification", result.Error, StringComparison.Ordinal);
-        Assert.Equal(_start, await _repo.Git.HeadAsync(_repo.Path));
+        Assert.Contains("changed the committed files after verification", Assert.IsType<CommitResult.Refused>(result).Reason, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task HooksCanBeSkippedExplicitly()
     {
-        InstallHook("exit 1");
+        await InstallHookAsync("exit 1");
 
-        var result = await new GroupCommitter(_repo.Git, runHooks: false).CommitAsync(_repo.Path, _start, "chore(deps): bump", CancellationToken.None);
-
-        Assert.NotNull(result.Commit);
+        Assert.IsType<CommitResult.Committed>(await CommitAsync(runHooks: false));
     }
 
-    public void Dispose() => _repo.Dispose();
+    public Task DisposeAsync()
+    {
+        _repo.Dispose();
+        return Task.CompletedTask;
+    }
 
-    private void InstallHook(string body)
+    private Task<CommitResult> CommitAsync(bool runHooks) =>
+        new GroupCommitter(_repo.Git, new TargetOptions { RunGitHooks = runHooks }).CommitAsync(_repo.Path, "chore(deps): bump", CancellationToken.None);
+
+    private async Task InstallHookAsync(string body)
     {
         var hooks = Path.Combine(_repo.Path, ".git", "test-hooks");
         Directory.CreateDirectory(hooks);
         var hook = Path.Combine(hooks, "pre-commit");
-        File.WriteAllText(hook, $"#!/bin/sh\n{body}\n");
+        await File.WriteAllTextAsync(hook, $"#!/bin/sh\n{body}\n");
         if (!OperatingSystem.IsWindows())
         {
             File.SetUnixFileMode(hook, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
 
-        _repo.Run("config", "core.hooksPath", ".git/test-hooks");
+        await _repo.RunAsync("config", "core.hooksPath", ".git/test-hooks");
     }
 }

@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
-using UpgradeAgent.Bumping;
-using UpgradeAgent.Infrastructure;
+using UpgradeAgent.MsBuild;
 
 namespace UpgradeAgent.Guardrails;
 
@@ -36,7 +35,7 @@ internal static partial class BuildSettingsSnapshot
             var text = File.ReadAllText(path);
             foreach (var entry in VersionEntryScanner.Scan(text))
             {
-                entries.Add($"{relative}: {entry.Element} {entry.Id} {entry.Version ?? "(none)"}{(entry.HasVersionOverride ? " +VersionOverride" : "")}");
+                entries.Add($"{relative}: {entry.Element} {entry.Id} {entry.Value?.Text ?? "(none)"}{(entry.HasVersionOverride ? " +VersionOverride" : "")}");
             }
 
             foreach (Match property in GuardedProperty().Matches(text))

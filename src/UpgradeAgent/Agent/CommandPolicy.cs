@@ -85,8 +85,7 @@ internal sealed class CommandPolicy
             return PolicyDecision.Reject("Writing files with shell redirection is not allowed. Edit files with the edit tool; read command output directly.");
         }
 
-        var parsed = ShellCommandParser.Parse(commandLine, out var error);
-        if (error is not null)
+        if (!ShellCommandParser.TryParse(commandLine, out var parsed, out var error))
         {
             return PolicyDecision.Reject($"Command not allowed: {error}. Run one simple command at a time from the repository root.");
         }
@@ -102,6 +101,11 @@ internal sealed class CommandPolicy
             {
                 return PolicyDecision.Reject($"'{path}' is outside the working copy.");
             }
+        }
+
+        if (parsed.Segments.Count == 0)
+        {
+            return PolicyDecision.Reject("Empty command.");
         }
 
         var cwd = _worktree;
@@ -190,9 +194,14 @@ internal sealed class CommandPolicy
                 return EvaluateDotnet(arguments);
 
             case "git":
-                return arguments.Count > 0 && ReadOnlyGit.Contains(arguments[0])
-                    ? PolicyDecision.Approve($"read-only git {arguments[0]}")
-                    : PolicyDecision.Reject("Only read-only git commands (status, diff, log, show) are allowed; UpgradeAgent owns commits and branches.");
+                if (arguments.Count == 0 || !ReadOnlyGit.Contains(arguments[0]))
+                {
+                    return PolicyDecision.Reject("Only read-only git commands (status, diff, log, show) are allowed; UpgradeAgent owns commits and branches.");
+                }
+
+                return arguments.Any(a => a.StartsWith("--output", StringComparison.Ordinal))
+                    ? PolicyDecision.Reject("git --output writes a file; read the output directly.")
+                    : PolicyDecision.Approve($"read-only git {arguments[0]}");
 
             case "find":
                 return arguments.Any(FindWriteActions.Contains)
@@ -200,7 +209,7 @@ internal sealed class CommandPolicy
                     : PolicyDecision.Approve("read-only find");
 
             case "sed":
-                return arguments.Any(a => a == "-i" || a.StartsWith("-i", StringComparison.Ordinal) || a == "--in-place")
+                return arguments.Any(a => a.StartsWith("-i", StringComparison.Ordinal) || a.StartsWith("--in-place", StringComparison.Ordinal))
                     ? PolicyDecision.Reject("Edit files with the edit tool, not sed -i.")
                     : PolicyDecision.Approve("read-only sed");
 
@@ -240,7 +249,7 @@ internal sealed class CommandPolicy
             return PolicyDecision.Reject("Add --no-restore: packages are already restored.");
         }
 
-        if (verb == "test" && !rest.Any(a => a is "--no-restore" or "--no-build"))
+        if (verb == "test" && !rest.Any(a => a.Equals("--no-restore", StringComparison.OrdinalIgnoreCase) || a.Equals("--no-build", StringComparison.OrdinalIgnoreCase)))
         {
             return PolicyDecision.Reject("Add --no-build (after a successful dotnet build --no-restore) or --no-restore.");
         }

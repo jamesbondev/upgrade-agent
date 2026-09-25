@@ -1,55 +1,29 @@
 using Spectre.Console;
+using UpgradeAgent.Agent;
 using UpgradeAgent.Build;
 using UpgradeAgent.Bumping;
 using UpgradeAgent.Detection;
 using UpgradeAgent.Guardrails;
+using UpgradeAgent.Infrastructure;
 using UpgradeAgent.Run;
 using UpgradeAgent.Workspace;
-using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Ui;
 
-/// <summary>Append-only run output: every call writes new lines and never redraws, so prompts are safe anywhere.</summary>
-internal sealed class RunRenderer(IAnsiConsole console)
+/// <summary>The console view of a run. Append-only: every call writes new lines and never redraws, so prompts are safe anywhere.</summary>
+internal sealed class RunRenderer(IAnsiConsole console, PlanRenderer plans) : IRunProgress
 {
     private const int MaxErrorsShown = 8;
+    private const int OutputTailLines = 15;
 
     public void Status(string message) => console.MarkupLine($"[grey]{Markup.Escape(message)}[/]");
 
-    /// <summary>
-    /// A spinner for slow phases that never prompt (detection), so a silent pause doesn't look like a hang.
-    /// Only used where nothing else writes to the console meanwhile.
-    /// </summary>
     public Task<T> WithSpinnerAsync<T>(string message, Func<Task<T>> action) =>
         console.Profile.Capabilities.Interactive
             ? console.Status().Spinner(Spinner.Known.Dots).StartAsync(Markup.Escape(message), _ => action())
-            : LogThenRun(message, action);
+            : LogThenRunAsync(message, action);
 
-    private async Task<T> LogThenRun<T>(string message, Func<Task<T>> action)
-    {
-        Status(message);
-        return await action();
-    }
-
-    public void PublishHeader(string how)
-    {
-        console.Write(new Rule("[bold]Publish[/]").LeftJustified());
-        console.MarkupLine($"  [grey]{Markup.Escape(how)}[/]");
-    }
-
-    public void Published(string descriptionPath, Publishing.PushResult? push)
-    {
-        if (push is not null)
-        {
-            var color = push.Pushed ? "green" : push.Refused ? "red" : "yellow";
-            console.MarkupLine($"  [{color}]{Markup.Escape(push.Message)}[/]");
-        }
-
-        console.MarkupLine($"  PR description: [blue]{Markup.Escape(descriptionPath)}[/]");
-        console.WriteLine();
-    }
-
-    public void Workspace(RunWorkspace workspace)
+    public void WorkspaceReady(RunWorkspace workspace)
     {
         console.Write(new Rule("[bold]Run[/]").LeftJustified());
         console.MarkupLine($"  Branch    [blue]{Markup.Escape(workspace.BranchName)}[/]");
@@ -58,7 +32,7 @@ internal sealed class RunRenderer(IAnsiConsole console)
         console.WriteLine();
     }
 
-    public void Baseline(Baseline baseline, bool fromCache)
+    public void BaselineReady(Baseline baseline, bool fromCache)
     {
         var source = fromCache ? "cached" : "measured";
         var detail = baseline.Tests is not null
@@ -68,19 +42,19 @@ internal sealed class RunRenderer(IAnsiConsole console)
         console.WriteLine();
     }
 
-    public void Plan(UpgradePlan plan, string repoPath) => PlanRenderer.RenderPlan(console, plan, repoPath);
+    public void PlanReady(UpgradePlan plan) => plans.Plan(plan);
 
-    public void GroupHeader(UpdateGroup group, int index, int count)
+    public void GroupStarted(UpdateGroup group, int index, int count)
     {
         var kind = group.Kind == GroupKind.Major ? "[red]major[/]" : "[green]patch/minor[/]";
         console.Write(new Rule($"[bold]Group {index}/{count}: {Markup.Escape(group.Name)}[/] ({kind})").LeftJustified());
     }
 
-    public void Bump(BumpResult bump)
+    public void Bumped(BumpResult bump)
     {
         foreach (var edit in bump.Edits)
         {
-            console.MarkupLine($"  [blue]bump[/] {Markup.Escape(edit.Id)} {Markup.Escape(edit.From)} → [bold]{Markup.Escape(edit.To)}[/] [grey]{Markup.Escape(edit.File)}[/]");
+            console.MarkupLine($"  [blue]bump[/] {Markup.Escape(edit.Id)} {edit.From} → [bold]{edit.To}[/] [grey]{Markup.Escape(edit.File)}[/]");
         }
 
         foreach (var manual in bump.Manual)
@@ -89,12 +63,12 @@ internal sealed class RunRenderer(IAnsiConsole console)
         }
     }
 
-    public void Build(string label, BuildResult build)
+    public void Built(string label, BuildResult build)
     {
         var seconds = $"{build.Duration.TotalSeconds:0.0}s";
         if (build.Succeeded)
         {
-            var warnings = build.Warnings.Count == 0 ? "" : $", {build.Warnings.Count} warning(s) [grey]({Markup.Escape(TopCodes(build.Warnings))})[/]";
+            var warnings = build.Warnings.Count == 0 ? "" : $", {build.Warnings.Count} warning(s) [grey]({Markup.Escape(BuildOutputParser.TopCodes(build.Warnings, 3))})[/]";
             console.MarkupLine($"  [green]✓[/] {label} succeeded [grey]{seconds}[/]{warnings}");
             return;
         }
@@ -102,7 +76,7 @@ internal sealed class RunRenderer(IAnsiConsole console)
         console.MarkupLine($"  [red]✗[/] {label} failed [grey]{seconds}[/]: {build.Errors.Count} error(s)");
         if (build.Errors.Count == 0)
         {
-            console.WriteLine(string.Join(Environment.NewLine, build.Output.TailLines(15)));
+            console.WriteLine(string.Join(Environment.NewLine, build.Output.TailLines(OutputTailLines)));
             return;
         }
 
@@ -123,17 +97,15 @@ internal sealed class RunRenderer(IAnsiConsole console)
         }
     }
 
-    public void Tests(TestRunResult tests)
+    public void Tested(TestRunResult tests)
     {
         var seconds = $"{tests.Duration.TotalSeconds:0.0}s";
-        var passed = tests.Inventory?.Passed ?? tests.Counts?.Passed;
-        var failed = tests.Inventory?.Failed ?? tests.Counts?.Failed;
         console.MarkupLine(tests.Succeeded
-            ? $"  [green]✓[/] Tests passed: {passed} [grey]{seconds}[/]"
-            : $"  [red]✗[/] Tests failed: {failed} failed, {passed} passed [grey]{seconds}[/]");
+            ? $"  [green]✓[/] Tests passed: {tests.Passed} [grey]{seconds}[/]"
+            : $"  [red]✗[/] Tests failed: {tests.Failed} failed, {tests.Passed} passed [grey]{seconds}[/]");
     }
 
-    public void Fix(FixOutcome fix)
+    public void Fixed(FixOutcome fix)
     {
         if (!fix.Attempted)
         {
@@ -141,10 +113,10 @@ internal sealed class RunRenderer(IAnsiConsole console)
             return;
         }
 
-        console.MarkupLine($"  [blue]agent[/] {Markup.Escape(fix.Summary)}");
+        console.MarkupLine($"  [blue]agent[/]{(fix.Replayed ? " [yellow](replayed)[/]" : "")} {Markup.Escape(fix.Summary)}");
         foreach (var package in fix.Details?.Packages ?? [])
         {
-            console.MarkupLine($"    [bold]{Markup.Escape(package.Id)}[/] {Markup.Escape(package.From)} → {Markup.Escape(package.To)} [grey]({Markup.Escape(package.Status)})[/]");
+            console.MarkupLine($"    [bold]{Markup.Escape(package.Id)}[/] {Markup.Escape(package.From)} → {Markup.Escape(package.To)} [grey]({Markup.Escape(package.Status.Label())})[/]");
             foreach (var change in package.BreakingChanges)
             {
                 console.MarkupLine($"      [red]breaking[/] {Markup.Escape(change)}");
@@ -164,7 +136,7 @@ internal sealed class RunRenderer(IAnsiConsole console)
         console.MarkupLine("  [grey]Re-checking independently: the agent's own build and test results are not trusted.[/]");
     }
 
-    public void Guardrails(GuardrailReport report)
+    public void GuardrailsChecked(GuardrailReport report)
     {
         console.MarkupLine("  [bold]Guardrails[/]");
         foreach (var check in report.Checks)
@@ -173,13 +145,13 @@ internal sealed class RunRenderer(IAnsiConsole console)
             console.MarkupLine($"    {mark} {Markup.Escape(check.Name)} [grey]{Markup.Escape(check.Detail)}[/]");
         }
 
-        foreach (var warning in report.Warnings)
+        foreach (var note in report.Notes)
         {
-            console.MarkupLine($"    [yellow]![/] {Markup.Escape(warning)}");
+            console.MarkupLine($"    [yellow]![/] {Markup.Escape(note.Message)}");
         }
     }
 
-    public void GroupOutcome(GroupResult result)
+    public void GroupFinished(GroupResult result)
     {
         var line = result.Status switch
         {
@@ -192,30 +164,29 @@ internal sealed class RunRenderer(IAnsiConsole console)
         console.WriteLine();
     }
 
-    public void Summary(RunReport report, IReadOnlyList<string> gitLog)
+    public void RunFinished(RunReport report, IReadOnlyList<string> commits)
     {
         console.Write(new Rule("[bold]Summary[/]").LeftJustified());
         var table = new Table().Border(TableBorder.Rounded).AddColumn("Group").AddColumn("Status").AddColumn("Changes").AddColumn("Detail");
         foreach (var group in report.Groups)
         {
-            var status = group.Status switch
+            var color = group.Status switch
             {
-                GroupStatus.Accepted => "[green]accepted[/]",
-                GroupStatus.Rejected => "[red]rejected[/]",
-                GroupStatus.Cancelled => "[yellow]cancelled[/]",
-                _ => "[grey]nothing to do[/]",
+                GroupStatus.Accepted => "green",
+                GroupStatus.Rejected => "red",
+                GroupStatus.Cancelled => "yellow",
+                _ => "grey",
             };
-            var changes = string.Join(Environment.NewLine, group.Edits.Select(e => $"{e.Id} {e.From} → {e.To}").Distinct());
             table.AddRow(
                 new Markup(Markup.Escape(group.Name)),
-                new Markup(status),
-                new Markup(Markup.Escape(changes)),
+                new Markup($"[{color}]{group.Status.Label()}[/]"),
+                new Markup(Markup.Escape(string.Join(Environment.NewLine, group.Changes))),
                 new Markup(Markup.Escape(group.Status == GroupStatus.Accepted ? group.Commit!.ShortSha() : (group.Reason ?? "").Truncate(90))));
         }
 
         console.Write(table);
         console.MarkupLine($"  Branch [blue]{Markup.Escape(report.Branch)}[/] · {report.Ledger.Count} commit(s) · {report.Duration.TotalSeconds:0}s");
-        foreach (var line in gitLog)
+        foreach (var line in commits)
         {
             console.MarkupLine($"    [grey]{Markup.Escape(line)}[/]");
         }
@@ -223,7 +194,9 @@ internal sealed class RunRenderer(IAnsiConsole console)
         console.WriteLine();
     }
 
-    private static string TopCodes(IReadOnlyList<Diagnostic> diagnostics) =>
-        string.Join(", ", diagnostics.GroupBy(d => d.Code).OrderByDescending(g => g.Count()).Take(3).Select(g => $"{g.Key}×{g.Count()}"));
-
+    private async Task<T> LogThenRunAsync<T>(string message, Func<Task<T>> action)
+    {
+        Status(message);
+        return await action();
+    }
 }

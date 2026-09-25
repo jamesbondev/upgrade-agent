@@ -149,6 +149,13 @@ public sealed class Planner(PolicyOptions policy, IPackageCompatibilityChecker c
             return (UpdateDecision.Skipped, "major bumps disabled (AttemptMajors=false)");
         }
 
+        var jump = step.To.Major - step.From.Major;
+        if (step.Kind == BumpKind.Major && step.From.Major > 0 && policy.MaxMajorJump > 0 && jump > policy.MaxMajorJump)
+        {
+            return (UpdateDecision.Manual,
+                $"{jump} major versions behind (limit {policy.MaxMajorJump}); upgrade manually or set a TargetOverride to a closer major");
+        }
+
         return (UpdateDecision.Planned, null);
     }
 

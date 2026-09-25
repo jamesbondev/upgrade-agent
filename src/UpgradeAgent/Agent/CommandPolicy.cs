@@ -19,8 +19,9 @@ public sealed record PolicyDecision(PolicyVerdict Verdict, string Reason)
 
 /// <summary>
 /// Decides what the agent may do without asking. Builds, tests, reads and source edits inside the
-/// working copy are automatic; build-configuration edits and unknown commands go to the operator;
-/// restores, package changes, git writes and anything outside the working copy are refused.
+/// working copy are automatic; edits to non-source files (project and build files) go to the operator;
+/// everything else is refused with feedback saying what to do instead, so unattended runs never stall
+/// on a prompt the agent had no real need for.
 /// This is a usability layer on a non-sandboxed shell, not a security boundary: the deterministic
 /// guardrails after the agent finishes are what decide whether its work is kept.
 /// </summary>
@@ -33,6 +34,15 @@ public sealed class CommandPolicy
         "ls", "cat", "head", "tail", "grep", "egrep", "rg", "wc", "pwd", "echo", "sort", "uniq", "tree", "file", "diff", "stat", "basename", "dirname", "realpath", "true",
         "dir", "type", "Get-ChildItem", "gci", "Get-Content", "gc", "Select-String", "sls", "Get-Location", "Measure-Object", "Sort-Object", "Select-Object", "Format-Table", "Out-String",
     };
+
+    private static readonly HashSet<string> NetworkCommands = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "curl", "wget", "Invoke-WebRequest", "iwr", "Invoke-RestMethod", "irm", "nuget", "ssh", "scp", "ftp", "nc",
+    };
+
+    private const string NoNetwork =
+        "No network access. The migration notes are in the task and the NuGet packages folder. "
+        + "If the replacement API isn't documented there or visible in the code, report the error as unresolved.";
 
     private static readonly HashSet<string> ReadOnlyGit = new(StringComparer.OrdinalIgnoreCase) { "status", "diff", "log", "show", "ls-files", "grep", "blame" };
 
@@ -193,12 +203,12 @@ public sealed class CommandPolicy
                     : PolicyDecision.Approve("read-only sed");
 
             case "rm" or "del" or "remove-item" or "mv" or "move-item" or "cp" or "copy-item":
-                return PolicyDecision.Ask($"file operation: {command}");
+                return PolicyDecision.Reject($"'{command}' is not allowed. Change code with the edit tool; leave files where they are.");
 
             default:
-                return ReadOnlyCommands.Contains(command)
-                    ? PolicyDecision.Approve($"read-only {command}")
-                    : PolicyDecision.Ask($"'{command}' is not on the auto-approve list");
+                return ReadOnlyCommands.Contains(command) ? PolicyDecision.Approve($"read-only {command}")
+                    : NetworkCommands.Contains(command) ? PolicyDecision.Reject(NoNetwork)
+                    : PolicyDecision.Reject($"'{command}' is not available. Use dotnet build/test, read-only commands (cat, grep, find, ls, git diff) and the edit tool.");
         }
     }
 
@@ -219,7 +229,7 @@ public sealed class CommandPolicy
             case "add" or "remove" or "package" or "nuget" or "list":
                 return PolicyDecision.Reject("Package references and versions are managed by UpgradeAgent; don't change them.");
             case not ("build" or "test"):
-                return PolicyDecision.Ask($"dotnet {verb}");
+                return PolicyDecision.Reject($"dotnet {verb} is not available. Use dotnet build --no-restore and dotnet test --no-build.");
         }
 
         var rest = arguments.Skip(1).ToList();
@@ -256,7 +266,7 @@ public sealed class CommandPolicy
 
             if (argument.StartsWith('-'))
             {
-                return PolicyDecision.Ask($"dotnet {verb} with unrecognised option {argument}");
+                return PolicyDecision.Reject($"The option {argument} is not allowed. Use the build and test commands given in the instructions.");
             }
         }
 

@@ -225,7 +225,7 @@ The agent plugs in through `IGroupFixer`. It's only called when a group's build 
   - `find -exec/-delete`
   - `sed -i`
 - **Auto-approved:** `dotnet build`/`test` with allow-listed flags, `cd` inside the worktree, and read-only commands (bash and PowerShell). Pipes are allowed when every segment is allowed.
-- **Operator:** anything else, e.g. `rm`, `curl`, scripts or `dotnet format`. **Changes in M7:** these are refused with feedback instead; see "Autonomy and scope limits".
+- **Refused with feedback (M7, previously the operator):** anything else, e.g. `rm`, `curl`, scripts or `dotnet format`, and unrecognised `dotnet build`/`test` options. Network tools get a "no network, report it as unresolved" reason. See "Autonomy and scope limits".
 
 **File access.**
 - **Writes:** auto-approved for source files (`.cs/.fs/.vb/.razor/.cshtml`) inside the worktree. Other files go to the operator. `.git/` and paths outside the worktree are refused.
@@ -290,7 +290,7 @@ Observed in the first run on a work repo: the agent asked the operator for `curl
 - `CommandPolicyTests`: `curl`, `rm`, `dotnet format` and unknown commands are refused with feedback; `.csproj` edits still ask. Existing Ask expectations are updated.
 - Planner: 8 → 16 is `Manual` with the minor step still planned; 8 → 10 is planned; an override to 10 is planned; an override to 16 is `Manual`; `0.x` is exempt; `MaxMajorJump: 0` disables the check.
 - No-progress meter as a pure class: error counts that drop keep going; 3 flat builds stop; a green build resets; refusals over the limit stop.
-- Orchestrator: a group over `MaxErrorsForAgent` is rejected without calling the fixer (fake `IGroupFixer` asserts it wasn't called).
+- Orchestrator: the decision is the pure `RunOrchestrator.TooLargeForAgent(build, limit)`, unit-tested at, over and under the limit and with 0. A test around the whole orchestrator would need a real repo and build, so this was kept to the pure check.
 - Both replay integration tests still pass unchanged. Replay doesn't go through `CommandPolicy` or the meter, so the recordings stay valid.
 
 **Done when:** unit and integration tests pass; a live fixture run still fixes Fixture.Lib 2.0 with no operator prompts; a re-run on the work repo produces no operator prompts other than build-file edits, and shows the 8 → 16 package as manual in the plan.
@@ -584,6 +584,11 @@ Status (2026-09-23):
   - **The tool itself refuses** when there is nothing accepted, when HEAD isn't the last ledger commit, or when the worktree is dirty. It runs at most once.
   - A spinner now covers detection, so the terminal doesn't look hung (the user saw arrow keys echoed during the silent pause).
   - 201 unit tests and 2 integration tests.
+- **M7 done** (autonomy and scope limits, section 5).
+  - The shell policy no longer asks the operator; only non-source file edits do.
+  - `ProgressMonitor` stops a group after 5 refusals or 3 builds without progress, parsing the agent's own `dotnet build` output (classic and terminal logger). The stop reason replaces "stopped by budget" in the group headline.
+  - `Policy:MaxMajorJump` (default 2) and `Agent:MaxErrorsForAgent` (default 50).
+  - 254 unit tests and 2 integration tests. Not yet re-run live against the fixture or the work repo.
 - **M6 done** (Azure DevOps, verified against a real org: `jamesbond312/argus/LoanLedger-Demo`).
   - `run --ado` checks the credential and repo **before** the run, then publishes only through the approved `push_branch`, then creates a draft PR with the `agent-generated` label.
     - Verified two ways: with a replay (the app calls the tool), and live (Copilot calls the tool). Both created PRs (!2887, !2888), and both were then cleaned up.

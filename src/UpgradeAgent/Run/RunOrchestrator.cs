@@ -26,6 +26,15 @@ public sealed class RunOrchestrator(
 {
     private static readonly string[] IncompatibleFrameworkCodes = ["NU1201", "NU1202", "NU1203"];
 
+    /// <summary>
+    /// A bump that breaks this much at once won't be fixed within the agent's budget; say so up front
+    /// instead of spending it. Null when the agent should try (or <paramref name="limit"/> is 0).
+    /// </summary>
+    public static string? TooLargeForAgent(BuildResult build, int limit) =>
+        !build.Succeeded && limit > 0 && build.Errors.Count > limit
+            ? $"{build.Errors.Count} build errors after the bump (limit {limit}); too large for the agent, upgrade manually"
+            : null;
+
     private readonly GitCli _git = new(processRunner);
     private readonly DotnetCli _dotnet = new(processRunner);
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
@@ -122,6 +131,12 @@ public sealed class RunOrchestrator(
             var (build, tests) = await BuildAndTestAsync(workspace, runnerMode, $"{label}-after-bump", cancellationToken);
 
             FixOutcome? fix = null;
+            if (TooLargeForAgent(build, config.Options.Agent.MaxErrorsForAgent) is { } tooLarge)
+            {
+                await RevertAsync(worktree, start);
+                return Result(GroupStatus.Rejected, tooLarge, bump);
+            }
+
             if (!build.Succeeded || tests is not { Succeeded: true })
             {
                 fix = await fixer.FixAsync(new FixContext(workspace, group, bump, build, tests, config.Options.Target.TestArgs), cancellationToken);

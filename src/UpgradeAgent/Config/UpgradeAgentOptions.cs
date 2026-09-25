@@ -55,6 +55,15 @@ public sealed class AgentOptions
 
     public int MaxToolCallsPerGroup { get; set; } = 80;
 
+    /// <summary>Stop a group's agent after this many refused actions. 0 disables.</summary>
+    public int MaxRefusalsPerGroup { get; set; } = 5;
+
+    /// <summary>Stop a group's agent after this many builds in a row that don't reduce the error count. 0 disables.</summary>
+    public int MaxBuildsWithoutProgress { get; set; } = 3;
+
+    /// <summary>Don't call the agent when the build has more errors than this after the bump; reject the group instead. 0 disables.</summary>
+    public int MaxErrorsForAgent { get; set; } = 50;
+
     /// <summary>Let the agent fetch URLs (release notes). Off by default: fetched pages are untrusted input.</summary>
     public bool AllowWebFetch { get; set; }
 
@@ -96,6 +105,12 @@ public sealed class PolicyOptions
     public BumpKind MaxAutoBump { get; set; } = BumpKind.Major;
 
     public bool AttemptMajors { get; set; } = true;
+
+    /// <summary>
+    /// Major steps that cross more than this many major versions (e.g. 8 → 16) are left for a human. The minor step
+    /// within the current major still runs. <c>0.x</c> packages are exempt. 0 disables.
+    /// </summary>
+    public int MaxMajorJump { get; set; } = 2;
 
     public bool IncludePrerelease { get; set; }
 

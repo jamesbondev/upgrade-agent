@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/AgentHarness/AgentHarness.csproj" />
     <Project Path="src/UpgradeAgent/UpgradeAgent.csproj" />
   </Folder>
   <Folder Name="/tests/">

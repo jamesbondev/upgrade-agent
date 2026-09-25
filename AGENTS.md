@@ -62,6 +62,23 @@ and every test project passes.
 - **Known duplication:** `src/UpgradeAgent/Infrastructure` and parts of `Publishing` are copies of what RepoKit now
   holds. UpgradeAgent moves onto RepoKit in a later milestone; until then, fix a bug in both places.
 
+## Plans
+
+Put planning notes in `.planning/`, one folder per plan named `YYYY-MM-DD-short-desc` (for example
+`.planning/2026-09-25-automation-ideas/`). The folder is gitignored, so plans stay local. `PLAN.md` is the
+exception: UpgradeAgent's committed design.
+
+## Git workflow
+
+- **Work in a worktree.** Before changing tracked files, create a worktree on a new branch under
+  `.claude/worktrees/<short-desc>` (gitignored) and do all the work there, because several agents often work in this
+  repo at once. Skip this only when the user says to work on the current branch.
+- **Ignored files stay in the main checkout.** A worktree has no `.planning/`, `fixtures/appsettings.ado.json` or
+  real-repo recordings. Read and write plans in the main checkout's `.planning/`, and copy local settings in if a run
+  needs them.
+- **Remove the worktree after a push.** When the user asks for a push and it succeeds, remove the worktree. First `cd`
+  to the main checkout and check `pwd`: removing the directory the shell is in kills the session.
+
 ## Code rules
 
 - **No comments in `.cs` files.** None: no `//`, no `/* */`, no `///` XML docs, no commented-out code. Say it with

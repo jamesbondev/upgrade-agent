@@ -13,3 +13,9 @@ recordings/*
 
 # Personal Azure DevOps demo settings (copy of appsettings.ado.example.json)
 fixtures/appsettings.ado.json
+
+# Local planning notes (see AGENTS.md)
+.planning/
+
+# Agent worktrees (see AGENTS.md)
+.claude/worktrees/

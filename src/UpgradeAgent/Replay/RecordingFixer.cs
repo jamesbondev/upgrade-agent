@@ -29,9 +29,33 @@ internal sealed class RecordingFixer(IGroupFixer inner, Recording recording, Age
         var patch = await git.RunAsync(worktree, ["diff", "--binary", snapshot.Length > 0 ? snapshot : "HEAD"], cancellationToken);
         await git.RunAsync(worktree, ["reset", "-q"], cancellationToken);
 
-        recording.SaveGroup(context.Group.Name, recorder.Events, patch, outcome);
+        recording.SaveGroup(context.Group.Name, ForSharing(recorder.Events, worktree), patch, outcome);
         return outcome;
     }
 
     public ValueTask DisposeAsync() => inner.DisposeAsync();
+
+    /// <summary>
+    /// Recordings are committed and replayed on other machines: no worktree paths (they name the user and the run),
+    /// and no full transcripts (prompts and replies belong in the local log, not in the repo).
+    /// </summary>
+    private static List<RecordedActivity> ForSharing(IEnumerable<RecordedActivity> events, string worktree)
+    {
+        string Relative(string text) => RepoPath.RelativeInText(worktree, text);
+        return events
+            .Where(e => e.Event is not Transcript)
+            .Select(e => e with
+            {
+                Event = e.Event switch
+                {
+                    Note note => note with { Text = Relative(note.Text) },
+                    AgentMessage message => message with { Text = Relative(message.Text) },
+                    ToolStarted tool => tool with { Detail = Relative(tool.Detail) },
+                    ToolFailed failed => failed with { Error = Relative(failed.Error) },
+                    ActionRefused refused => refused with { Action = Relative(refused.Action), Reason = Relative(refused.Reason) },
+                    var other => other,
+                },
+            })
+            .ToList();
+    }
 }

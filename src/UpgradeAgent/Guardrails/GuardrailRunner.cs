@@ -53,7 +53,10 @@ internal sealed partial class GuardrailRunner(GitCli git, IEnumerable<IGuardrail
             await IgnoredFilesAsync(worktree, cancellationToken));
     }
 
-    /// <summary>The lines of a new text file; none for a binary one (a NUL in the first bytes), which no rule reads.</summary>
+    /// <summary>
+    /// The lines of a new text file, decoded by its byte-order mark (UTF-16 source is valid C#, so it must be scanned).
+    /// None for a binary file: no BOM and a NUL in the first bytes.
+    /// </summary>
     private static async Task<IReadOnlyList<string>> ReadTextLinesAsync(string path, CancellationToken cancellationToken)
     {
         if (!File.Exists(path))
@@ -62,10 +65,20 @@ internal sealed partial class GuardrailRunner(GitCli git, IEnumerable<IGuardrail
         }
 
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
-        return bytes.AsSpan(0, Math.Min(bytes.Length, BinarySniffLength)).Contains((byte)0)
-            ? []
-            : (await File.ReadAllTextAsync(path, cancellationToken)).ReplaceLineEndings("\n").Split('\n');
+        if (!HasByteOrderMark(bytes) && bytes.AsSpan(0, Math.Min(bytes.Length, BinarySniffLength)).Contains((byte)0))
+        {
+            return [];
+        }
+
+        using var reader = new StreamReader(new MemoryStream(bytes), detectEncodingFromByteOrderMarks: true);
+        return (await reader.ReadToEndAsync(cancellationToken)).ReplaceLineEndings("\n").Split('\n');
     }
+
+    private static bool HasByteOrderMark(ReadOnlySpan<byte> bytes) =>
+        bytes.StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF])
+        || bytes.StartsWith((ReadOnlySpan<byte>)[0xFF, 0xFE])
+        || bytes.StartsWith((ReadOnlySpan<byte>)[0xFE, 0xFF])
+        || bytes.StartsWith((ReadOnlySpan<byte>)[0x00, 0x00, 0xFE, 0xFF]);
 
     /// <summary>
     /// Ignored files outside build output. A <c>*.csproj.user</c> is ignored by default yet imported by

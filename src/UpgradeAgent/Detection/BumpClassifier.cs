@@ -36,4 +36,10 @@ internal static class PlainVersion
 {
     public static bool TryParse(string? text, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out NuGetVersion? version) =>
         NuGetVersion.TryParse(text, out version);
+
+    /// <summary>
+    /// The same version without the text it was parsed from, so it always prints normalized ("1.0" prints as 1.0.0),
+    /// in commit messages, prompts and the PR as in the files the app writes.
+    /// </summary>
+    public static NuGetVersion Normalized(this NuGetVersion version) => new(version.Version, version.ReleaseLabels, version.Metadata, originalVersion: null);
 }

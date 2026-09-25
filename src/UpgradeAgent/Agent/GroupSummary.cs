@@ -11,17 +11,33 @@ internal sealed record GroupSummary
     public required IReadOnlyList<PackageSummary> Packages { get; init; }
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<PackageStatus>))]
+[JsonConverter(typeof(PackageStatusConverter))]
 internal enum PackageStatus
 {
-    [JsonStringEnumMemberName("fixed")]
     Fixed,
-
-    [JsonStringEnumMemberName("no-changes-needed")]
     NoChangesNeeded,
-
-    [JsonStringEnumMemberName("unresolved")]
     Unresolved,
+}
+
+/// <summary>Kebab-case names on the wire ("no-changes-needed"), read case-insensitively: models vary the case.</summary>
+internal sealed class PackageStatusConverter : JsonConverter<PackageStatus>
+{
+    private static readonly Dictionary<string, PackageStatus> ByName = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["fixed"] = PackageStatus.Fixed,
+        ["no-changes-needed"] = PackageStatus.NoChangesNeeded,
+        ["unresolved"] = PackageStatus.Unresolved,
+    };
+
+    public const string Names = "fixed, no-changes-needed or unresolved";
+
+    public override PackageStatus Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.GetString() is { } name && ByName.TryGetValue(name, out var status)
+            ? status
+            : throw new JsonException($"Unknown package status '{reader.GetString()}'; expected {Names}.");
+
+    public override void Write(Utf8JsonWriter writer, PackageStatus value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ByName.First(n => n.Value == value).Key);
 }
 
 internal static class PackageStatusExtensions
@@ -45,18 +61,20 @@ internal sealed record PackageSummary
     [Description("Version after the update.")]
     public required string To { get; init; }
 
+    [Description("One of: " + PackageStatusConverter.Names + ".")]
     public required PackageStatus Status { get; init; }
 
+    // Lists are optional: models often send null for an empty one, which reads as empty.
     [Description("Breaking changes in this update that affected this repository, one line each.")]
-    public IReadOnlyList<string> BreakingChanges { get; init; } = [];
+    public IReadOnlyList<string> BreakingChanges { get; init => field = value ?? []; } = [];
 
-    public IReadOnlyList<AppliedFix> Fixes { get; init; } = [];
+    public IReadOnlyList<AppliedFix> Fixes { get; init => field = value ?? []; } = [];
 
     [Description("Deprecation warnings left in place, one line each.")]
-    public IReadOnlyList<string> UpcomingDeprecations { get; init; } = [];
+    public IReadOnlyList<string> UpcomingDeprecations { get; init => field = value ?? []; } = [];
 
     [Description("Errors still failing, with what was tried.")]
-    public IReadOnlyList<string> Unresolved { get; init; } = [];
+    public IReadOnlyList<string> Unresolved { get; init => field = value ?? []; } = [];
 }
 
 internal sealed record AppliedFix
@@ -78,7 +96,6 @@ internal static class GroupSummaryParser
     {
         AllowTrailingCommas = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
-        RespectNullableAnnotations = true,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
     };
 
@@ -104,7 +121,8 @@ internal static class GroupSummaryParser
 
         try
         {
-            return JsonSerializer.Deserialize<GroupSummary>(text[start..(end + 1)], Options);
+            var summary = JsonSerializer.Deserialize<GroupSummary>(text[start..(end + 1)], Options);
+            return summary?.Packages is { } packages && packages.All(p => p is { Id.Length: > 0, From.Length: > 0, To.Length: > 0 }) ? summary : null;
         }
         catch (JsonException)
         {

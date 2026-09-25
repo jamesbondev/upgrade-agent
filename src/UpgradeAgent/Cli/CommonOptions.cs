@@ -5,11 +5,11 @@ namespace UpgradeAgent.Cli;
 /// <summary>Options every command accepts.</summary>
 internal static class CommonOptions
 {
-    public static readonly Option<FileInfo> Config = new Option<FileInfo>("--config")
+    public static readonly Option<FileInfo> Config = new("--config")
     {
         Description = "JSON config file layered over appsettings.json.",
         Recursive = true,
-    }.AcceptExistingOnly();
+    };
 
     public static readonly Option<bool> Verbose = new("--verbose")
     {

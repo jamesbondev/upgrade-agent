@@ -30,6 +30,11 @@ internal static class ConfigLoader
         if (configPath is not null)
         {
             var fullConfigPath = Path.GetFullPath(configPath);
+            if (!File.Exists(fullConfigPath))
+            {
+                throw new ConfigurationException($"Config file not found: {fullConfigPath}");
+            }
+
             builder.AddJsonFile(fullConfigPath, optional: false);
             baseDirectory = Path.GetDirectoryName(fullConfigPath)!;
         }

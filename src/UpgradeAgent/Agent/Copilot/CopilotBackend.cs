@@ -64,7 +64,11 @@ internal sealed class CopilotBackend(CopilotClientHost host, AgentOptions option
     {
         // Sub-agent activity (a parent tool call) is the sub-agent's business; only top-level calls count.
         ToolExecutionStartEvent start when start.Data.ParentToolCallId is null => new ToolCallStarted(
-            start.Data.ToolCallId, KindOf(start.Data.ToolName), start.Data.ToolName, DetailOf(start.Data.ToolName, start.Data.Arguments, start.Data.ShellToolInfo?.DisplayCommand)),
+            start.Data.ToolCallId,
+            KindOf(start.Data.ToolName),
+            start.Data.ToolName,
+            DetailOf(start.Data.ToolName, start.Data.Arguments, start.Data.ShellToolInfo?.DisplayCommand),
+            start.Data.Arguments?.GetRawText()),
         ToolExecutionCompleteEvent complete => new ToolCallCompleted(
             complete.Data.ToolCallId, complete.Data.Success, complete.Data.Result?.Content, complete.Data.Error?.Message),
         AssistantMessageEvent message when message.Data.ParentToolCallId is null => new AssistantMessage(message.Data.Content ?? ""),

@@ -44,7 +44,10 @@ internal static class PackageListParser
             throw new PackageListException($"dotnet package list returned JSON this version doesn't understand: {ex.Message}", output, ex);
         }
 
-        var errors = document.Problems.Where(p => string.Equals(p.Level, "error", StringComparison.OrdinalIgnoreCase)).Select(p => p.Text).ToList();
+        var errors = document.Problems
+            .Where(p => string.Equals(p.Level, "error", StringComparison.OrdinalIgnoreCase))
+            .Select(p => p.Text is { ValueKind: JsonValueKind.String } text ? text.GetString()! : p.Text?.GetRawText() ?? "(no details)")
+            .ToList();
         if (errors.Count > 0)
         {
             throw new PackageListException($"dotnet package list reported errors: {string.Join("; ", errors)}", output);
@@ -93,6 +96,7 @@ internal static class PackageListParser
     {
         public string? Level { get; init; }
 
-        public string Text { get; init; } = "";
+        /// <summary>Usually a string, but not guaranteed: kept raw.</summary>
+        public JsonElement? Text { get; init; }
     }
 }

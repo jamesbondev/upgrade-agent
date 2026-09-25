@@ -40,7 +40,7 @@ if ($Repack -or -not (Test-Path (Join-Path $sourceFeed 'fixture.lib.2.0.0.nupkg'
 }
 
 # Repacking reuses version numbers, so never let restore serve a stale Fixture.Lib from the global cache.
-$globalPackages = (Invoke-Checked dotnet @('nuget', 'locals', 'global-packages', '--list')) -replace '^global-packages:\s*', ''
+$globalPackages = (Invoke-Checked dotnet @('nuget', 'locals', 'global-packages', '--list') -PassThru) -replace '^global-packages:\s*', ''
 Remove-Item (Join-Path $globalPackages.Trim() 'fixture.lib') -Recurse -Force -ErrorAction SilentlyContinue
 
 if (Test-Path $OutputRoot) {
@@ -80,5 +80,5 @@ finally {
 Write-Host 'Verifying baseline build and tests...'
 Invoke-Checked dotnet @('test', (Join-Path $repo 'LoanLedger.slnx'), '-nologo', '-v', 'q')
 
-$commit = (Invoke-Checked git @('-C', $repo, 'rev-parse', 'HEAD')).Trim()
+$commit = (Invoke-Checked git @('-C', $repo, 'rev-parse', 'HEAD') -PassThru).Trim()
 Write-Host "Fixture ready: $repo (commit $commit)"

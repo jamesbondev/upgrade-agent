@@ -19,6 +19,7 @@ internal sealed class SessionMonitor(string worktree, IActivitySink activity, Ag
         {
             case ToolCallStarted started:
                 reading.MarkRead(started.Detail);
+                reading.MarkRead(started.RawArguments);
                 meter.RecordToolCall();
                 AgentTelemetry.ToolCalls.Add(1, new KeyValuePair<string, object?>("gen_ai.tool.name", started.Tool));
                 _running[started.CallId] = started;

@@ -138,7 +138,7 @@ internal static class VersionEditPlanner
             return new EntryOutcome.Manual($"version in {relativePath} is not a plain version ('{entry.Value.Text}')");
         }
 
-        return current >= target ? new EntryOutcome.UpToDate() : new EntryOutcome.Edit(file, relativePath, entry.Value, current);
+        return current >= target ? new EntryOutcome.UpToDate() : new EntryOutcome.Edit(file, relativePath, entry.Value, current.Normalized());
     }
 
     private static string ApplyEdits(string text, List<(VersionValue Value, string NewText)> fileEdits)

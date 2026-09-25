@@ -27,7 +27,8 @@ internal static partial class BuildOutputParser
         foreach (var line in output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
         {
             var match = WithLocation().Match(line);
-            if (!match.Success)
+            var hasLocation = match.Success;
+            if (!hasLocation)
             {
                 match = WithoutLocation().Match(line);
             }
@@ -39,7 +40,7 @@ internal static partial class BuildOutputParser
 
             // "CSC : error CS2001" names a tool, not a file: only a rooted path or one with an extension is a file.
             var prefix = match.Groups["file"].Value.Trim();
-            var isFile = Path.IsPathRooted(prefix) || Path.HasExtension(prefix);
+            var isFile = hasLocation || Path.IsPathRooted(prefix) || Path.HasExtension(prefix);
             diagnostics.Add(new Diagnostic(
                 match.Groups["severity"].Value == "error" ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
                 match.Groups["code"].Value,

@@ -95,7 +95,7 @@ internal sealed record UpgradePlan(DateTimeOffset CreatedUtc, string SolutionPat
         return this with
         {
             Updates = Updates
-                .Select(u => u.Decision == UpdateDecision.Planned && !Selected(u) ? u with { Decision = UpdateDecision.Skipped, Reason = NotSelectedReason, Group = null } : u)
+                .Select(u => u.Decision != UpdateDecision.Skipped && !Selected(u) ? u with { Decision = UpdateDecision.Skipped, Reason = NotSelectedReason, Group = null } : u)
                 .ToList(),
         };
     }

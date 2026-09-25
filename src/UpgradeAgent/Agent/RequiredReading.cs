@@ -18,7 +18,9 @@ internal sealed class RequiredReading(IEnumerable<string> paths)
 
         lock (_lock)
         {
-            _unread.RemoveWhere(path => toolText.Contains(path, StringComparison.Ordinal));
+            // Arguments arrive as JSON, where Windows paths have doubled backslashes.
+            _unread.RemoveWhere(path => toolText.Contains(path, StringComparison.Ordinal)
+                || toolText.Contains(path.Replace("\\", "\\\\", StringComparison.Ordinal), StringComparison.Ordinal));
         }
     }
 

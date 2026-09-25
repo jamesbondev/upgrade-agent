@@ -41,22 +41,22 @@ if ($PSCmdlet.ShouldProcess('dotnet build servers', 'shut down')) {
     dotnet build-server shutdown | Out-Null
 }
 
-$worktrees = Invoke-Checked git @('-C', $repo, 'worktree', 'list', '--porcelain') |
+$worktrees = Invoke-Checked git @('-C', $repo, 'worktree', 'list', '--porcelain') -PassThru |
     Where-Object { $_ -like 'worktree *' } |
-    ForEach-Object { [IO.Path]::GetFullPath($_ -replace '^worktree ', '') } |
+    ForEach-Object { [IO.Path]::GetFullPath(($_ -replace '^worktree ', '')) } |
     Where-Object { Test-PathInside -Path $_ -Root $WorkRoot }
 
 foreach ($worktree in $worktrees) {
     if ($PSCmdlet.ShouldProcess($worktree, 'remove worktree')) {
-        Invoke-Checked git @('-C', $repo, 'worktree', 'remove', '--force', $worktree) | Out-Null
+        Invoke-Checked git @('-C', $repo, 'worktree', 'remove', '--force', $worktree)
     }
 }
-Invoke-Checked git @('-C', $repo, 'worktree', 'prune') | Out-Null
+Invoke-Checked git @('-C', $repo, 'worktree', 'prune')
 
-$branches = Invoke-Checked git @('-C', $repo, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/agent/nuget-updates-*')
+$branches = Invoke-Checked git @('-C', $repo, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/agent/nuget-updates-*') -PassThru
 foreach ($branch in $branches) {
     if ($PSCmdlet.ShouldProcess($branch, 'delete local branch')) {
-        Invoke-Checked git @('-C', $repo, 'branch', '-D', '-q', $branch) | Out-Null
+        Invoke-Checked git @('-C', $repo, 'branch', '-D', '-q', $branch)
     }
 }
 
@@ -74,7 +74,9 @@ if (Test-Path $OutputDirectory) {
 if ($Ado) {
     if (-not $Config) { throw '-Ado needs -Config <file> with the AzureDevOps settings.' }
     $project = Join-Path $PSScriptRoot '..' 'src' 'UpgradeAgent'
-    Invoke-Checked dotnet @('run', '--project', $project, '--', 'ado-cleanup', '--config', (Resolve-Path $Config).Path)
+    # Called directly, not through Invoke-Checked: ado-cleanup asks for confirmation, so it needs the real console.
+    dotnet run --project $project -- ado-cleanup --config (Resolve-Path $Config).Path
+    if ($LASTEXITCODE -ne 0) { throw "ado-cleanup failed with exit code $LASTEXITCODE." }
 }
 
 Write-Host "Reset complete: $(@($worktrees).Count) worktree(s), $(@($branches).Count) branch(es) removed."

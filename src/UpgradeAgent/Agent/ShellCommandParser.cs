@@ -90,6 +90,11 @@ internal static partial class ShellCommandParser
                     return "command substitution is not allowed";
                 }
 
+                if (c == '\\' && next is '"' or '$' or '`' or '\\')
+                {
+                    return "backslash escapes are not allowed; use single quotes for literal text";
+                }
+
                 if (c == '$' && IsExpansionStart(next))
                 {
                     return "variable expansion and command substitution are not allowed; write paths out in full";
@@ -112,6 +117,10 @@ internal static partial class ShellCommandParser
                     return "multi-line commands are not allowed";
                 case '`':
                     return "backticks are not allowed";
+                case '\\' when IsEscapable(next):
+                    // A backslash before a quote or an operator hides it from this parser but not from the shell.
+                    // Before an ordinary character it's a Windows path separator, which is fine.
+                    return "backslash escapes are not allowed; use single quotes for literal text";
                 case '$' when IsExpansionStart(next):
                     return "variable expansion and command substitution are not allowed; write paths out in full";
                 case '(' or ')':
@@ -151,6 +160,9 @@ internal static partial class ShellCommandParser
         EndSegment(segments);
         return null;
     }
+
+    private static bool IsEscapable(char next) =>
+        next is '\'' or '"' or ';' or '&' or '|' or '`' or '$' or '(' or ')' or '<' or '>' or '{' or '}' or ' ' or '\t' or '\\' or '\r' or '\n' or '\0';
 
     /// <summary>What can follow <c>$</c> to expand: a name, <c>{</c>, <c>(</c>, or a special parameter.</summary>
     private static bool IsExpansionStart(char next) => char.IsLetter(next) || next is '_' or '{' or '(' or '?' or '$' or '@' or '*' or '!' or '#';

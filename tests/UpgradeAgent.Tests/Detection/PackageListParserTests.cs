@@ -103,6 +103,16 @@ public class PackageListParserTests
     }
 
     [Fact]
+    public void ErrorProblemsWithoutStringTextStillReport()
+    {
+        const string Output = """{"version":1,"problems":[{"level":"error","text":{"code":"NU1301"}},{"level":"warning","text":null}],"projects":[]}""";
+
+        var error = Assert.Throws<PackageListException>(() => PackageListParser.Parse(Output));
+
+        Assert.Contains("NU1301", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void IgnoresWarningProblems()
     {
         const string output = """

@@ -12,6 +12,7 @@ internal sealed class PausableTimeout : IDisposable
     private TimeSpan _remaining;
     private long _runningSince;
     private int _pauses;
+    private bool _disposed;
 
     public PausableTimeout(TimeSpan budget, TimeProvider time)
     {
@@ -27,7 +28,7 @@ internal sealed class PausableTimeout : IDisposable
     {
         lock (_lock)
         {
-            if (_pauses++ == 0)
+            if (_pauses++ == 0 && !_disposed)
             {
                 _remaining -= _time.GetElapsedTime(_runningSince);
                 _source.CancelAfter(Timeout.InfiniteTimeSpan);
@@ -37,13 +38,21 @@ internal sealed class PausableTimeout : IDisposable
         return new Resumer(this);
     }
 
-    public void Dispose() => _source.Dispose();
+    public void Dispose()
+    {
+        lock (_lock)
+        {
+            _disposed = true;
+            _source.Dispose();
+        }
+    }
 
     private void Resume()
     {
         lock (_lock)
         {
-            if (--_pauses == 0)
+            // A prompt can finish after the session was torn down; there is nothing left to resume then.
+            if (--_pauses == 0 && !_disposed)
             {
                 _runningSince = _time.GetTimestamp();
                 _source.CancelAfter(_remaining > TimeSpan.Zero ? _remaining : TimeSpan.Zero);

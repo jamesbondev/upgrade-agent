@@ -56,7 +56,8 @@ internal sealed record ToolPermission(bool Allowed, string? Feedback)
 internal abstract record AgentEvent;
 
 /// <param name="Detail">The command, path or pattern, as given by the model.</param>
-internal sealed record ToolCallStarted(string CallId, ToolKind Kind, string Tool, string Detail) : AgentEvent;
+/// <param name="RawArguments">All of the call's arguments as text, whatever the tool (used to notice which files it read).</param>
+internal sealed record ToolCallStarted(string CallId, ToolKind Kind, string Tool, string Detail, string? RawArguments = null) : AgentEvent;
 
 internal sealed record ToolCallCompleted(string CallId, bool Success, string? Output, string? Error) : AgentEvent;
 

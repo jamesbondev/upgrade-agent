@@ -1,4 +1,5 @@
 using UpgradeAgent.Agent.Activities;
+using UpgradeAgent.Infrastructure;
 using UpgradeAgent.Ui;
 
 namespace UpgradeAgent.Agent;
@@ -10,6 +11,7 @@ namespace UpgradeAgent.Agent;
 /// </summary>
 /// <param name="pauseBudget">Stops the session clock while the operator is deciding.</param>
 internal sealed class PermissionGate(
+    string worktree,
     CommandPolicy policy,
     RequiredReading reading,
     IApprovalPrompter prompter,
@@ -25,7 +27,7 @@ internal sealed class PermissionGate(
             return ToolPermission.Deny("No tools now: reply with the JSON summary only.");
         }
 
-        var (action, decision) = request switch
+        var (absoluteAction, decision) = request switch
         {
             ShellRequest shell => (shell.CommandLine, policy.EvaluateShell(shell.CommandLine, shell.WritesFile, shell.PossiblePaths)),
             FileWriteRequest write => ($"edit {write.Path}", policy.EvaluateWrite(write.Path)),
@@ -36,6 +38,7 @@ internal sealed class PermissionGate(
             OtherToolRequest other => (other.Kind, PolicyDecision.Reject($"'{other.Kind}' is not available in this session.")),
             _ => throw new ArgumentOutOfRangeException(nameof(request), request, "Unknown tool request."),
         };
+        var action = RepoPath.RelativeInText(worktree, absoluteAction);
 
         if (request is FileWriteRequest && decision.Verdict != PolicyVerdict.Reject && reading.Unread is { Count: > 0 } unread)
         {

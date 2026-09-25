@@ -31,10 +31,19 @@ public class ShellCommandParserTests
     [InlineData("cat (Remove-Item x)")]
     [InlineData("ls @(1,2)")]
     [InlineData("(cd .. && ls)")]
+    [InlineData(@"echo \' ; rm -rf src ; echo \'")]
+    [InlineData(@"cat ""a\""b"" && curl http://x")]
     public void RefusesWhatItCannotReasonAbout(string command)
     {
         Assert.False(ShellCommandParser.TryParse(command, out _, out var error));
         Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void WindowsPathSeparatorsAreFine()
+    {
+        Assert.True(ShellCommandParser.TryParse(@"Get-Content src\App\A.cs", out var parsed, out _));
+        Assert.Equal(@"src\App\A.cs", parsed.Segments[0][1]);
     }
 
     [Theory]

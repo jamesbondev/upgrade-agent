@@ -21,9 +21,14 @@ internal sealed class AgentSessionMeter(AgentOptions options, int initialBuildEr
     private int _refusals;
     private string? _servedModel;
     private string? _stopReason;
+    private volatile bool _summaryMode;
 
     /// <summary>Set while the app asks for the structured summary: no tool may run then.</summary>
-    public bool SummaryMode { get; set; }
+    public bool SummaryMode
+    {
+        get => _summaryMode;
+        set => _summaryMode = value;
+    }
 
     public string? StopReason
     {
@@ -98,14 +103,20 @@ internal sealed class AgentSessionMeter(AgentOptions options, int initialBuildEr
         }
     }
 
-    /// <summary>Stops the session for a reason of the caller's, unless it has already stopped.</summary>
+    /// <summary>
+    /// Stops the session for a reason of the caller's, unless it has already stopped. Once the fix turn is over
+    /// (the summary turn), nothing is stopped: late events must not turn a finished session into a stopped one.
+    /// </summary>
     public void Stop(string reason)
     {
         bool first;
         lock (_lock)
         {
-            first = _stopReason is null;
-            _stopReason ??= reason;
+            first = _stopReason is null && !SummaryMode;
+            if (first)
+            {
+                _stopReason = reason;
+            }
         }
 
         if (first)

@@ -22,17 +22,20 @@ internal static class VersionSteps
     private static IEnumerable<VersionStep> ForPackage(
         ReportedPackage package, OutdatedReports reports, IReadOnlyDictionary<string, string> targetOverrides, string repoRoot)
     {
-        if (!NuGetVersion.TryParse(package.ResolvedVersion, out var current) || !NuGetVersion.TryParse(package.LatestVersion, out var latest))
+        if (!NuGetVersion.TryParse(package.ResolvedVersion, out var resolved) || !NuGetVersion.TryParse(package.LatestVersion, out var latestReported))
         {
             yield break;
         }
+
+        var current = resolved.Normalized();
+        var latest = latestReported.Normalized();
 
         var project = new ProjectTarget(RepoPath.Relative(repoRoot, package.ProjectPath), NuGetFramework.Parse(package.Framework));
         var final = latest;
         if (targetOverrides.TryGetValue(package.Id, out var overrideVersion))
         {
             final = NuGetVersion.TryParse(overrideVersion, out var parsed)
-                ? parsed
+                ? parsed.Normalized()
                 : throw new ConfigurationException($"Policy:TargetOverrides:{package.Id} is not a valid version: '{overrideVersion}'.");
         }
 
@@ -76,7 +79,7 @@ internal static class VersionSteps
             && candidate > current
             && candidate < final
             && BumpClassifier.Classify(current, candidate) != BumpKind.Major
-                ? candidate
+                ? candidate.Normalized()
                 : null;
     }
 }

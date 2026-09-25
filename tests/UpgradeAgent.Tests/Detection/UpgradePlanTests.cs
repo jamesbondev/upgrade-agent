@@ -26,6 +26,19 @@ public class UpgradePlanTests
     }
 
     [Fact]
+    public async Task NarrowingAlsoCoversUpdatesLeftForAHuman()
+    {
+        var plan = await CreatePlanAsync(new Reports()
+            .Add(App, "Old.Lib", "8.0.0", latest: "16.0.0")
+            .Add(App, "Newtonsoft.Json", "13.0.1", latest: "13.0.4"));
+
+        var narrowed = plan.Narrow(["Newtonsoft.Json"], new PackageFamilies(new PolicyOptions().EffectiveGroups));
+
+        var oldLib = narrowed.Updates.Single(u => u.Id == "Old.Lib");
+        Assert.Equal((UpdateDecision.Skipped, UpgradePlan.NotSelectedReason), (oldLib.Decision, oldLib.Reason));
+    }
+
+    [Fact]
     public async Task NarrowingNothingKeepsThePlan()
     {
         var plan = await CreatePlanAsync(new Reports().Add(App, "Newtonsoft.Json", "13.0.1", latest: "13.0.4"));

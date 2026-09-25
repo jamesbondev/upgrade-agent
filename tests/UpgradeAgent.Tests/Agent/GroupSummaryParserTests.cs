@@ -32,6 +32,17 @@ public class GroupSummaryParserTests
         Assert.Equal(PackageStatus.NoChangesNeeded, Assert.Single(summary!.Packages).Status);
     }
 
+    [Fact]
+    public void AcceptsNullListsAndAnyStatusCase()
+    {
+        var summary = GroupSummaryParser.TryParse("""{"packages":[{"id":"A","from":"1.0.0","to":"2.0.0","status":"Fixed","unresolved":null,"fixes":null}]}""");
+
+        var package = Assert.Single(summary!.Packages);
+        Assert.Equal(PackageStatus.Fixed, package.Status);
+        Assert.Empty(package.Unresolved);
+        Assert.Empty(package.Fixes);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

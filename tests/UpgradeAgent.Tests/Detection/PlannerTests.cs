@@ -252,6 +252,41 @@ public class PlannerTests
     }
 
     [Fact]
+    public async Task APolicySkipDoesNotBlockTheRestOfTheFamily()
+    {
+        var policy = new PolicyOptions { Allow = ["Serilog"] };
+
+        var plan = await CreatePlanAsync(new Reports()
+            .Add(App, "Serilog", "3.0.0", latest: "4.0.0")
+            .Add(App, "Serilog.Sinks.Console", "5.0.0", latest: "6.0.0"), policy);
+
+        Assert.Equal(UpdateDecision.Planned, plan.Updates.Single(u => u.Id == "Serilog").Decision);
+    }
+
+    [Fact]
+    public async Task EachFrameworkSetIsCheckedForCompatibility()
+    {
+        var checker = new FakeCompatibility();
+
+        await CreatePlanAsync(new Reports()
+            .Add(App, "Foo", "1.9.0", latest: "3.0.0", framework: "net10.0")
+            .Add(Lib, "Foo", "2.5.0", latest: "3.0.0", framework: "net8.0"), checker: checker);
+
+        Assert.Equal(2, checker.Calls.Count);
+    }
+
+    [Fact]
+    public async Task VersionsAreNormalizedWhateverTheirSource()
+    {
+        var policy = new PolicyOptions { TargetOverrides = new(StringComparer.OrdinalIgnoreCase) { ["Foo"] = "2.0" } };
+
+        var plan = await CreatePlanAsync(new Reports().Add(App, "Foo", "1.0", latest: "3.0"), policy);
+
+        var update = Assert.Single(plan.Updates);
+        Assert.Equal(("1.0.0", "2.0.0"), (update.From.ToString(), update.To.ToString()));
+    }
+
+    [Fact]
     public async Task UnknownCompatibilityStaysPlannedWithANote()
     {
         var checker = new FakeCompatibility { ["Private.Package"] = new(CompatibilityStatus.Unknown, "401 Unauthorized") };

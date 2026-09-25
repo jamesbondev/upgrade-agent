@@ -2,16 +2,28 @@
 
 <#
 .SYNOPSIS
-    Runs a native command and throws if it fails. Returns its output.
+    Runs a native command and throws if it fails.
+.DESCRIPTION
+    By default the command talks to the console directly (its output streams, and it can prompt).
+    With -PassThru its output is returned instead, and shown before the error if it fails.
 #>
 function Invoke-Checked {
     param(
         [Parameter(Mandatory)] [string] $File,
-        [string[]] $Arguments = @()
+        [string[]] $Arguments = @(),
+        [switch] $PassThru
     )
-    $output = & $File @Arguments
+    if ($PassThru) {
+        $output = & $File @Arguments
+        if ($LASTEXITCODE -ne 0) {
+            $output | Out-Host
+            throw "'$File $($Arguments -join ' ')' failed with exit code $LASTEXITCODE."
+        }
+        return $output
+    }
+
+    & $File @Arguments | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "'$File $($Arguments -join ' ')' failed with exit code $LASTEXITCODE." }
-    $output
 }
 
 <#

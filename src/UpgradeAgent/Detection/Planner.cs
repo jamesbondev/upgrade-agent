@@ -40,7 +40,7 @@ internal sealed class Planner(PolicyOptions policy, IPackageCompatibilityChecker
     /// <summary>Only planned majors are checked; a minor or patch step never changes the supported frameworks.</summary>
     private async Task<List<PlannedUpdate>> CheckCompatibilityAsync(List<PlannedUpdate> updates, CancellationToken cancellationToken)
     {
-        var results = new Dictionary<(string Id, NuGetVersion Version), CompatibilityResult>();
+        var results = new Dictionary<(string Id, NuGetVersion Version, string Frameworks), CompatibilityResult>();
         var checkedUpdates = new List<PlannedUpdate>(updates.Count);
         foreach (var update in updates)
         {
@@ -50,10 +50,11 @@ internal sealed class Planner(PolicyOptions policy, IPackageCompatibilityChecker
                 continue;
             }
 
-            var key = (update.Id.ToLowerInvariant(), update.To);
+            // The same target can be reached from projects on different frameworks: each set is checked on its own.
+            var frameworks = update.Projects.Select(p => p.Framework).Distinct().OrderBy(f => f.GetShortFolderName(), StringComparer.Ordinal).ToList();
+            var key = (update.Id.ToLowerInvariant(), update.To, string.Join(',', frameworks.Select(f => f.GetShortFolderName())));
             if (!results.TryGetValue(key, out var result))
             {
-                var frameworks = update.Projects.Select(p => p.Framework).Distinct().ToList();
                 results[key] = result = await compatibility.CheckAsync(update.Id, update.To, frameworks, cancellationToken);
             }
 

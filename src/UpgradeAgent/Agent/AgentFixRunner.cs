@@ -35,10 +35,10 @@ internal sealed class AgentFixRunner(
 
         using var budget = new PausableTimeout(TimeSpan.FromMinutes(options.MaxMinutesPerGroup), time);
         using var session = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
-        var meter = new AgentSessionMeter(options, context.Build.Succeeded ? 0 : context.Build.Errors.Count, session.Cancel);
+        var meter = new AgentSessionMeter(options, context.Build.Succeeded ? 0 : context.Build.Errors.Count, () => CancelQuietly(session));
         var reading = new RequiredReading(task.RequiredReads);
         var policy = new CommandPolicy(worktree, globalPackages is null ? [] : [globalPackages]);
-        var gate = new PermissionGate(policy, reading, prompter, activity, meter, options.AllowWebFetch, budget.Pause);
+        var gate = new PermissionGate(worktree, policy, reading, prompter, activity, meter, options.AllowWebFetch, budget.Pause);
         var monitor = new SessionMonitor(worktree, activity, meter, reading, options.Model);
 
         using var log = new FileActivitySink(Path.Combine(context.OutputDirectory, "agent", $"{RepoPath.SafeFileName(context.Group.Name)}.log"), time);
@@ -109,6 +109,19 @@ internal sealed class AgentFixRunner(
         {
             activity.Write(new Note($"no structured summary: {(ex is OperationCanceledException ? "the agent didn't reply in time" : ex.GetBaseException().Message.Truncate(120))}"));
             return null;
+        }
+    }
+
+    /// <summary>Stop rules can fire from SDK callbacks that arrive after the session was torn down.</summary>
+    private static void CancelQuietly(CancellationTokenSource session)
+    {
+        try
+        {
+            session.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already over.
         }
     }
 

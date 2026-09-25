@@ -79,6 +79,15 @@ public sealed class GuardrailRunnerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SuppressionsInANewUtf16FileAreRejected()
+    {
+        await BumpAsync();
+        await File.WriteAllTextAsync(Path.Combine(_repo.Path, "src/App/Quiet.cs"), "#pragma warning disable CS0618\n", System.Text.Encoding.Unicode);
+
+        await AssertRejectedAsync("No suppressions or skips", "#pragma warning disable");
+    }
+
+    [Fact]
     public async Task ReindentedPreexistingNoWarnIsAccepted()
     {
         await BumpAsync();

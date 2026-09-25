@@ -44,7 +44,9 @@ internal static class CommandRunner
     {
         switch (exception)
         {
-            case ConfigurationException or OptionsValidationException:
+            // The binder reports a value it can't convert (Agent:Provider = "bogus") as InvalidOperationException.
+            case ConfigurationException or OptionsValidationException
+                or InvalidOperationException { Source: "Microsoft.Extensions.Configuration.Binder" }:
                 console.MarkupLine($"[red]Configuration error:[/] {Markup.Escape(exception.Message)}");
                 return ExitCodes.ConfigurationError;
             case PackageListException packageList:

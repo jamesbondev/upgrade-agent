@@ -168,6 +168,7 @@ The target is set by `Target.RepoPath` and `Target.Solution` (`.sln` or `.slnx`)
    - `Allow` / `Deny` lists by ID or glob. Deny entries can carry a reason, e.g. `FluentAssertions: "commercial licence from v8"`.
    - `MaxAutoBump`.
    - `AttemptMajors`.
+   - **`MaxMajorJump`** (M7): major steps further than this are `Manual`.
    - **`TargetOverrides`:** pin exact target versions per step.
    - **`Groups`:** named glob sets that must move together. Defaults: `Microsoft.EntityFrameworkCore*`, `Microsoft.Extensions.*`, `Microsoft.AspNetCore.*`, `xunit*`, `OpenTelemetry*`, `Serilog*`, `Polly*`.
 6. **TFM compatibility:**
@@ -224,7 +225,7 @@ The agent plugs in through `IGroupFixer`. It's only called when a group's build 
   - `find -exec/-delete`
   - `sed -i`
 - **Auto-approved:** `dotnet build`/`test` with allow-listed flags, `cd` inside the worktree, and read-only commands (bash and PowerShell). Pipes are allowed when every segment is allowed.
-- **Operator:** anything else, e.g. `rm`, `curl`, scripts or `dotnet format`.
+- **Operator:** anything else, e.g. `rm`, `curl`, scripts or `dotnet format`. **Changes in M7:** these are refused with feedback instead; see "Autonomy and scope limits".
 
 **File access.**
 - **Writes:** auto-approved for source files (`.cs/.fs/.vb/.razor/.cshtml`) inside the worktree. Other files go to the operator. `.git/` and paths outside the worktree are refused.
@@ -251,9 +252,48 @@ With those changes, the same weak model did a textbook migration: `FormatValue`,
 ### Budgets
 
 - Default caps per group: wall time 10 min (linked `CancellationTokenSource`) and 80 tool calls (counted from `ToolExecutionStartEvent`).
+- M7 adds a refusal cap, a no-progress stop and an error-count check before the agent starts (see "Autonomy and scope limits").
 - Exceeding either cancels the run. The orchestrator then rebuilds, retests, and rejects and reverts as usual.
 - **Stats per group:** served model, model calls, tool calls, input/output tokens, Copilot AI credits (`TotalNanoAiu`), operator approvals and refusals.
 - **Ctrl+C** stops the current group and reverts it (this path is still untested).
+
+### Autonomy and scope limits (M7)
+
+Observed in the first run on a work repo: the agent asked the operator for `curl` and other commands it couldn't find a use for, most likely because it couldn't find the replacement API. One package was 8 majors behind (8 → 16) and was handed to the agent as a single major step.
+
+**Decisions:**
+
+1. **Policy: reject by default, ask only for build files.**
+   - Unknown shell commands, other `dotnet` verbs (`format`, `run`, …) and `rm`/`mv`/`cp` move from operator to **refused**.
+   - Each refusal says what to do instead. Network tools (`curl`, `wget`, `Invoke-WebRequest`, `iwr`, `irm`) get: "No network access. Migration notes are in the task and the NuGet packages folder. If the replacement API isn't documented there, report the error as unresolved."
+   - Edits to non-source files (`.csproj`, `Directory.Build.props`, …) stay with the operator. `--non-interactive` still declines them.
+   - `AllowWebFetch` is unchanged.
+2. **No-progress stop (per group, in `CopilotFixer`).** Two checks, either one cancels the session with its own `BudgetReason`:
+   - **Refusals:** `Agent:MaxRefusalsPerGroup`, default 5.
+   - **Build errors:** on each completed `dotnet build` tool call, parse the error count from the result with `BuildOutputParser`. If `Agent:MaxBuildsWithoutProgress` (default 3) builds in a row don't go below the lowest error count so far, stop. The build errors in the task count as the starting point. A successful build resets the counter.
+   - The stop goes down the existing budget path: rebuild, retest, guardrails, reject and revert.
+   - The run output and PR show which check stopped the agent.
+3. **Large version jumps become `Manual`.**
+   - `Policy:MaxMajorJump`, default 2 (`to.Major - from.Major`). A major step over the limit is `UpdateDecision.Manual` with the reason "N major versions behind (limit M); upgrade manually or set a TargetOverride".
+   - The minor step to the latest release in the current major still runs, because it is non-breaking.
+   - `TargetOverrides` to a closer major is the way to move forward in stages; an override is still checked against the limit.
+   - `0.x` packages are exempt, since their minors already count as majors.
+4. **Error-count check before the agent starts (`RunOrchestrator`).**
+   - After bump, restore and build, if the build has more than `Agent:MaxErrorsForAgent` errors (default 50), the agent isn't called. The group is rejected with "N build errors after the bump (limit M); too large for the agent" and reverted.
+   - Test failures don't count; only build errors are compared.
+
+**Prompt:** one line added to `FixInstructions.System`: "If the migration notes and the code don't show a replacement, report the error as unresolved. Don't search the web, download packages or look outside the repository."
+
+**Config:** `Agent:MaxRefusalsPerGroup`, `Agent:MaxBuildsWithoutProgress`, `Agent:MaxErrorsForAgent` and `Policy:MaxMajorJump`. Setting any to 0 disables that check.
+
+**Tests:**
+- `CommandPolicyTests`: `curl`, `rm`, `dotnet format` and unknown commands are refused with feedback; `.csproj` edits still ask. Existing Ask expectations are updated.
+- Planner: 8 → 16 is `Manual` with the minor step still planned; 8 → 10 is planned; an override to 10 is planned; an override to 16 is `Manual`; `0.x` is exempt; `MaxMajorJump: 0` disables the check.
+- No-progress meter as a pure class: error counts that drop keep going; 3 flat builds stop; a green build resets; refusals over the limit stop.
+- Orchestrator: a group over `MaxErrorsForAgent` is rejected without calling the fixer (fake `IGroupFixer` asserts it wasn't called).
+- Both replay integration tests still pass unchanged. Replay doesn't go through `CommandPolicy` or the meter, so the recordings stay valid.
+
+**Done when:** unit and integration tests pass; a live fixture run still fixes Fixture.Lib 2.0 with no operator prompts; a re-run on the work repo produces no operator prompts other than build-file edits, and shows the 8 → 16 package as manual in the plan.
 
 ### Instructions
 
@@ -391,13 +431,14 @@ There are three modes:
     "Model": null,                    // null = Copilot chooses; the served model is reported either way
     "ReasoningEffort": null,
     "MaxMinutesPerGroup": 10, "MaxToolCallsPerGroup": 80,
+    "MaxRefusalsPerGroup": 5, "MaxBuildsWithoutProgress": 3, "MaxErrorsForAgent": 50,  // M7; 0 disables
     "AllowWebFetch": false,
     "RemoveEnvironmentVariables": [], // on top of the built-in secret patterns
     "GitHubTokenEnvVar": null         // pipelines: env var holding a token with Copilot access
   },
   "Policy": {
     "Allow": [], "Deny": [ { "Id": "FluentAssertions", "Reason": "commercial licence from v8" } ],
-    "MaxAutoBump": "Major", "AttemptMajors": true, "IncludePrerelease": false,
+    "MaxAutoBump": "Major", "AttemptMajors": true, "MaxMajorJump": 2, "IncludePrerelease": false,
     "Groups": { "efcore": ["Microsoft.EntityFrameworkCore*"], "xunit": ["xunit*"] },
     "TargetOverrides": { /* "Some.Package": "2.1.0" */ }
   },
@@ -561,8 +602,9 @@ Status (2026-09-23):
 - **M4: record/replay (done).** Group-level (see section 9). The `fixture` and `fixture-cheat` recordings are committed; the integration tests are green with no model.
 - **M5: publishing in dry-run (done).** `push_branch` approval, ledger check and PR description. **This is the full rehearsal target.**
 - **M6: Azure DevOps (done).** Draft PR, labels, PAT/token/Entra auth, seed and cleanup.
-- **M7: `interest_accrual`.** Config only. Work through the checklist, record the demo, rehearse.
-- **M8: finishing.** Reset script, README, optional pipeline.
+- **M7: autonomy and scope limits.** Reject-by-default policy, refusal and no-progress stops, `MaxMajorJump`, error-count check before the agent. From the first work-repo run (section 5, "Autonomy and scope limits").
+- **M8: `interest_accrual`.** Config only. Work through the checklist, record the demo, rehearse.
+- **M9: finishing.** Reset script, README, optional pipeline.
 
 ## Acceptance criteria
 

@@ -1,4 +1,5 @@
 using ReadmeChecker.Agent;
+using ReadmeChecker.Detection;
 using ReadmeChecker.Tests.TestSupport;
 
 namespace ReadmeChecker.Tests.Agent;
@@ -12,7 +13,7 @@ public class AssessmentValidatorTests
     [Fact]
     public void AVerbatimQuoteWithExistingEvidenceIsAccepted()
     {
-        var validation = AssessmentValidator.Validate(Assessment(Issue("dotnet run --project src/Old", "./src/New/New.csproj", "src\\New")), Facts);
+        var validation = AssessmentValidator.Validate(Assessment(Issue("dotnet run --project src/Old", "./src/New/New.csproj", "src\\New")), Facts, []);
 
         var issue = Assert.Single(validation.Accepted);
         Assert.Equal(["src/New/New.csproj", "src/New"], issue.Evidence);
@@ -22,7 +23,7 @@ public class AssessmentValidatorTests
     [Fact]
     public void QuotesMatchAcrossLineEndingsAndWhitespace()
     {
-        var validation = AssessmentValidator.Validate(Assessment(Issue("Run `dotnet run --project src/Old` to start.", "src/New")), Facts);
+        var validation = AssessmentValidator.Validate(Assessment(Issue("Run `dotnet run --project src/Old` to start.", "src/New")), Facts, []);
 
         Assert.Single(validation.Accepted);
     }
@@ -32,7 +33,7 @@ public class AssessmentValidatorTests
     [InlineData("  ", "the quote is empty")]
     public void AQuoteThatIsntInTheReadmeIsRejected(string quote, string reason)
     {
-        var validation = AssessmentValidator.Validate(Assessment(Issue(quote, "src/New")), Facts);
+        var validation = AssessmentValidator.Validate(Assessment(Issue(quote, "src/New")), Facts, []);
 
         Assert.Equal(reason, Assert.Single(validation.Rejected).Reason);
     }
@@ -44,21 +45,42 @@ public class AssessmentValidatorTests
     [InlineData("src/Missing.cs")]
     public void EvidenceMustBeInTheRepository(string evidence)
     {
-        var validation = AssessmentValidator.Validate(Assessment(Issue("dotnet run --project src/Old", evidence)), Facts);
+        var validation = AssessmentValidator.Validate(Assessment(Issue("dotnet run --project src/Old", evidence)), Facts, []);
 
         Assert.StartsWith("evidence not in the repository", Assert.Single(validation.Rejected).Reason, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void MissingContentNeedsEvidenceButABrokenReferenceDoesNot()
+    public void MissingContentNeedsEvidenceButABrokenReferenceTheScriptFoundDoesNot()
     {
         var missing = Issue("# Demo") with { Kind = IssueKind.MissingContent };
         var broken = Issue("src/Old") with { Kind = IssueKind.BrokenReference };
+        var signal = new Signal(SignalKind.MissingCommandTarget, 4, "src/Old", "gone", "src/Old");
 
-        var validation = AssessmentValidator.Validate(Assessment(missing, broken), Facts);
+        var validation = AssessmentValidator.Validate(Assessment(missing, broken), Facts, [signal]);
 
         Assert.Equal(IssueKind.BrokenReference, Assert.Single(validation.Accepted).Kind);
         Assert.Equal("no evidence from the repository", Assert.Single(validation.Rejected).Reason);
+    }
+
+    [Fact]
+    public void ABareFileNameIsNotEnoughForABrokenReference()
+    {
+        var facts = FactsBuilder.Readme("A repository's `AGENTS.md` is read as well.", ["src/a.cs"]);
+        var broken = Issue("A repository's `AGENTS.md` is read as well.") with { Kind = IssueKind.BrokenReference };
+        var signal = new Signal(SignalKind.MissingPath, 1, "AGENTS.md", "'AGENTS.md' is not in the repository", "AGENTS.md");
+
+        var validation = AssessmentValidator.Validate(Assessment(broken), facts, [signal]);
+
+        Assert.StartsWith("a broken reference needs evidence", Assert.Single(validation.Rejected).Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ABrokenReferenceWithNoMatchingSignalIsRejected()
+    {
+        var broken = Issue("src/Old") with { Kind = IssueKind.BrokenReference };
+
+        Assert.Single(AssessmentValidator.Validate(Assessment(broken), Facts, []).Rejected);
     }
 
     [Fact]
@@ -66,7 +88,7 @@ public class AssessmentValidatorTests
     {
         var issues = Enumerable.Range(0, AssessmentValidator.MaxIssues + 2).Select(_ => Issue("src/Old", "src/New")).ToArray();
 
-        var validation = AssessmentValidator.Validate(Assessment(issues), Facts);
+        var validation = AssessmentValidator.Validate(Assessment(issues), Facts, []);
 
         Assert.Equal(AssessmentValidator.MaxIssues, validation.Accepted.Count);
         Assert.All(validation.Rejected, r => Assert.Contains("more than", r.Reason, StringComparison.Ordinal));

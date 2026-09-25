@@ -11,7 +11,7 @@ internal static partial class AssessmentValidator
 {
     public const int MaxIssues = 30;
 
-    public static IssueValidation Validate(ReadmeAssessment assessment, RepoFacts facts)
+    public static IssueValidation Validate(ReadmeAssessment assessment, RepoFacts facts, IReadOnlyList<Signal> signals)
     {
         var readme = NormalizeText(facts.Readme?.Text ?? "");
         var accepted = new List<ReadmeIssue>();
@@ -19,7 +19,7 @@ internal static partial class AssessmentValidator
 
         foreach (var issue in assessment.Issues.Take(MaxIssues))
         {
-            if (Check(issue, readme, facts) is { } reason)
+            if (Check(issue, readme, facts, signals) is { } reason)
             {
                 rejected.Add(new RejectedIssue(issue, reason));
             }
@@ -33,7 +33,7 @@ internal static partial class AssessmentValidator
         return new IssueValidation(accepted, rejected);
     }
 
-    private static string? Check(ReadmeIssue issue, string readme, RepoFacts facts)
+    private static string? Check(ReadmeIssue issue, string readme, RepoFacts facts, IReadOnlyList<Signal> signals)
     {
         var quote = NormalizeText(issue.Quote);
         if (quote.Length < 3)
@@ -52,10 +52,18 @@ internal static partial class AssessmentValidator
             return $"evidence not in the repository: {string.Join(", ", missing)}";
         }
 
-        return issue.Evidence.Count == 0 && issue.Kind is not (IssueKind.BrokenReference or IssueKind.Other)
-            ? "no evidence from the repository"
-            : null;
+        return (issue.Evidence.Count, issue.Kind) switch
+        {
+            (0, IssueKind.BrokenReference) when !signals.Any(s => BacksABrokenReference(s) && issue.Quote.Contains(s.Text, StringComparison.Ordinal))
+                => "a broken reference needs evidence, or a broken link or missing path the script found",
+            (0, not (IssueKind.BrokenReference or IssueKind.Other)) => "no evidence from the repository",
+            _ => null,
+        };
     }
+
+    private static bool BacksABrokenReference(Signal signal) =>
+        signal.Definitive
+        || (signal.Kind is SignalKind.MissingPath or SignalKind.MissingCommandTarget && signal.Target?.Contains('/', StringComparison.Ordinal) == true);
 
     internal static string NormalizeText(string text) => Whitespace().Replace(text.ReplaceLineEndings("\n"), " ").Trim();
 

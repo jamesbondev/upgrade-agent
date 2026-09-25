@@ -24,7 +24,9 @@ internal static class FixPrompts
         - Invent nothing. Every path, command, option, version and name you write must come from the repository;
           check it before you write it.
         - Links must point to files or folders that exist. Don't add links to other websites.
-        - If a problem turns out to be wrong when you check it, leave that part alone.
+        - If a problem turns out to be wrong when you check it, leave that part alone. A file the README names as
+          something users create, or as a file in other repositories the project works with, is not a broken
+          reference: keep it.
 
         When you have finished, reply with one short line per problem saying what you changed, or why you left it.
         """;

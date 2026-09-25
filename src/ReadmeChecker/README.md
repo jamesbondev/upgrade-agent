@@ -113,6 +113,9 @@ For each repo, one at a time:
 6. **Ask the agent.** A read-only Copilot session gets the README, the facts and the signals, explores the repo to
    confirm or dismiss each signal and find what's missing, then answers with a verdict and issues. Every issue must
    quote the README exactly and cite files that exist, or it is dropped (the report lists what was dropped and why).
+   A broken reference with no evidence must match a broken link or a missing path with a folder in it that the
+   script also found: a bare file name in prose (`AGENTS.md`, `secrets.json`) often means a file in the repositories
+   a tool works on, not in this one.
 7. **Combine**: certain signals make a repo `Stale` whatever the agent says; otherwise the agent's verdict stands,
    and `Stale` with no surviving issue becomes `Unsure`. If the agent fails or is stopped, the repo is `Unsure`.
 

@@ -73,7 +73,7 @@ internal sealed class ReadmeAssessor(IAgentBackendFactory backends, AgentOptions
                 return AssessmentOutcome.Failed($"the agent's answer wasn't usable: {result.Structured?.Error ?? "no answer"}", result.Stats);
             }
 
-            var validation = AssessmentValidator.Validate(assessment, facts);
+            var validation = AssessmentValidator.Validate(assessment, facts, scan.Signals);
             return new AssessmentOutcome(assessment.Verdict, validation.Accepted, validation.Rejected, assessment.Summary, result.Stats, null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)

@@ -26,6 +26,10 @@ internal static class AssessmentPrompts
 
         Don't report style, tone, typos, or wishes for more detail.
 
+        A file the README names as something users create, or as a file in other repositories that the project works
+        with (for example a config file a tool reads from the repositories it runs on), is not a broken reference.
+        Report a reference as broken only when the README says or implies that it is in this repository.
+
         Confirm every problem by looking at the repository. The candidate list comes from a script and has false
         positives: check each one and dismiss the wrong ones. Broken links were checked against the file list and are
         certain.

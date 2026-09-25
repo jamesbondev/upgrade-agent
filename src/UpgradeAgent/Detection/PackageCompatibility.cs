@@ -22,12 +22,6 @@ internal interface IPackageCompatibilityChecker
     Task<CompatibilityResult> CheckAsync(string id, NuGetVersion version, IReadOnlyCollection<NuGetFramework> projectFrameworks, CancellationToken cancellationToken);
 }
 
-/// <summary>
-/// Reads a package's lib/ref (or dependency-group) frameworks from the global packages folder, or
-/// downloads the nupkg from the repo's configured sources, honouring package source mapping.
-/// Failures (for example a private feed that needs credentials) return Unknown; restore is the
-/// authoritative check later (NU1202).
-/// </summary>
 internal sealed class NuGetPackageCompatibilityChecker : IPackageCompatibilityChecker, IDisposable
 {
     private static readonly TimeSpan SourceTimeout = TimeSpan.FromSeconds(30);
@@ -35,10 +29,8 @@ internal sealed class NuGetPackageCompatibilityChecker : IPackageCompatibilityCh
     private readonly ISettings _settings;
     private readonly SourceCacheContext _cache = new();
 
-    /// <param name="settings">NuGet settings as the repo sees them (its nuget.config, source mapping, packages folder).</param>
     public NuGetPackageCompatibilityChecker(ISettings settings) => _settings = settings;
 
-    /// <summary>Loads NuGet settings the way restore would from <paramref name="repoRoot"/>.</summary>
     public static NuGetPackageCompatibilityChecker ForRepo(string repoRoot) => new(Settings.LoadDefaultSettings(repoRoot));
 
     public async Task<CompatibilityResult> CheckAsync(

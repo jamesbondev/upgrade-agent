@@ -1,6 +1,5 @@
 namespace UpgradeAgent.Tests.TestSupport;
 
-/// <summary>A throwaway folder in the temp directory, removed (best effort) on dispose.</summary>
 internal sealed class TempDirectory : IDisposable
 {
     public TempDirectory(string prefix = "ua-test-") => Path = Directory.CreateTempSubdirectory(prefix).FullName;
@@ -25,7 +24,6 @@ internal sealed class TempDirectory : IDisposable
     {
         try
         {
-            // git marks object files read-only; Windows refuses to delete read-only files.
             foreach (var file in Directory.EnumerateFiles(Path, "*", SearchOption.AllDirectories))
             {
                 File.SetAttributes(file, FileAttributes.Normal);
@@ -35,7 +33,6 @@ internal sealed class TempDirectory : IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Best effort: a lingering process (an MSBuild node, an antivirus scan) may still hold a file.
         }
     }
 }

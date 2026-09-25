@@ -5,10 +5,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace AgentHarness.Tests;
 
-/// <summary>
-/// Limits and stop rules end a session that runs away. The turn returns with <see cref="AgentReply.StopReason"/>
-/// set, and the session takes no more turns. Time is faked where possible, so budgets don't make tests slow.
-/// </summary>
 public sealed class AgentSessionLimitTests : IDisposable
 {
     private static readonly TimeSpan TenMinutes = TimeSpan.FromMinutes(10);
@@ -18,8 +14,6 @@ public sealed class AgentSessionLimitTests : IDisposable
     private readonly FakeTimeProvider _time = new();
 
     public void Dispose() => _workspace.Dispose();
-
-    // ---- MaxToolCalls ----
 
     [Fact]
     public async Task MaxToolCallsStopsTheSessionAtTheFirstCallOverTheLimit()
@@ -34,8 +28,6 @@ public sealed class AgentSessionLimitTests : IDisposable
         Assert.Equal("agent stopped: more than 2 tool calls", result.Reply.StopReason);
         Assert.Equal(3, result.Stats.ToolCalls);
     }
-
-    // ---- MaxRefusals ----
 
     [Fact]
     public async Task MaxRefusalsStopsTheSessionAtTheFirstRefusalOverTheLimit()
@@ -74,12 +66,9 @@ public sealed class AgentSessionLimitTests : IDisposable
         Assert.Equal("agent stopped: more than 1 refused actions", result.Reply.StopReason);
     }
 
-    // ---- MaxDuration ----
-
     [Fact]
     public async Task MaxDurationStopsATurnThatRunsTooLong()
     {
-        // Real time, kept short: the turn waits far longer than the budget and is cut off.
         var backend = new ScriptedBackend().Turn(t => t.Wait(TimeSpan.FromSeconds(30)).Reply("done"));
         var runner = new AgentRunner(backend);
 
@@ -161,8 +150,6 @@ public sealed class AgentSessionLimitTests : IDisposable
         Assert.True(Assert.Single(backend.Decisions).Allowed);
     }
 
-    // ---- No limits ----
-
     [Fact]
     public async Task AgentLimitsNoneNeverStopsTheSession()
     {
@@ -183,8 +170,6 @@ public sealed class AgentSessionLimitTests : IDisposable
         Assert.Equal(100, result.Stats.ToolCalls);
         Assert.Equal(100, result.Stats.Refusals);
     }
-
-    // ---- Stop rules ----
 
     [Fact]
     public async Task AStopRuleStopsTheSession()
@@ -235,8 +220,6 @@ public sealed class AgentSessionLimitTests : IDisposable
 
         Assert.Equal("agent stopped: more than 1 tool calls", Assert.Single(_events.OfType<SessionStopped>()).Reason);
     }
-
-    // ---- After a stop ----
 
     [Fact]
     public async Task AfterAStopTheNextTurnReturnsStoppedWithoutReachingTheModel()

@@ -4,19 +4,13 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Detection;
 
-/// <summary>
-/// Turns <c>dotnet package list</c> reports into an ordered, policy-checked plan: version steps → policy →
-/// target-framework compatibility → groups. Deterministic; no model involved.
-/// </summary>
 internal sealed class Planner(PolicyOptions policy, IPackageCompatibilityChecker compatibility, TimeProvider time)
 {
     private readonly UpdatePolicy _policy = new(policy);
     private readonly PackageFamilies _families = new(policy.EffectiveGroups);
 
-    /// <param name="repoRoot">Project and solution paths are stored relative to this, so a saved plan can be replayed in another worktree.</param>
     public async Task<UpgradePlan> CreateAsync(OutdatedReports reports, string repoRoot, string solutionPath, CancellationToken cancellationToken)
     {
-        // The same step can come from several projects; plan it once, for all of them.
         var updates = VersionSteps.Build(reports, policy.TargetOverrides, repoRoot)
             .GroupBy(s => (Id: s.Id.ToLowerInvariant(), s.From, s.To))
             .Select(g => Decide(g.First(), g.Select(s => s.Project).Distinct().ToList()))
@@ -37,7 +31,6 @@ internal sealed class Planner(PolicyOptions policy, IPackageCompatibilityChecker
         return new PlannedUpdate(step.Id, step.From, step.To, step.Kind, projects, verdict?.Decision ?? UpdateDecision.Planned, verdict?.Reason, Group: null);
     }
 
-    /// <summary>Only planned majors are checked; a minor or patch step never changes the supported frameworks.</summary>
     private async Task<List<PlannedUpdate>> CheckCompatibilityAsync(List<PlannedUpdate> updates, CancellationToken cancellationToken)
     {
         var results = new Dictionary<(string Id, NuGetVersion Version, string Frameworks), CompatibilityResult>();
@@ -50,7 +43,6 @@ internal sealed class Planner(PolicyOptions policy, IPackageCompatibilityChecker
                 continue;
             }
 
-            // The same target can be reached from projects on different frameworks: each set is checked on its own.
             var frameworks = update.Projects.Select(p => p.Framework).Distinct().OrderBy(f => f.GetShortFolderName(), StringComparer.Ordinal).ToList();
             var key = (update.Id.ToLowerInvariant(), update.To, string.Join(',', frameworks.Select(f => f.GetShortFolderName())));
             if (!results.TryGetValue(key, out var result))

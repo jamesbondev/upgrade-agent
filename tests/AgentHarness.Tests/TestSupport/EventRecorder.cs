@@ -1,6 +1,5 @@
 namespace AgentHarness.Tests.TestSupport;
 
-/// <summary>An observer that keeps every event, for asserting on what a session reported.</summary>
 internal sealed class EventRecorder : IAgentObserver
 {
     private readonly List<AgentEvent> _events = [];

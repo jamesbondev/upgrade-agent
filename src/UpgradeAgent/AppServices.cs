@@ -19,14 +19,8 @@ using UpgradeAgent.Ui;
 
 namespace UpgradeAgent;
 
-/// <summary>
-/// The composition root: the one place that decides which implementation backs each seam. Everything else
-/// receives its collaborators through its constructor. No Generic Host: this is a run-to-completion CLI, and
-/// System.CommandLine already owns Ctrl+C and the process lifetime.
-/// </summary>
 internal static class AppServices
 {
-    /// <param name="interactive">False with --non-interactive: anything that needs a human is declined.</param>
     public static ServiceProvider Build(string? configPath, IAnsiConsole console, bool interactive, bool verbose)
     {
         var (configuration, baseDirectory) = ConfigLoader.Load(configPath);
@@ -37,7 +31,6 @@ internal static class AppServices
             .AddSimpleConsole(o => o.SingleLine = true)
             .AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace));
 
-        // Options: bound once, validated before any work starts.
         services.AddOptions<UpgradeAgentOptions>().Bind(configuration).ValidateOnStart();
         services.AddSingleton<IValidateOptions<UpgradeAgentOptions>, UpgradeAgentOptionsValidator>();
         services.AddSingleton(sp => ConfigLoader.Resolve(sp.GetRequiredService<IOptions<UpgradeAgentOptions>>().Value, baseDirectory));
@@ -46,7 +39,6 @@ internal static class AppServices
         services.AddSingleton(sp => sp.GetRequiredService<ResolvedConfig>().Options.Agent);
         services.AddSingleton(sp => sp.GetRequiredService<ResolvedConfig>().Options.AzureDevOps);
 
-        // Console and output.
         services.AddSingleton(console);
         services.AddSingleton<SynchronizedConsole>();
         services.AddSingleton<PlanRenderer>();
@@ -57,19 +49,16 @@ internal static class AppServices
             ? new SpectreApprovalPrompter(sp.GetRequiredService<SynchronizedConsole>())
             : ApprovalPrompter.DeclineAll);
 
-        // External tools.
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IProcessRunner>(sp => new LoggingProcessRunner(
             new ProcessRunner(), sp.GetRequiredService<ILogger<LoggingProcessRunner>>(), sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<GitCli>();
         services.AddSingleton<DotnetCli>();
 
-        // Detection and planning.
         services.AddSingleton<PackageListRunner>();
         services.AddSingleton<PlanService>();
         services.AddSingleton<TargetPreflight>();
 
-        // Guardrails, in the order they are reported.
         services.AddSingleton<IGuardrail, GitStateGuardrail>();
         services.AddSingleton<IGuardrail, BuildGuardrail>();
         services.AddSingleton<IGuardrail, TestsGuardrail>();
@@ -81,24 +70,20 @@ internal static class AppServices
         services.AddSingleton<IReviewNoteSource, ClaimNotes>();
         services.AddSingleton<GuardrailRunner>();
 
-        // The run.
         services.AddSingleton<BaselineProvider>();
         services.AddSingleton<GroupCommitter>();
         services.AddSingleton<GroupPipeline>();
         services.AddSingleton<RunOrchestrator>();
 
-        // The agent.
         services.AddSingleton(sp => new AgentActivity(new ConsoleActivitySink(sp.GetRequiredService<SynchronizedConsole>())));
         services.AddSingleton<PackageDocsLocator>();
         services.AddSingleton<AgentSetupFactory>();
 
-        // Publishing.
         services.AddSingleton<GitPush>();
         services.AddSingleton(sp => new AzureDevOpsCredentialProvider(sp.GetRequiredService<AzureDevOpsOptions>()));
         services.AddSingleton<AzureDevOpsPublisher>();
         services.AddSingleton<RunPublisher>();
 
-        // Commands.
         services.AddSingleton<PlanCommandHandler>();
         services.AddSingleton<RunCommandHandler>();
         services.AddSingleton<AzureDevOpsCommandHandler>();

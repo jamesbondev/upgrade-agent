@@ -5,7 +5,6 @@ using UpgradeAgent.Ui;
 
 namespace UpgradeAgent.Agent.Activities;
 
-/// <summary>Append-only console lines for agent activity. Reads are frequent and dull, so they stay quiet.</summary>
 internal sealed class ConsoleActivitySink(SynchronizedConsole console) : IActivitySink
 {
     public void Write(ActivityEvent activity)

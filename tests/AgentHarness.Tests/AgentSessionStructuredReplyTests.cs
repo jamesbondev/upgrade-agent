@@ -5,7 +5,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace AgentHarness.Tests;
 
-/// <summary><see cref="AgentSession.AskAsync{T}(string, CancellationToken)"/>: a structured reply, in a turn where every tool is refused.</summary>
 public sealed class AgentSessionStructuredReplyTests : IDisposable
 {
     private readonly TempDirectory _workspace = new();

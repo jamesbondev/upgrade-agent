@@ -4,10 +4,6 @@ using UpgradeAgent.Tests.TestSupport;
 
 namespace UpgradeAgent.Tests.Guardrails;
 
-/// <summary>
-/// "Bad agent" scenarios against a real git repo: the app bumps, the agent makes a change, the
-/// guardrails must accept honest fixes and reject every shortcut.
-/// </summary>
 public sealed class GuardrailRunnerTests : IAsyncLifetime
 {
     private const string TestKey = "App.Tests [net10.0] App.Tests.CodeTests.Works";
@@ -184,7 +180,6 @@ public sealed class GuardrailRunnerTests : IAsyncLifetime
         return Task.CompletedTask;
     }
 
-    /// <summary>The app's bump happens before the start state is captured, exactly as in a run.</summary>
     private async Task BumpAsync()
     {
         _repo.Write("Directory.Packages.props", _repo.Read("Directory.Packages.props").Replace("1.0.0", "2.0.0", StringComparison.Ordinal));

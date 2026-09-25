@@ -11,7 +11,6 @@ using UpgradeAgent.Tests.TestSupport;
 
 namespace UpgradeAgent.Tests.Agent;
 
-/// <summary>The fixer end to end through the harness's real permission pipeline, with a scripted model.</summary>
 public sealed class AgentFixRunnerTests : IDisposable
 {
     private const string Failed12 = "Build FAILED.\n\n    0 Warning(s)\n    12 Error(s)\n";
@@ -129,7 +128,6 @@ public sealed class AgentFixRunnerTests : IDisposable
         return await fixer.FixAsync(context, CancellationToken.None);
     }
 
-    /// <summary>Answers <c>dotnet nuget locals global-packages --list</c>; no folder means the lookup fails.</summary>
     private sealed class GlobalPackages(string? folder) : IProcessRunner
     {
         public Task<ProcessResult> RunAsync(

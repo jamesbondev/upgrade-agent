@@ -4,23 +4,17 @@ using UpgradeAgent.Run;
 
 namespace UpgradeAgent.Publishing;
 
-/// <summary>What a demo reset would remove: active labelled PRs from agent branches, and the agent branches.</summary>
 internal sealed record CleanupPlan(IReadOnlyList<GitPullRequest> PullRequests, IReadOnlyList<GitRef> Branches)
 {
     public bool IsEmpty => PullRequests.Count == 0 && Branches.Count == 0;
 }
 
-/// <summary>
-/// Pushes the verified branch and opens a draft PR. Each operation connects with a freshly acquired credential:
-/// a run can outlast an Entra token, and nothing about the credential reaches the agent's environment.
-/// </summary>
 internal sealed class AzureDevOpsPublisher(AzureDevOpsOptions options, AzureDevOpsCredentialProvider credentials, GitPush gitPush) : IPushDestination
 {
     public string Destination => $"{options.OrganizationUrl.TrimEnd('/')}/{options.Project}/_git/{options.Repository}";
 
     public Task<string> DescribeAsync(CancellationToken cancellationToken) => Task.FromResult(Destination);
 
-    /// <summary>Fails fast, before any agent time is spent, if the credential or repository is wrong.</summary>
     public async Task<string> VerifyAsync(CancellationToken cancellationToken)
     {
         using var session = await ConnectAsync(cancellationToken);
@@ -44,7 +38,6 @@ internal sealed class AzureDevOpsPublisher(AzureDevOpsOptions options, AzureDevO
         return AzureDevOpsClient.WebUrl(session.Repository, pullRequest);
     }
 
-    /// <summary>One-time demo setup: pushes the target repo's HEAD as <paramref name="branch"/>, only into an empty repository.</summary>
     public async Task<string> SeedAsync(string repoPath, string branch, CancellationToken cancellationToken)
     {
         using var session = await ConnectAsync(cancellationToken);

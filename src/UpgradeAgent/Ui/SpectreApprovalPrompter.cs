@@ -3,10 +3,6 @@ using Spectre.Console;
 
 namespace UpgradeAgent.Ui;
 
-/// <summary>
-/// Asks at the console, through Spectre so the prompt doesn't tear the live output. Cancelling (Ctrl+C, or a
-/// budget running out) counts as declining. Unattended runs use <see cref="ApprovalPrompter.DeclineAll"/> instead.
-/// </summary>
 internal sealed class SpectreApprovalPrompter(SynchronizedConsole console) : IApprovalPrompter
 {
     public async Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken)

@@ -5,7 +5,6 @@ using AgentHarness;
 
 namespace UpgradeAgent.Agent;
 
-/// <summary>The agent's own account of a group. Informational: the app checks the claims against the diff.</summary>
 internal sealed record GroupSummary
 {
     public required IReadOnlyList<PackageSummary> Packages { get; init; }
@@ -19,7 +18,6 @@ internal enum PackageStatus
     Unresolved,
 }
 
-/// <summary>Kebab-case names on the wire ("no-changes-needed"), read case-insensitively: models vary the case.</summary>
 internal sealed class PackageStatusConverter : JsonConverter<PackageStatus>
 {
     private static readonly Dictionary<string, PackageStatus> ByName = new(StringComparer.OrdinalIgnoreCase)
@@ -64,7 +62,6 @@ internal sealed record PackageSummary
     [Description("One of: " + PackageStatusConverter.Names + ".")]
     public required PackageStatus Status { get; init; }
 
-    // Lists are optional: models often send null for an empty one, which reads as empty.
     [Description("Breaking changes in this update that affected this repository, one line each.")]
     public IReadOnlyList<string> BreakingChanges { get; init => field = value ?? []; } = [];
 
@@ -86,24 +83,12 @@ internal sealed record AppliedFix
     public required string Reason { get; init; }
 }
 
-/// <summary>
-/// The contract for the summary turn. The JSON schema sent to the model is generated from the C# types above
-/// (by the harness's <see cref="StructuredOutput"/>), so the prompt and the parser can't drift apart.
-/// </summary>
 internal static class GroupSummaryParser
 {
     public static string Schema { get; } = StructuredOutput.SchemaFor<GroupSummary>();
 
-    /// <summary>
-    /// Accepts bare JSON or JSON inside a Markdown code fence. Returns null rather than throwing when the reply
-    /// isn't a valid summary (missing required fields included): a summary is useful, never essential.
-    /// </summary>
     public static GroupSummary? TryParse(string? text) => Validate(StructuredOutput.Parse<GroupSummary>(text).Value);
 
-    /// <summary>
-    /// Null unless every package names itself and its versions: models send empty strings for required fields,
-    /// which JSON accepts but the report can't use.
-    /// </summary>
     public static GroupSummary? Validate(GroupSummary? summary) =>
         summary?.Packages is { } packages && packages.All(p => p is { Id.Length: > 0, From.Length: > 0, To.Length: > 0 }) ? summary : null;
 }

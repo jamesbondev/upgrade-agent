@@ -3,11 +3,6 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Guardrails;
 
-/// <summary>
-/// Runs the deterministic checks after every group. It gathers the evidence once (diff, build settings,
-/// ignored files) and hands the same context to every check and note source; adding a check means adding an
-/// <see cref="IGuardrail"/>, not editing this class.
-/// </summary>
 internal sealed partial class GuardrailRunner(GitCli git, IEnumerable<IGuardrail> guardrails, IEnumerable<IReviewNoteSource> noteSources)
 {
     private const int BinarySniffLength = 8000;
@@ -53,10 +48,6 @@ internal sealed partial class GuardrailRunner(GitCli git, IEnumerable<IGuardrail
             await IgnoredFilesAsync(worktree, cancellationToken));
     }
 
-    /// <summary>
-    /// The lines of a new text file, decoded by its byte-order mark (UTF-16 source is valid C#, so it must be scanned).
-    /// None for a binary file: no BOM and a NUL in the first bytes.
-    /// </summary>
     private static async Task<IReadOnlyList<string>> ReadTextLinesAsync(string path, CancellationToken cancellationToken)
     {
         if (!File.Exists(path))
@@ -80,10 +71,6 @@ internal sealed partial class GuardrailRunner(GitCli git, IEnumerable<IGuardrail
         || bytes.StartsWith((ReadOnlySpan<byte>)[0xFE, 0xFF])
         || bytes.StartsWith((ReadOnlySpan<byte>)[0x00, 0x00, 0xFE, 0xFF]);
 
-    /// <summary>
-    /// Ignored files outside build output. A <c>*.csproj.user</c> is ignored by default yet imported by
-    /// MSBuild, so it could change the build invisibly to the diff checks.
-    /// </summary>
     private async Task<IReadOnlySet<string>> IgnoredFilesAsync(string worktree, CancellationToken cancellationToken) =>
         (await git.StatusAsync(worktree, includeIgnored: true, cancellationToken))
             .Where(l => l.StartsWith("!! ", StringComparison.Ordinal))

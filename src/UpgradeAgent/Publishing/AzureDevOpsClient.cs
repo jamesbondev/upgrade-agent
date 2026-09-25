@@ -3,12 +3,10 @@ using Microsoft.VisualStudio.Services.WebApi;
 
 namespace UpgradeAgent.Publishing;
 
-/// <summary>The few Azure DevOps operations a run needs, over the official .NET client (VssConnection + GitHttpClient).</summary>
 internal sealed class AzureDevOpsClient(string organizationUrl, AzureDevOpsCredential credential) : IDisposable
 {
     public const string BranchPrefix = "agent/nuget-updates-";
 
-    /// <summary>Azure DevOps rejects PR descriptions longer than this.</summary>
     public const int MaxDescriptionLength = 4000;
 
     private readonly VssConnection _connection = new(new Uri(organizationUrl), credential.VssCredentials);
@@ -19,7 +17,6 @@ internal sealed class AzureDevOpsClient(string organizationUrl, AzureDevOpsCrede
         return await git.GetRepositoryAsync(project, repository, cancellationToken: cancellationToken);
     }
 
-    /// <summary>Creates a draft PR with the label. If the description is too long, the full text goes in the first comment.</summary>
     public async Task<GitPullRequest> CreateDraftPullRequestAsync(
         GitRepository repository, string branch, string title, string description, string label, CancellationToken cancellationToken)
     {
@@ -53,7 +50,6 @@ internal sealed class AzureDevOpsClient(string organizationUrl, AzureDevOpsCrede
     public static string WebUrl(GitRepository repository, GitPullRequest pullRequest) =>
         $"{repository.WebUrl}/pullrequest/{pullRequest.PullRequestId}";
 
-    /// <summary>Active PRs from agent branches that carry the label: what a demo reset abandons.</summary>
     public async Task<IReadOnlyList<GitPullRequest>> FindAgentPullRequestsAsync(GitRepository repository, string label, CancellationToken cancellationToken)
     {
         var git = await _connection.GetClientAsync<GitHttpClient>(cancellationToken);

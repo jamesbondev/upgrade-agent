@@ -10,7 +10,6 @@ using UpgradeAgent.Workspace;
 
 namespace UpgradeAgent.Ui;
 
-/// <summary>The console view of a run. Append-only: every call writes new lines and never redraws, so prompts are safe anywhere.</summary>
 internal sealed class RunRenderer(IAnsiConsole console, PlanRenderer plans) : IRunProgress
 {
     private const int MaxErrorsShown = 8;

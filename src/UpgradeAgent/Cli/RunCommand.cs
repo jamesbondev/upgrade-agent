@@ -26,7 +26,6 @@ internal static class RunCommand
             CommonOptions.Only, Plan, Agent, NonInteractive, Record, Replay, ReplayMaxGap, Ado,
         };
 
-        // Combinations that can't work are refused while parsing, before any work starts.
         command.Validators.Add(result =>
         {
             if (result.GetValue(Replay) is not null && (result.GetValue(Record) is not null || result.GetValue(Plan) is not null || result.GetValue(Agent) is not null))

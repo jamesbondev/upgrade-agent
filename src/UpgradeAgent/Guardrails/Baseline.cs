@@ -6,7 +6,6 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Guardrails;
 
-/// <summary>Green-before-we-start evidence, cached per (commit, SDK, test args) so rehearsals skip it.</summary>
 internal sealed record Baseline(
     string Commit,
     string SdkVersion,
@@ -19,7 +18,6 @@ internal sealed record Baseline(
     public int PassedCount => Tests?.Passed ?? Counts?.Passed ?? 0;
 }
 
-/// <summary>Baselines on disk, one file per (commit, SDK, test arguments).</summary>
 internal sealed class BaselineCache(string cacheDirectory)
 {
     public Baseline? TryLoad(string commit, string sdkVersion, IReadOnlyList<string> testArguments)

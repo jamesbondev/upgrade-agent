@@ -5,15 +5,8 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Detection;
 
-/// <summary>One version step for one package in one project, before any policy is applied.</summary>
-/// <param name="ManualReason">Set when the app can't make the change itself (a range or floating version).</param>
 internal sealed record VersionStep(string Id, NuGetVersion From, NuGetVersion To, BumpKind Kind, ProjectTarget Project, string? ManualReason);
 
-/// <summary>
-/// Turns the outdated reports into version steps. A major with a newer release in the current line becomes
-/// two steps (to the latest minor, then to the major), so the non-breaking part lands even if the major can't.
-/// Pure: no IO, no policy.
-/// </summary>
 internal static class VersionSteps
 {
     public static IEnumerable<VersionStep> Build(OutdatedReports reports, IReadOnlyDictionary<string, string> targetOverrides, string repoRoot) =>
@@ -62,10 +55,6 @@ internal static class VersionSteps
         yield return new VersionStep(package.Id, current, final, kind, project, null);
     }
 
-    /// <summary>
-    /// The newest non-breaking version before the major: latest minor for 1.0+, latest patch for 0.x.
-    /// A package with nothing newer in its current line is absent from that report.
-    /// </summary>
     private static NuGetVersion? FindIntermediate(ReportedPackage package, NuGetVersion current, NuGetVersion final, OutdatedReports reports)
     {
         var source = current.Major == 0 ? reports.HighestPatch : reports.HighestMinor;

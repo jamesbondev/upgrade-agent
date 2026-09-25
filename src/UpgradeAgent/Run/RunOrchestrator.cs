@@ -8,10 +8,6 @@ using UpgradeAgent.Workspace;
 
 namespace UpgradeAgent.Run;
 
-/// <summary>
-/// The deterministic spine of a run: workspace, baseline, plan, then each group through the
-/// <see cref="GroupPipeline"/>, then the report. The repo's own working tree and branches are never touched.
-/// </summary>
 internal sealed class RunOrchestrator(
     ResolvedConfig config,
     GitCli git,
@@ -61,7 +57,6 @@ internal sealed class RunOrchestrator(
         return report;
     }
 
-    /// <summary>Checks where the worktree would go before creating it, so an abort leaves nothing behind.</summary>
     private async Task<RunWorkspace> CreateWorkspaceAsync(DateTimeOffset now, CancellationToken cancellationToken)
     {
         var workspace = await RunWorkspace.PlanAsync(git, config.RepoPath, config.SolutionPath, config.WorkRoot, config.OutputDirectory, now, cancellationToken);

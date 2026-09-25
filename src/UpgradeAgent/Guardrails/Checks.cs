@@ -3,7 +3,6 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Guardrails;
 
-/// <summary>Only the app commits: HEAD must still be where the group started.</summary>
 internal sealed class GitStateGuardrail : IGuardrail
 {
     public const string Name = "Git state";
@@ -24,7 +23,6 @@ internal sealed class BuildGuardrail : IGuardrail
             : new(Name, false, $"{context.Input.Build.Errors.Count} error(s)");
 }
 
-/// <summary>Every test method that passed at the baseline must still pass, with at least as many rows.</summary>
 internal sealed class TestsGuardrail : IGuardrail
 {
     public const string Name = "Tests";
@@ -57,7 +55,6 @@ internal sealed class TestsGuardrail : IGuardrail
                 : new(Name, false, $"{shortfalls.Count} test method(s) missing or with fewer passing rows: {shortfalls.JoinLimited(ShortfallsListed, ", ")}");
         }
 
-        // No TRX on one side: fall back to totals, and say so.
         return tests.Passed switch
         {
             null => new(Name, false, "could not read test results"),
@@ -82,7 +79,6 @@ internal sealed class SuppressionGuardrail : IGuardrail
     }
 }
 
-/// <summary>Package versions, target frameworks, LangVersion and global.json are the app's, not the agent's.</summary>
 internal sealed class BuildSettingsGuardrail : IGuardrail
 {
     public const string Name = "Package versions and build settings";
@@ -100,7 +96,6 @@ internal sealed class BuildSettingsGuardrail : IGuardrail
     }
 }
 
-/// <summary>No deleted test files, and no new git-ignored files (which the diff checks can't see).</summary>
 internal sealed class FilesGuardrail : IGuardrail
 {
     public const string Name = "Files";

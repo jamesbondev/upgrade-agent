@@ -40,7 +40,6 @@ public class PlannerTests
     [Fact]
     public async Task MajorWithoutNewerMinorIsOneStep()
     {
-        // A package already on the newest version of its major is absent from the --highest-minor report.
         var plan = await CreatePlanAsync(new Reports()
             .Add(App, "Humanizer.Core", "2.14.1", latest: "3.0.1"));
 
@@ -240,7 +239,6 @@ public class PlannerTests
     [Fact]
     public async Task AFamilyMemberLeftForAHumanBlocksTheWholeFamily()
     {
-        // EF Core is 3 majors behind (manual); its provider alone would be within the limit, but moving it alone breaks the build.
         var plan = await CreatePlanAsync(new Reports()
             .Add(App, "Microsoft.EntityFrameworkCore", "6.0.0", latest: "9.0.0")
             .Add(App, "Npgsql.EntityFrameworkCore.PostgreSQL", "7.0.0", latest: "9.0.0"));

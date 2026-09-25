@@ -5,7 +5,6 @@ using NuGet.Versioning;
 
 namespace UpgradeAgent.Infrastructure;
 
-/// <summary>Versions travel as <see cref="NuGetVersion"/> and are written as normalized strings ("1.2.0").</summary>
 internal sealed class NuGetVersionJsonConverter : JsonConverter<NuGetVersion>
 {
     public override NuGetVersion Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
@@ -14,7 +13,6 @@ internal sealed class NuGetVersionJsonConverter : JsonConverter<NuGetVersion>
     public override void Write(Utf8JsonWriter writer, NuGetVersion value, JsonSerializerOptions options) => writer.WriteStringValue(value.ToNormalizedString());
 }
 
-/// <summary>Target frameworks travel as <see cref="NuGetFramework"/> and are written as short folder names ("net10.0").</summary>
 internal sealed class NuGetFrameworkJsonConverter : JsonConverter<NuGetFramework>
 {
     public override NuGetFramework Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>

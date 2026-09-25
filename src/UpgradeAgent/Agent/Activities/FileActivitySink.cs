@@ -2,7 +2,6 @@ using System.Globalization;
 
 namespace UpgradeAgent.Agent.Activities;
 
-/// <summary>The full, untruncated agent log for one group: out/run-*/agent/&lt;group&gt;.log.</summary>
 internal sealed class FileActivitySink : IActivitySink, IDisposable
 {
     private readonly StreamWriter _writer;

@@ -11,13 +11,11 @@ internal sealed record ProcessResult(int ExitCode, string StandardOutput, string
     public string CombinedOutput => StandardError.Length == 0 ? StandardOutput : $"{StandardOutput}{Environment.NewLine}{StandardError}";
 }
 
-/// <summary>The program couldn't be started at all (not installed, not on PATH).</summary>
 internal sealed class ProcessStartException(string fileName, Exception inner)
     : Exception($"Could not start '{fileName}': {inner.Message}. Is it installed and on PATH?", inner);
 
 internal interface IProcessRunner
 {
-    /// <param name="environment">Variables to set; a null value removes the variable from the child's environment.</param>
     Task<ProcessResult> RunAsync(
         string fileName,
         IReadOnlyList<string> arguments,

@@ -4,7 +4,6 @@ using AgentHarness.Tests.TestSupport;
 
 namespace AgentHarness.Tests;
 
-/// <summary>What observers see, and what <see cref="AgentSession.Stats"/> counts.</summary>
 public sealed class AgentSessionEventTests : IDisposable
 {
     private readonly TempDirectory _workspace = new();

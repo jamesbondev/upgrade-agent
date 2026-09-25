@@ -3,22 +3,8 @@ using Microsoft.Extensions.AI;
 
 namespace AgentHarness.Testing;
 
-/// <summary>What the session answered when the script asked to run something.</summary>
 public sealed record ScriptedDecision(ToolRequest Request, bool Allowed, string? Feedback);
 
-/// <summary>
-/// A fake model for tests and demos: each turn plays back a script of tool calls and a reply, through the same
-/// permission pipeline, limits, observers and stop rules as a real session. No network, no model, deterministic.
-/// <code>
-/// var backend = new ScriptedBackend()
-///     .Turn(t => t.Shell("dotnet build --no-restore", output: "Build succeeded.").Edit("src/Foo.cs").Reply("Fixed."))
-///     .Turn(t => t.ReplyJson(new Summary { Files = ["src/Foo.cs"] }));
-/// var runner = new AgentRunner(backend);
-/// // … then assert on backend.Decisions: what your policy allowed and refused.
-/// </code>
-/// Shell commands are not run; they return their scripted output. Edits with content are written, so tests
-/// can check effects. Calls to your <see cref="AgentTool"/>s run the real function.
-/// </summary>
 public sealed class ScriptedBackend(string? model = "scripted-model") : IAgentBackend
 {
     private readonly Queue<ScriptedTurn> _turns = new();
@@ -29,7 +15,6 @@ public sealed class ScriptedBackend(string? model = "scripted-model") : IAgentBa
 
     public string? Model => model;
 
-    /// <summary>Every permission request the script made, and the answer, in order.</summary>
     public IReadOnlyList<ScriptedDecision> Decisions
     {
         get
@@ -41,7 +26,6 @@ public sealed class ScriptedBackend(string? model = "scripted-model") : IAgentBa
         }
     }
 
-    /// <summary>Every message the app sent, in order (including structured-reply prompts).</summary>
     public IReadOnlyList<string> Messages
     {
         get
@@ -53,10 +37,8 @@ public sealed class ScriptedBackend(string? model = "scripted-model") : IAgentBa
         }
     }
 
-    /// <summary>What the last session was started with: instructions, tools, flags.</summary>
     public AgentBackendSettings? LastSettings { get; private set; }
 
-    /// <summary>Adds the next turn's script.</summary>
     public ScriptedBackend Turn(Action<ScriptedTurn> script)
     {
         var turn = new ScriptedTurn();
@@ -65,7 +47,6 @@ public sealed class ScriptedBackend(string? model = "scripted-model") : IAgentBa
         return this;
     }
 
-    /// <summary>A turn that only replies.</summary>
     public ScriptedBackend Reply(string text) => Turn(t => t.Reply(text));
 
     public Task<IAgentBackendSession> StartSessionAsync(AgentBackendSettings settings, CancellationToken cancellationToken)
@@ -124,7 +105,6 @@ public sealed class ScriptedBackend(string? model = "scripted-model") : IAgentBa
         }
     }
 
-    /// <summary>What a custom step can use: the session's settings, and the permission pipeline.</summary>
     public sealed class ScriptedContext
     {
         private readonly Session _session;
@@ -137,19 +117,16 @@ public sealed class ScriptedBackend(string? model = "scripted-model") : IAgentBa
 
         public AgentBackendSettings Settings { get; }
 
-        /// <summary>The backend's model, reported by default in <see cref="ScriptedTurn.Usage"/>.</summary>
         public string? Model => _session.Model;
 
         public string NextCallId() => _session.NextCallId();
 
-        /// <summary>Asks the session, as the real runtime would before a tool runs. Recorded in <see cref="Decisions"/>.</summary>
         public Task<bool> AuthorizeAsync(ToolRequest request, CancellationToken cancellationToken) => _session.AuthorizeAsync(request, cancellationToken);
 
         public void Raise(AgentEvent agentEvent) => Settings.OnEvent(agentEvent);
 
         public string FullPath(string path) => Path.GetFullPath(path, Settings.WorkingDirectory);
 
-        /// <summary>Asks for permission and, when allowed, raises the start and completion events around <paramref name="run"/>.</summary>
         public async Task RunToolAsync(ToolRequest request, ToolKind kind, string tool, string detail, Func<Task<(bool Success, string? Output)>> run, CancellationToken cancellationToken)
         {
             if (!await AuthorizeAsync(request, cancellationToken))
@@ -165,18 +142,15 @@ public sealed class ScriptedBackend(string? model = "scripted-model") : IAgentBa
     }
 }
 
-/// <summary>One turn of a <see cref="ScriptedBackend"/>: steps run in order; the last <see cref="Reply"/> is the turn's reply.</summary>
 public sealed class ScriptedTurn
 {
     private readonly List<Func<ScriptedBackend.ScriptedContext, CancellationToken, Task<string?>>> _steps = [];
 
     internal IReadOnlyList<Func<ScriptedBackend.ScriptedContext, CancellationToken, Task<string?>>> Steps => _steps;
 
-    /// <summary>A shell command. Not run: <paramref name="output"/> is what it "printed".</summary>
     public ScriptedTurn Shell(string command, string output = "", bool success = true, bool writesFile = false) => Step(async (c, ct) =>
         await c.RunToolAsync(new ShellRequest(command, writesFile), ToolKind.Shell, "bash", command, () => Task.FromResult((success, (string?)output)), ct));
 
-    /// <summary>An edit. With <paramref name="content"/>, the file is really written when the edit is allowed.</summary>
     public ScriptedTurn Edit(string path, string? content = null) => Step(async (c, ct) =>
     {
         var full = c.FullPath(path);
@@ -192,7 +166,6 @@ public sealed class ScriptedTurn
         }, ct);
     });
 
-    /// <summary>A file read. Returns the real file's content when it exists.</summary>
     public ScriptedTurn Read(string path) => Step(async (c, ct) =>
     {
         var full = c.FullPath(path);
@@ -203,7 +176,6 @@ public sealed class ScriptedTurn
     public ScriptedTurn Fetch(string url, string content = "") => Step(async (c, ct) =>
         await c.RunToolAsync(new WebFetchRequest(url), ToolKind.Other, "web_fetch", url, () => Task.FromResult((true, (string?)content)), ct));
 
-    /// <summary>Calls one of the session's <see cref="AgentTool"/>s for real, asking first when it requires approval.</summary>
     public ScriptedTurn CallTool(string name, object? arguments = null) => Step(async (c, ct) =>
     {
         var json = JsonSerializer.Serialize(arguments ?? new { }, StructuredOutput.SerializerOptions);
@@ -216,7 +188,6 @@ public sealed class ScriptedTurn
             return;
         }
 
-        // Asked even for tools that need no approval, as the runtime does: the session still refuses them in tools-off turns.
         if (!await c.AuthorizeAsync(new CustomToolRequest(name, json), ct))
         {
             return;
@@ -229,7 +200,6 @@ public sealed class ScriptedTurn
         c.Raise(new ToolCallCompleted(callId, true, result?.ToString(), null));
     });
 
-    /// <summary>Text between tool calls.</summary>
     public ScriptedTurn Say(string text) => Step((c, _) =>
     {
         c.Raise(new AssistantMessage(text));
@@ -242,20 +212,16 @@ public sealed class ScriptedTurn
         return Task.CompletedTask;
     });
 
-    /// <summary>Waits, honouring cancellation: for testing time budgets and stop rules.</summary>
     public ScriptedTurn Wait(TimeSpan delay) => Step((_, ct) => Task.Delay(delay, ct));
 
-    /// <summary>The turn's reply (also raised as an <see cref="AssistantMessage"/>).</summary>
     public ScriptedTurn Reply(string text) => Add((c, _) =>
     {
         c.Raise(new AssistantMessage(text));
         return Task.FromResult<string?>(text);
     });
 
-    /// <summary>A reply that is <paramref name="value"/> as JSON, for <see cref="AgentSession.AskAsync{T}(string, CancellationToken)"/>.</summary>
     public ScriptedTurn ReplyJson(object value) => Reply(JsonSerializer.Serialize(value, StructuredOutput.SerializerOptions));
 
-    /// <summary>Anything else: raise your own events, ask for your own permissions.</summary>
     public ScriptedTurn Step(Func<ScriptedBackend.ScriptedContext, CancellationToken, Task> step) => Add(async (c, ct) =>
     {
         await step(c, ct);

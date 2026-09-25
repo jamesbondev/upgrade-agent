@@ -4,7 +4,6 @@ using UpgradeAgent.Replay;
 
 namespace UpgradeAgent.Ui;
 
-/// <summary>Console output around a run: replay banners, publishing, Azure DevOps and recordings.</summary>
 internal sealed class PublishRenderer(IAnsiConsole console)
 {
     public void AzureDevOpsVerified(string repository)

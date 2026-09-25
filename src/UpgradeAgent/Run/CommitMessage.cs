@@ -6,7 +6,6 @@ namespace UpgradeAgent.Run;
 
 internal static class CommitMessage
 {
-    /// <summary>Conventional commit: short subject for up to three packages, otherwise a count with a body list.</summary>
     public static string Create(string groupName, IReadOnlyList<VersionEdit> edits, string runId)
     {
         var steps = edits

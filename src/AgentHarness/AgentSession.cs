@@ -4,11 +4,6 @@ using AgentHarness.Policies;
 
 namespace AgentHarness;
 
-/// <summary>
-/// A conversation with an agent, with the harness's rules around it: every tool action goes through the policy
-/// (and the operator, when the policy asks), the limits and stop rules end a session that runs away, and every
-/// event reaches the observers. Thread-safe: backends raise events and permission requests on their own threads.
-/// </summary>
 public sealed class AgentSession : IAsyncDisposable
 {
     private const string DefaultDeclinedFeedback = "The operator declined this. Find another way that stays within the rules.";
@@ -51,7 +46,6 @@ public sealed class AgentSession : IAsyncDisposable
         _started = time.GetTimestamp();
         _budget = new PausableTimeout(options.Limits.MaxDuration is { } d && d > TimeSpan.Zero ? d : null, time);
 
-        // The budget runs only while the agent is working (starting up, or in a turn), not between turns.
         _idle = _budget.Pause();
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(_budget.Token, _stop.Token);
         _span = AgentTelemetry.StartSession(backend.Name, options.Name, backend.Model);
@@ -59,7 +53,6 @@ public sealed class AgentSession : IAsyncDisposable
 
     public string Name => _options.Name;
 
-    /// <summary>Why the session was stopped, or null while it may continue.</summary>
     public string? StopReason
     {
         get
@@ -113,11 +106,6 @@ public sealed class AgentSession : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Sends a message and waits for the agent to finish its turn. A limit or stop rule that fires during the turn
-    /// ends it early: the reply then has <see cref="AgentReply.StopReason"/> set, and the session takes no more turns.
-    /// Provider failures (not signed in, rate limits, a crashed runtime) throw.
-    /// </summary>
     public async Task<AgentReply> SendAsync(string message, CancellationToken cancellationToken = default)
     {
         var session = _session ?? throw new ObjectDisposedException(nameof(AgentSession));
@@ -136,23 +124,14 @@ public sealed class AgentSession : IAsyncDisposable
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && _lifetime.IsCancellationRequested)
         {
-            // A stop rule or the time budget ended the turn; the first reason recorded wins.
             StopForLimit("agent stopped: time budget exceeded");
             return new AgentReply(null, StopReason);
         }
     }
 
-    /// <summary>
-    /// Asks for a structured reply, with every tool refused. The JSON schema comes from <typeparamref name="T"/>.
-    /// Has its own timeout (default 2 minutes) outside the session's budget, and works after a normal turn; a
-    /// reply that isn't valid JSON for <typeparamref name="T"/> is returned with an error, not thrown; so is a provider
-    /// failure (then <see cref="StructuredReply{T}.Text"/> is null and the error names the exception).
-    /// </summary>
     public Task<StructuredReply<T>> AskAsync<T>(string question, CancellationToken cancellationToken)
         where T : class => AskAsync<T>(question, validate: null, timeout: null, cancellationToken);
 
-    /// <inheritdoc cref="AskAsync{T}(string, CancellationToken)"/>
-    /// <param name="validate">Checks JSON can't express (non-empty strings, ranges): returns an error, or null when the value is fine.</param>
     public async Task<StructuredReply<T>> AskAsync<T>(
         string question, Func<T, string?>? validate = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
         where T : class
@@ -168,13 +147,8 @@ public sealed class AgentSession : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// A turn in which every tool is refused and no limit or stop rule applies: for summaries and follow-up
-    /// questions after the work is done. Throws on timeout (default 2 minutes) and on provider failures.
-    /// </summary>
     public Task<string?> SendWithoutToolsAsync(string message, CancellationToken cancellationToken) => SendWithoutToolsAsync(message, null, cancellationToken);
 
-    /// <inheritdoc cref="SendWithoutToolsAsync(string, CancellationToken)"/>
     public async Task<string?> SendWithoutToolsAsync(string message, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         var session = _session ?? throw new ObjectDisposedException(nameof(AgentSession));
@@ -192,13 +166,8 @@ public sealed class AgentSession : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Stops the session for a reason of your own, unless it has already stopped. A running <see cref="SendAsync"/>
-    /// turn returns early; a running tools-off turn finishes, and later turns return stopped.
-    /// </summary>
     public void Stop(string reason) => Stop(reason, fromLimit: false);
 
-    /// <summary>Limits and stop rules don't apply to tools-off turns: late events must not stop a finished session.</summary>
     private void StopForLimit(string reason) => Stop(reason, fromLimit: true);
 
     private void Stop(string reason, bool fromLimit)
@@ -220,7 +189,6 @@ public sealed class AgentSession : IAsyncDisposable
         }
         catch (ObjectDisposedException)
         {
-            // Stop rules can fire from SDK callbacks that arrive after the session was torn down.
         }
     }
 
@@ -248,7 +216,6 @@ public sealed class AgentSession : IAsyncDisposable
         _budget.Dispose();
     }
 
-    /// <summary>Runs the budget until disposed.</summary>
     private WorkingScope Working()
     {
         _idle.Dispose();
@@ -339,7 +306,6 @@ public sealed class AgentSession : IAsyncDisposable
         return ToolApproval.Deny(decision.Reason);
     }
 
-    /// <summary>Counts the event, pairs tool calls, and hands it to the observers and stop rules, one event at a time.</summary>
     private void Publish(AgentEvent agentEvent)
     {
         var (tracked, follow, stop) = Track(agentEvent);

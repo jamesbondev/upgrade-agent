@@ -4,11 +4,6 @@ using UpgradeAgent.MsBuild;
 
 namespace UpgradeAgent.Workspace;
 
-/// <summary>
-/// Where a run happens. The worktree sits next to the target repo, never inside UpgradeAgent's folder:
-/// MSBuild and NuGet read Directory.Build.*, Directory.Packages.props, nuget.config and global.json
-/// from parent folders, so a worktree elsewhere could build differently from the real repo.
-/// </summary>
 internal sealed record RunWorkspace(
     string RepoPath,
     string WorkRoot,
@@ -21,7 +16,6 @@ internal sealed record RunWorkspace(
     public static string DefaultWorkRoot(string repoPath) =>
         Path.Combine(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(repoPath))!, ".ua-work");
 
-    /// <summary>Names the run, its branch and folders. Creates nothing, so checks can run before anything exists.</summary>
     public static async Task<RunWorkspace> PlanAsync(
         GitCli git, string repoPath, string solutionPath, string workRoot, string outputRoot, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -37,7 +31,6 @@ internal sealed record RunWorkspace(
             repoPath, workRoot, runId, branch, worktree, Path.Combine(worktree, Path.GetRelativePath(repoPath, solutionPath)), Path.Combine(outputRoot, $"run-{runId}"));
     }
 
-    /// <summary>Adds the worktree on a new branch from HEAD, and the output folder.</summary>
     public async Task CreateAsync(GitCli git, CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(WorkRoot);
@@ -45,7 +38,6 @@ internal sealed record RunWorkspace(
         await git.RunAsync(RepoPath, ["worktree", "add", "-b", BranchName, WorktreePath, "HEAD"], cancellationToken);
     }
 
-    /// <summary>Inherited config files that would affect the worktree but not the original repo.</summary>
     public static IReadOnlyList<string> FindConfigLeaks(string repoPath, string worktreePath)
     {
         var original = InheritedConfigFilesAbove(repoPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -58,8 +50,6 @@ internal sealed record RunWorkspace(
              current is not null;
              current = Path.GetDirectoryName(current))
         {
-            // Matched case-insensitively against the files that actually exist: probing "nuget.config" and
-            // "NuGet.Config" separately finds the same file twice on case-insensitive file systems (Windows).
             foreach (var file in FilesIn(current).Where(f => MsBuildFiles.InheritedConfig.Contains(Path.GetFileName(f))))
             {
                 yield return file;
@@ -75,7 +65,6 @@ internal sealed record RunWorkspace(
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
-            // Folders we can't list (e.g. system folders above the repo) can't contribute config.
             return [];
         }
     }

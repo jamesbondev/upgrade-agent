@@ -3,13 +3,10 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Build;
 
-
 internal sealed record BuildResult(bool Succeeded, IReadOnlyList<Diagnostic> Errors, IReadOnlyList<Diagnostic> Warnings, string Output, TimeSpan Duration);
 
-/// <param name="Inventory">Per-method results from TRX; null when no TRX was produced (count-only fallback).</param>
 internal sealed record TestRunResult(bool Succeeded, TestInventory? Inventory, TestCounts? Counts, string Output, TimeSpan Duration)
 {
-    /// <summary>From TRX when there is one, else from the console summary; null when neither was readable.</summary>
     public int? Passed => Inventory?.Passed ?? Counts?.Passed;
 
     public int? Failed => Inventory?.Failed ?? Counts?.Failed;
@@ -17,10 +14,6 @@ internal sealed record TestRunResult(bool Succeeded, TestInventory? Inventory, T
 
 internal sealed class DotnetCli(IProcessRunner processRunner, TimeProvider time)
 {
-    /// <summary>
-    /// No node reuse and no build server: agent-triggered builds must never run inside MSBuild nodes
-    /// started with the app's full environment, and lingering nodes lock worktree files on Windows.
-    /// </summary>
     public static readonly IReadOnlyDictionary<string, string?> BaseEnvironment = new Dictionary<string, string?>
     {
         ["DOTNET_CLI_UI_LANGUAGE"] = "en",
@@ -67,7 +60,6 @@ internal sealed class DotnetCli(IProcessRunner processRunner, TimeProvider time)
         return new TestRunResult(result.Succeeded, inventory, BuildOutputParser.ParseTestCounts(result.StandardOutput), result.CombinedOutput, time.GetElapsedTime(started));
     }
 
-    /// <summary><c>dotnet --version</c> in <paramref name="workingDirectory"/>, whose global.json decides which SDK is selected.</summary>
     public Task<ProcessResult> VersionAsync(string workingDirectory, CancellationToken cancellationToken) =>
         processRunner.RunAsync("dotnet", ["--version"], workingDirectory, BaseEnvironment, cancellationToken);
 

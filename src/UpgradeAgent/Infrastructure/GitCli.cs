@@ -2,7 +2,6 @@ namespace UpgradeAgent.Infrastructure;
 
 internal sealed class GitException(string message, string output) : Exception($"{message}{Environment.NewLine}{output}".TrimEnd());
 
-/// <summary>Thin wrapper over the git CLI. Never prompts: a hidden credential dialog would hang a live demo.</summary>
 internal sealed class GitCli(IProcessRunner processRunner)
 {
     private static readonly Dictionary<string, string?> NonInteractiveEnvironment = new()
@@ -42,7 +41,6 @@ internal sealed class GitCli(IProcessRunner processRunner)
     public async Task<IReadOnlyList<string>> ListUntrackedAsync(string repoPath, CancellationToken cancellationToken = default) =>
         SplitLines(await RunAsync(repoPath, ["ls-files", "--others", "--exclude-standard"], cancellationToken));
 
-    /// <summary>Returns the file's content at <paramref name="commit"/>, or null if it didn't exist there.</summary>
     public async Task<string?> ShowFileAsync(string repoPath, string commit, string relativePath, CancellationToken cancellationToken = default)
     {
         var result = await TryRunAsync(repoPath, ["show", $"{commit}:{relativePath.Replace('\\', '/')}"], cancellationToken);
@@ -56,10 +54,6 @@ internal sealed class GitCli(IProcessRunner processRunner)
         (await TryRunAsync(repoPath, ["config", "user.email"], cancellationToken)).Succeeded
         && (await TryRunAsync(repoPath, ["config", "user.name"], cancellationToken)).Succeeded;
 
-    /// <summary>
-    /// Puts the worktree back exactly at <paramref name="commit"/>: tracked changes reset, new files removed.
-    /// Deliberately not cancellable: a half-applied change must never survive, even when the run is being cancelled.
-    /// </summary>
     public async Task RevertToAsync(string worktree, string commit)
     {
         await RunAsync(worktree, ["reset", "--hard", "-q", commit], CancellationToken.None);

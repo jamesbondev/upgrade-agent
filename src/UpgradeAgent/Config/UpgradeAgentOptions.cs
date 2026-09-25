@@ -17,23 +17,18 @@ internal sealed class UpgradeAgentOptions
 
 internal sealed class AzureDevOpsOptions
 {
-    /// <summary>For example https://dev.azure.com/contoso.</summary>
     public string OrganizationUrl { get; set; } = "";
 
     public string Project { get; set; } = "";
 
     public string Repository { get; set; } = "";
 
-    /// <summary>Environment variable holding a PAT (scope: Code read &amp; write).</summary>
     public string PatEnvVar { get; set; } = "ADO_PAT";
 
-    /// <summary>Environment variable holding a bearer token, e.g. a pipeline's System.AccessToken.</summary>
     public string AccessTokenEnvVar { get; set; } = "SYSTEM_ACCESSTOKEN";
 
-    /// <summary>A PAT from user secrets (<c>dotnet user-secrets set AzureDevOps:Pat ...</c>). Never put it in appsettings.json.</summary>
     public string? Pat { get; set; }
 
-    /// <summary>Fall back to Azure CLI / DefaultAzureCredential (Entra) when no PAT or token is set.</summary>
     public bool UseAzureIdentity { get; set; } = true;
 
     public string Label { get; set; } = "agent-generated";
@@ -43,10 +38,8 @@ internal sealed class AzureDevOpsOptions
 
 internal enum AgentProvider
 {
-    /// <summary>GitHub Copilot via the local Copilot CLI login (or a token in pipelines).</summary>
     Copilot,
 
-    /// <summary>No agent: groups that need code changes are rejected.</summary>
     None,
 }
 
@@ -54,7 +47,6 @@ internal sealed class AgentOptions
 {
     public AgentProvider Provider { get; set; } = AgentProvider.Copilot;
 
-    /// <summary>Copilot model ID; null lets Copilot choose.</summary>
     public string? Model { get; set; }
 
     public string? ReasoningEffort { get; set; }
@@ -63,49 +55,34 @@ internal sealed class AgentOptions
 
     public int MaxToolCallsPerGroup { get; set; } = 80;
 
-    /// <summary>Stop a group's agent after this many refused actions. 0 disables.</summary>
     public int MaxRefusalsPerGroup { get; set; } = 5;
 
-    /// <summary>Stop a group's agent after this many builds in a row that don't reduce the error count. 0 disables.</summary>
     public int MaxBuildsWithoutProgress { get; set; } = 3;
 
-    /// <summary>Don't call the agent when the build has more errors than this after the bump; reject the group instead. 0 disables.</summary>
     public int MaxErrorsForAgent { get; set; } = 50;
 
-    /// <summary>Let the agent fetch URLs (release notes). Off by default: fetched pages are untrusted input.</summary>
     public bool AllowWebFetch { get; set; }
 
-    /// <summary>Extra environment variables to hide from the agent, on top of the built-in secret patterns.</summary>
     public List<string> RemoveEnvironmentVariables { get; set; } = [];
 
-    /// <summary>Environment variable holding a GitHub token for Copilot (pipelines). Empty means the local Copilot CLI login.</summary>
     public string? GitHubTokenEnvVar { get; set; }
 }
 
 internal sealed class TargetOptions
 {
-    /// <summary>Path to the target git repo. Relative paths resolve against the config file's folder.</summary>
     public string RepoPath { get; set; } = "";
 
-    /// <summary>Solution (.sln/.slnx) relative to <see cref="RepoPath"/>. Empty means the single solution in the repo root.</summary>
     public string Solution { get; set; } = "";
 
-    /// <summary>Folder for run worktrees and the baseline cache. Default: <c>.ua-work</c> beside the repo. Relative paths resolve against the repo.</summary>
     public string? WorkRoot { get; set; }
 
-    /// <summary>
-    /// Run the repository's git hooks (e.g. ggshield) on agent commits. On by default: a hook that fails, or
-    /// that rewrites files, rejects the group rather than being bypassed.
-    /// </summary>
     public bool RunGitHooks { get; set; } = true;
 
-    /// <summary>Extra arguments passed through to <c>dotnet test</c>, e.g. a filter.</summary>
     public List<string> TestArgs { get; set; } = [];
 }
 
 internal sealed class PolicyOptions
 {
-    /// <summary>Package ID globs. When non-empty, only matching packages are updated.</summary>
     public List<string> Allow { get; set; } = [];
 
     public List<DenyRule> Deny { get; set; } = [];
@@ -114,18 +91,12 @@ internal sealed class PolicyOptions
 
     public bool AttemptMajors { get; set; } = true;
 
-    /// <summary>
-    /// Major steps that cross more than this many major versions (e.g. 8 → 16) are left for a human. The minor step
-    /// within the current major still runs. <c>0.x</c> packages are exempt. 0 disables.
-    /// </summary>
     public int MaxMajorJump { get; set; } = 2;
 
     public bool IncludePrerelease { get; set; }
 
-    /// <summary>Package families that must move together, as name → ID globs. Null means <see cref="DefaultGroups"/>.</summary>
     public Dictionary<string, List<string>>? Groups { get; set; }
 
-    /// <summary>Exact final target version per package ID. Pins demos and replays against new releases.</summary>
     public Dictionary<string, string> TargetOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public static IReadOnlyDictionary<string, List<string>> DefaultGroups { get; } = new Dictionary<string, List<string>>
@@ -151,9 +122,7 @@ internal sealed class DenyRule
 
 internal sealed class OutputOptions
 {
-    /// <summary>Folder for plans, reports and PR descriptions. Relative paths resolve against the current directory.</summary>
     public string Directory { get; set; } = "out";
 
-    /// <summary>Folder for record/replay sessions. Relative paths resolve against the current directory.</summary>
     public string RecordingsDirectory { get; set; } = "recordings";
 }

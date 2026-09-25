@@ -4,15 +4,8 @@ using System.Text.RegularExpressions;
 
 namespace AgentHarness.Policies;
 
-/// <summary>A command line split into simple commands (by <c>&amp;&amp;</c>, <c>||</c>, <c>;</c> and <c>|</c>).</summary>
 public sealed record ParsedCommand(IReadOnlyList<IReadOnlyList<string>> Segments);
 
-/// <summary>
-/// A deliberately small POSIX/PowerShell-ish tokenizer. Anything it can't reason about is refused rather
-/// than guessed at: substitution and variable expansion (<c>$(…)</c>, <c>$VAR</c>, backticks, PowerShell
-/// <c>(…)</c> and <c>@(…)</c>), redirection, background jobs, script blocks and multi-line input. Single
-/// quotes keep everything literal.
-/// </summary>
 public static partial class ShellCommandParser
 {
     public static bool TryParse(string commandLine, [NotNullWhen(true)] out ParsedCommand? parsed, [NotNullWhen(false)] out string? error)
@@ -30,7 +23,6 @@ public static partial class ShellCommandParser
 
     private static string? Tokenize(string commandLine, out List<IReadOnlyList<string>> segments)
     {
-        // "2>&1" only merges stderr into stdout; it writes no file. Agents append it habitually.
         commandLine = StderrToStdout().Replace(commandLine, " ");
         segments = [];
         var tokens = new List<string>();
@@ -118,8 +110,6 @@ public static partial class ShellCommandParser
                 case '`':
                     return "backticks are not allowed";
                 case '\\' when IsEscapable(next):
-                    // A backslash before a quote or an operator hides it from this parser but not from the shell.
-                    // Before an ordinary character it's a Windows path separator, which is fine.
                     return "backslash escapes are not allowed; use single quotes for literal text";
                 case '$' when IsExpansionStart(next):
                     return "variable expansion and command substitution are not allowed; write paths out in full";
@@ -164,7 +154,6 @@ public static partial class ShellCommandParser
     private static bool IsEscapable(char next) =>
         next is '\'' or '"' or ';' or '&' or '|' or '`' or '$' or '(' or ')' or '<' or '>' or '{' or '}' or ' ' or '\t' or '\\' or '\r' or '\n' or '\0';
 
-    /// <summary>What can follow <c>$</c> to expand: a name, <c>{</c>, <c>(</c>, or a special parameter.</summary>
     private static bool IsExpansionStart(char next) => char.IsLetter(next) || next is '_' or '{' or '(' or '?' or '$' or '@' or '*' or '!' or '#';
 
     [GeneratedRegex(@"(?<=^|\s)2>&1(?=\s|$)")]

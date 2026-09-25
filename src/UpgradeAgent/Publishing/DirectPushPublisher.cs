@@ -2,10 +2,6 @@ using AgentHarness.Policies;
 
 namespace UpgradeAgent.Publishing;
 
-/// <summary>
-/// Used when no model is live (replay, --agent none): the app calls push_branch itself, behind the same
-/// approval prompt the agent would trigger.
-/// </summary>
 internal sealed class DirectPushPublisher(IApprovalPrompter prompter) : IPushPublisher
 {
     public string How => "push_branch needs your approval";

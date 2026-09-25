@@ -4,16 +4,13 @@ namespace UpgradeAgent.Build;
 
 internal enum TestRunnerMode
 {
-    /// <summary>Classic VSTest: <c>--logger trx</c>.</summary>
     VSTest,
 
-    /// <summary>Microsoft.Testing.Platform selected in global.json: <c>--solution</c> and <c>--report-trx</c>.</summary>
     TestingPlatform,
 }
 
 internal static class TestRunnerDetector
 {
-    /// <summary>global.json <c>"test": { "runner": "Microsoft.Testing.Platform" }</c> switches dotnet test to MTP mode.</summary>
     public static TestRunnerMode Detect(string repoRoot)
     {
         var globalJson = Path.Combine(repoRoot, "global.json");

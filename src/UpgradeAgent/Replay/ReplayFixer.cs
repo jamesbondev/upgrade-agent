@@ -6,11 +6,6 @@ using UpgradeAgent.Ui;
 
 namespace UpgradeAgent.Replay;
 
-/// <summary>
-/// Plays back a recorded agent session instead of calling the model: the recorded activity at a readable
-/// pace, through the same sinks as a live session, then the recorded patch. Everything after (rebuild,
-/// retest, guardrails, commit) runs for real.
-/// </summary>
 internal sealed class ReplayFixer(Recording recording, AgentActivity activity, SynchronizedConsole console, GitCli git, double maxGapSeconds, TimeProvider time)
     : IGroupFixer
 {

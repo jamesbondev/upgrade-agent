@@ -4,7 +4,6 @@ using UpgradeAgent.Run;
 
 namespace UpgradeAgent.Detection;
 
-/// <summary>Reads and writes plan.json.</summary>
 internal static class PlanStore
 {
     public static async Task SaveAsync(UpgradePlan plan, string path, CancellationToken cancellationToken)
@@ -27,15 +26,11 @@ internal static class PlanStore
     }
 }
 
-/// <summary>Where a run's plan comes from.</summary>
 internal abstract record PlanSource
 {
-    /// <summary>Detect outdated packages now, in the run's worktree.</summary>
     public sealed record Detect : PlanSource;
 
-    /// <summary>A plan saved earlier with <c>plan --plan-out</c>.</summary>
     public sealed record FromFile(string Path) : PlanSource;
 
-    /// <summary>The plan a recording was made with (replay).</summary>
     public sealed record Frozen(UpgradePlan Plan) : PlanSource;
 }

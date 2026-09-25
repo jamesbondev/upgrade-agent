@@ -8,10 +8,6 @@ using UpgradeAgent.Run;
 
 namespace UpgradeAgent.Tests.TestSupport;
 
-/// <summary>
-/// Builders for the app's wide records, with defaults for everything a test doesn't care about.
-/// Tweak the rest with <c>with</c>.
-/// </summary>
 internal static class TestData
 {
     public const string ProjectPath = "src/App/App.csproj";

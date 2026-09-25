@@ -8,13 +8,8 @@ using UpgradeAgent.Workspace;
 
 namespace UpgradeAgent.Run;
 
-/// <summary>Everything one group needs from the run.</summary>
 internal sealed record GroupRun(RunWorkspace Workspace, Baseline Baseline, TestRunnerMode RunnerMode, bool ForceEvaluate, IGroupFixer Fixer);
 
-/// <summary>
-/// One group, start to finish: bump → restore → build → test → (fix) → rebuild → retest → guardrails →
-/// commit. Any outcome but Accepted goes through one reject path, which puts the worktree back.
-/// </summary>
 internal sealed class GroupPipeline(
     GitCli git,
     DotnetCli dotnet,
@@ -25,7 +20,6 @@ internal sealed class GroupPipeline(
     IRunProgress progress,
     TimeProvider time)
 {
-    /// <summary>Restore codes for a package that doesn't support the project's target framework.</summary>
     private static readonly string[] IncompatibleFrameworkCodes = ["NU1201", "NU1202", "NU1203"];
 
     public async Task<GroupResult> RunAsync(GroupRun run, UpdateGroup group, CancellationToken cancellationToken)

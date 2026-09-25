@@ -1,6 +1,5 @@
 namespace UpgradeAgent.Agent.Activities;
 
-/// <summary>Keeps every event with its timing, for a recording.</summary>
 internal sealed class ActivityRecorder(TimeProvider time) : IActivitySink
 {
     private readonly long _started = time.GetTimestamp();

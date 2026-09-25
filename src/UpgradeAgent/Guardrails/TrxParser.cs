@@ -4,10 +4,6 @@ namespace UpgradeAgent.Guardrails;
 
 internal sealed record MethodStats(int Passed, int Failed, int Skipped);
 
-/// <summary>
-/// Test results keyed by <c>assembly [framework] Class.Method</c>. Theory rows are counted under
-/// their method: display names embed arguments, which legitimately change when a parameter type does.
-/// </summary>
 internal sealed record TestInventory(IReadOnlyDictionary<string, MethodStats> Methods)
 {
     public int Passed => Methods.Values.Sum(m => m.Passed);
@@ -52,7 +48,6 @@ internal static class TrxParser
                 continue;
             }
 
-            // MSTest data rows arrive as one parent result with InnerResults; count the rows.
             var inner = result.Element(Ns + "InnerResults")?.Elements(Ns + "UnitTestResult").ToList();
             var outcomes = inner is { Count: > 0 }
                 ? inner.Select(r => (string?)r.Attribute("outcome"))
@@ -77,13 +72,11 @@ internal static class TrxParser
         var className = (string?)method?.Attribute("className") ?? "";
         var name = (string?)method?.Attribute("name") ?? (string?)unitTest.Attribute("name") ?? "";
 
-        // codeBase is .../bin/<Configuration>/<tfm>/<Assembly>.dll, with either separator.
         var codeBase = ((string?)method?.Attribute("codeBase") ?? (string?)unitTest.Attribute("storage") ?? "").Replace('\\', '/');
         var segments = codeBase.Split('/', StringSplitOptions.RemoveEmptyEntries);
         var assembly = segments.Length > 0 ? Path.GetFileNameWithoutExtension(segments[^1]) : "";
         var framework = segments.Length > 1 ? segments[^2] : "";
 
-        // Some adapters put the fully qualified name in 'name'; don't repeat the class.
         var qualified = name.StartsWith(className + ".", StringComparison.Ordinal) || className.Length == 0 ? name : $"{className}.{name}";
         var parenthesis = qualified.IndexOf('(', StringComparison.Ordinal);
         if (parenthesis > 0)

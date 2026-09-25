@@ -10,7 +10,6 @@ internal static class TestProjects
         "Microsoft.NET.Test.Sdk", "<IsTestProject>true", "\"MSTest.Sdk", "Include=\"xunit", "Include=\"NUnit", "Include=\"MSTest", "Include=\"TUnit",
     ];
 
-    /// <summary>Tracked files that live under a test project's folder.</summary>
     public static IReadOnlySet<string> FindTestFiles(string repoRoot, IReadOnlyList<string> trackedFiles)
     {
         var testDirectories = trackedFiles

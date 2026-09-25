@@ -2,11 +2,6 @@ using System.Collections;
 
 namespace AgentHarness;
 
-/// <summary>
-/// The environment for the agent's runtime (and so every command it runs). The Copilot runtime uses
-/// exactly this dictionary (verified: it replaces the inherited environment), so dropping a name here
-/// really hides it.
-/// </summary>
 public static class AgentEnvironment
 {
     private static readonly string[] SecretNames =
@@ -17,7 +12,6 @@ public static class AgentEnvironment
 
     private static readonly string[] SecretPrefixes = ["AZURE_", "ARM_", "AWS_"];
 
-    /// <summary>Anything named like a token, key, password or credential.</summary>
     private static readonly string[] SecretFragments =
     [
         "_PAT", "SECRET", "PASSWORD", "PASSWD", "TOKEN", "APIKEY", "_KEY", "KEY_", "CREDENTIAL", "AUTH", "CONNECTIONSTRING", "CONNECTION_STRING",

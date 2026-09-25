@@ -8,11 +8,6 @@ using UpgradeAgent.Run;
 
 namespace UpgradeAgent.Publishing;
 
-/// <summary>
-/// Markdown for the pull request. Facts (versions, commits, checks, reviewer notes) come from what the app
-/// verified. The agent's own account is shown only for accepted groups, marked unverified, and escaped: it is
-/// model output and must not be able to reshape the page.
-/// </summary>
 internal static partial class PrDescription
 {
     private const int MaxBuildWarnings = 10;
@@ -38,10 +33,6 @@ internal static partial class PrDescription
         return md.ToString();
     }
 
-    /// <summary>
-    /// Fits a description into <paramref name="limit"/> characters: collapsible detail sections go first, then the
-    /// text is cut at a line boundary with a pointer to the full report.
-    /// </summary>
     public static string Fit(string markdown, int limit)
     {
         if (markdown.Length <= limit)

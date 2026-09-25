@@ -4,7 +4,6 @@ using UpgradeAgent.Preflight;
 
 namespace UpgradeAgent.Ui;
 
-/// <summary>Preflight checks and the plan table. Append-only, so prompts can safely follow.</summary>
 internal sealed class PlanRenderer(IAnsiConsole console)
 {
     public void Preflight(IReadOnlyList<PreflightCheck> checks)

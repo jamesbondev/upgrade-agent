@@ -12,18 +12,10 @@ using UpgradeAgent.Ui;
 
 namespace UpgradeAgent.Agent;
 
-/// <summary>How the run command was asked to use the agent.</summary>
-/// <param name="Provider">From --agent; null means Agent:Provider.</param>
 internal sealed record AgentArguments(AgentProvider? Provider, string? Record, string? Replay, double ReplayMaxGapSeconds);
 
-/// <summary>The fixer, how publishing gets approved, and where the plan comes from, chosen together.</summary>
-/// <param name="Recording">Where to save the recording header after the run (--record).</param>
 internal sealed record AgentSetup(IGroupFixer Fixer, IPushPublisher Publisher, PlanSource PlanSource, Recording? Recording);
 
-/// <summary>
-/// Picks the agent setup for a run: a live provider (optionally recorded), a replay of a recording, or no agent.
-/// Every combination produces the same two seams, so the rest of the run doesn't know which one it got.
-/// </summary>
 internal sealed class AgentSetupFactory(
     ResolvedConfig config,
     GitCli git,
@@ -47,7 +39,6 @@ internal sealed class AgentSetupFactory(
         switch (arguments.Provider ?? agent.Provider)
         {
             case AgentProvider.Copilot:
-                // One Copilot runtime for the run, shared by the fixer (which owns and disposes it) and the publisher.
                 var backend = new CopilotBackend(CopilotOptionsFor(agent, config.Options.AzureDevOps));
                 IGroupFixer fixer = new AgentFixRunner(backend, agent, docs, activity, prompter, time);
                 Recording? recording = null;
@@ -64,11 +55,6 @@ internal sealed class AgentSetupFactory(
         }
     }
 
-    /// <summary>
-    /// On top of the harness's built-in secret patterns (and the variable holding Copilot's own token, which it
-    /// hides itself): the configured extras and the Azure DevOps credentials, whatever they are called. The agent
-    /// must never see any of them. Its commands get the same dotnet settings as the app's own builds.
-    /// </summary>
     internal static CopilotOptions CopilotOptionsFor(AgentOptions agent, AzureDevOpsOptions azureDevOps)
     {
         var options = new CopilotOptions

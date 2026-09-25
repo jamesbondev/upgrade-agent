@@ -3,7 +3,6 @@ using System.Text.Json.Serialization;
 
 namespace UpgradeAgent.Infrastructure;
 
-/// <summary>How the app writes its own files (plans, reports, baselines, recordings).</summary>
 internal static class JsonDefaults
 {
     public static readonly JsonSerializerOptions Options = new()

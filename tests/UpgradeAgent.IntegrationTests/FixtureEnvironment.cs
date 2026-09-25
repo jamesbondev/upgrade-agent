@@ -3,10 +3,6 @@ using System.Text.Json;
 
 namespace UpgradeAgent.IntegrationTests;
 
-/// <summary>
-/// Builds the fixture once into a temp folder and runs the UpgradeAgent CLI against it. Every child process
-/// gets its own NuGet packages folder, so the tests never touch the developer's global cache.
-/// </summary>
 public sealed class FixtureEnvironment : IAsyncLifetime
 {
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromMinutes(5);
@@ -59,7 +55,6 @@ public sealed class FixtureEnvironment : IAsyncLifetime
         await RunAsync("dotnet", ["build-server", "shutdown"], Root);
         try
         {
-            // git marks object files read-only; Windows refuses to delete read-only files.
             foreach (var file in Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories))
             {
                 File.SetAttributes(file, FileAttributes.Normal);
@@ -69,7 +64,6 @@ public sealed class FixtureEnvironment : IAsyncLifetime
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Best effort: a lingering process may still hold a file on Windows.
         }
     }
 

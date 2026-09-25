@@ -63,7 +63,6 @@ public class CommandPolicyTests
     [Fact]
     public void TracksCdWhenResolvingRelativePaths()
     {
-        // From the worktree root "../x" escapes; after "cd src" it doesn't.
         Assert.Equal(ToolVerdict.Reject, _policy.EvaluateShell("cat ../x", false).Verdict);
         Assert.Equal(ToolVerdict.Approve, _policy.EvaluateShell("cd src && cat ../x", false).Verdict);
     }

@@ -1,10 +1,5 @@
 namespace AgentHarness;
 
-/// <summary>
-/// Prints a session's activity to the console, one line per event: good enough to watch an agent work while
-/// you build on the harness. Apps with a richer UI write their own <see cref="IAgentObserver"/>.
-/// </summary>
-/// <param name="workingDirectory">Paths under it are shown relative to it.</param>
 public sealed class ConsoleAgentObserver(string? workingDirectory = null, TextWriter? output = null) : IAgentObserver
 {
     private readonly TextWriter _output = output ?? Console.Out;
@@ -14,7 +9,6 @@ public sealed class ConsoleAgentObserver(string? workingDirectory = null, TextWr
     {
         if (agentEvent is UserMessage user)
         {
-            // Replies to tools-off turns are data (JSON): the app prints what it wants of them.
             _quiet = user.WithoutTools;
             return;
         }

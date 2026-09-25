@@ -3,11 +3,6 @@ using System.Diagnostics.Metrics;
 
 namespace AgentHarness;
 
-/// <summary>
-/// Spans and metrics for agent sessions, named after the OpenTelemetry GenAI semantic conventions. Nothing is
-/// exported by default: attach any listener (the OpenTelemetry SDK with <c>AddSource(AgentTelemetry.SourceName)</c>,
-/// <c>dotnet-counters monitor AgentHarness</c>, <c>dotnet-trace</c>) to see them.
-/// </summary>
 public static class AgentTelemetry
 {
     public const string SourceName = "AgentHarness";
@@ -20,7 +15,6 @@ public static class AgentTelemetry
 
     private static readonly Counter<long> ToolCalls = Meter.CreateCounter<long>("agent_harness.tool_calls", "{call}", "Tool calls agents made.");
 
-    /// <summary>An <c>invoke_agent</c> span for one session.</summary>
     internal static Activity? StartSession(string provider, string session, string? model) =>
         Source.StartActivity($"invoke_agent {session}", ActivityKind.Client)?
             .SetTag("gen_ai.operation.name", "invoke_agent")
@@ -38,10 +32,6 @@ public static class AgentTelemetry
     }
 }
 
-/// <summary>
-/// A time budget that stops counting while paused, so time the operator spends at an approval prompt
-/// doesn't use up the agent's budget. A null budget never expires.
-/// </summary>
 internal sealed class PausableTimeout : IDisposable
 {
     private readonly Lock _lock = new();
@@ -91,7 +81,6 @@ internal sealed class PausableTimeout : IDisposable
     {
         lock (_lock)
         {
-            // A prompt can finish after the session was torn down; there is nothing left to resume then.
             if (--_pauses == 0 && !_disposed && !_unlimited)
             {
                 _runningSince = _time.GetTimestamp();
@@ -116,7 +105,6 @@ internal sealed class PausableTimeout : IDisposable
 
 internal static class PathText
 {
-    /// <summary>Replaces <paramref name="root"/> in free text (commands, log lines) with relative paths.</summary>
     public static string Relative(string root, string text)
     {
         if (root.Length == 0)

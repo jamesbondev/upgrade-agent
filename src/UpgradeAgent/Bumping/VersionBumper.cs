@@ -12,11 +12,6 @@ internal sealed record ManualUpdate(PlannedUpdate Update, string Reason);
 
 internal sealed record BumpResult(IReadOnlyList<VersionEdit> Edits, IReadOnlyList<ManualUpdate> Manual);
 
-/// <summary>
-/// Applies a group's version steps to the files that govern each project: the project file, the nearest
-/// Directory.Packages.props, then Directory.Build.props/targets. This class does the file IO;
-/// <see cref="VersionEditPlanner"/> decides what to change.
-/// </summary>
 internal static class VersionBumper
 {
     public static BumpResult Apply(string repoRoot, IReadOnlyList<PlannedUpdate> updates)
@@ -40,7 +35,6 @@ internal static class VersionBumper
 
     private static (string Text, Encoding Encoding) ReadPreservingEncoding(string path)
     {
-        // A BOM is detected and kept; without one, UTF-8 without a BOM is written back.
         using var reader = new StreamReader(path, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), detectEncodingFromByteOrderMarks: true);
         var text = reader.ReadToEnd();
         return (text, reader.CurrentEncoding);
@@ -54,7 +48,6 @@ internal static class VersionBumper
             yield return project;
         }
 
-        // MSBuild imports only the nearest one of each (unless it imports its parent explicitly).
         foreach (var name in MsBuildFiles.VersionGoverning)
         {
             if (MsBuildFiles.FindNearest(Path.GetDirectoryName(project)!, name, repoRoot) is { } nearest)
@@ -65,15 +58,8 @@ internal static class VersionBumper
     }
 }
 
-/// <summary>
-/// Decides the version edits for a group, on file texts in memory. Each update is all or nothing: an entry
-/// holding the step's "from" version, or an older one (an earlier step for that package was rejected), is
-/// edited; if any governing entry can't be edited safely (a VersionOverride, a property, a range), the update
-/// is left entirely to a human rather than half-applied.
-/// </summary>
 internal static class VersionEditPlanner
 {
-    /// <returns>The edits, the updates left for a human, and the new text of every changed file.</returns>
     public static (IReadOnlyList<VersionEdit> Edits, IReadOnlyList<ManualUpdate> Manual, IReadOnlyDictionary<string, string> ChangedTexts) Plan(
         string repoRoot, IReadOnlyDictionary<string, string> texts, IReadOnlyList<PlannedUpdate> updates, Func<string, IEnumerable<string>> governingFiles)
     {

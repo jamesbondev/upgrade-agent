@@ -5,16 +5,10 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Agent;
 
-/// <summary>
-/// Turns a session's harness events into the app's activity (with repository-relative paths), reads the
-/// agent's own build and test results from their output, and notices when the migration notes are read.
-/// The activity events are what recordings store, so their wording is kept stable.
-/// </summary>
 internal sealed class SessionMonitor(string worktree, IActivitySink activity, RequiredReading reading) : IAgentObserver
 {
     private volatile bool _summaryMode;
 
-    /// <summary>Set while the app asks for the structured summary: the JSON reply is not agent chatter.</summary>
     public bool SummaryMode
     {
         get => _summaryMode;

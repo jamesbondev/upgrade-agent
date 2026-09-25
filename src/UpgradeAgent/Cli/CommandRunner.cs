@@ -21,7 +21,6 @@ internal static class ExitCodes
     public const int Cancelled = 130;
 }
 
-/// <summary>What every command shares: the console, the composed services, and one mapping from failures to exit codes.</summary>
 internal static class CommandRunner
 {
     public static async Task<int> RunAsync<THandler>(ParseResult parseResult, Func<THandler, Task<int>> run, bool interactive = true)
@@ -44,7 +43,6 @@ internal static class CommandRunner
     {
         switch (exception)
         {
-            // The binder reports a value it can't convert (Agent:Provider = "bogus") as InvalidOperationException.
             case ConfigurationException or OptionsValidationException
                 or InvalidOperationException { Source: "Microsoft.Extensions.Configuration.Binder" }:
                 console.MarkupLine($"[red]Configuration error:[/] {Markup.Escape(exception.Message)}");

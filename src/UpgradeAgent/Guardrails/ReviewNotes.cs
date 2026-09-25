@@ -3,7 +3,6 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Guardrails;
 
-/// <summary>Test files the agent touched, and whether they lost assertions.</summary>
 internal sealed partial class TestFileNotes(GitCli git) : IReviewNoteSource
 {
     public async Task<IReadOnlyList<ReviewNote>> CollectAsync(GuardrailContext context, CancellationToken cancellationToken)
@@ -30,10 +29,6 @@ internal sealed partial class TestFileNotes(GitCli git) : IReviewNoteSource
     private static partial Regex Assertion();
 }
 
-/// <summary>
-/// Removed public signatures in non-test code. Often legitimate (an API went async), but callers outside this
-/// repo may break, so a reviewer should look.
-/// </summary>
 internal sealed partial class PublicApiNotes : IReviewNoteSource
 {
     private const int MaxNotes = 8;
@@ -53,7 +48,6 @@ internal sealed partial class PublicApiNotes : IReviewNoteSource
     private static partial Regex PublicSignature();
 }
 
-/// <summary>The agent's summary is informational; say where it disagrees with what actually changed.</summary>
 internal sealed class ClaimNotes : IReviewNoteSource
 {
     public Task<IReadOnlyList<ReviewNote>> CollectAsync(GuardrailContext context, CancellationToken cancellationToken) =>

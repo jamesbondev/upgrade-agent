@@ -2,18 +2,12 @@ using AgentHarness.Policies;
 
 namespace AgentHarness.Tests.Policies;
 
-/// <summary>
-/// <see cref="WorkspacePolicy"/> never touches the disk, so these tests use made-up folders under the temp
-/// directory. "Workspace" is the agent's folder; "Packages" is a read-only root (e.g. a package cache with docs).
-/// </summary>
 public class WorkspacePolicyTests
 {
     private static readonly string Workspace = Path.Combine(Path.GetTempPath(), "agent-harness-policy", "ws");
     private static readonly string Packages = Path.Combine(Path.GetTempPath(), "agent-harness-policy", "packages");
 
     private readonly WorkspacePolicy _policy = new(Workspace, o => o.ReadOnlyRoots.Add(Packages));
-
-    // ---- Shell: what runs on its own ----
 
     [Theory]
     [InlineData("ls -la")]
@@ -51,7 +45,6 @@ public class WorkspacePolicyTests
     [Fact]
     public void CdIsTrackedWhenResolvingRelativePaths()
     {
-        // From the workspace root "../x" escapes; after "cd src" it points back inside.
         Assert.Equal(ToolVerdict.Reject, _policy.EvaluateShell("cat ../x").Verdict);
         Assert.Equal(ToolVerdict.Approve, _policy.EvaluateShell("cd src && cat ../x").Verdict);
     }
@@ -74,8 +67,6 @@ public class WorkspacePolicyTests
 
         Assert.Equal(ToolVerdict.Reject, decision.Verdict);
     }
-
-    // ---- Shell: what is refused, and the feedback the model gets ----
 
     [Theory]
     [InlineData("git commit -am wip", "read-only git")]
@@ -190,8 +181,6 @@ public class WorkspacePolicyTests
         Assert.Equal(ToolVerdict.Reject, decision.Verdict);
     }
 
-    // ---- Shell: the app's own command rules ----
-
     [Theory]
     [InlineData("dotnet build App.slnx", ToolVerdict.Approve)]
     [InlineData("dotnet test App.slnx --no-build", ToolVerdict.Approve)]
@@ -297,8 +286,6 @@ public class WorkspacePolicyTests
         Assert.Equal("tree output is too long; use ls.", decision.Reason);
     }
 
-    // ---- Configurable refusal messages ----
-
     [Fact]
     public void NetworkRefusalIsConfigurable()
     {
@@ -338,8 +325,6 @@ public class WorkspacePolicyTests
         Assert.Equal(".env is off limits.", policy.EvaluateWrite(Path.Combine(Workspace, "src", ".env")).Reason);
         Assert.Equal(".env is off limits.", policy.EvaluateShell("cat src/.env").Reason);
     }
-
-    // ---- Writes ----
 
     [Theory]
     [InlineData("src/App/Service.cs", ToolVerdict.Approve)]
@@ -385,8 +370,6 @@ public class WorkspacePolicyTests
         Assert.Equal(ToolVerdict.Reject, decision.Verdict);
     }
 
-    // ---- Reads ----
-
     [Fact]
     public void ReadsInsideTheWorkspaceAreApproved()
     {
@@ -406,13 +389,10 @@ public class WorkspacePolicyTests
     [Fact]
     public void ReadsInASiblingFolderWithTheSamePrefixAreRefused()
     {
-        // "ws-sibling" starts with "ws" but is not inside it.
         var decision = _policy.EvaluateRead(Path.Combine(Path.GetTempPath(), "agent-harness-policy", "ws-sibling", "a.cs"));
 
         Assert.Equal(ToolVerdict.Reject, decision.Verdict);
     }
-
-    // ---- Credential files ----
 
     [Theory]
     [InlineData("nuget.config")]
@@ -491,8 +471,6 @@ public class WorkspacePolicyTests
         Assert.Equal(expected, _policy.IsSensitive(path));
     }
 
-    // ---- EvaluateAsync: one entry point for every request kind ----
-
     [Fact]
     public async Task EvaluateAsyncRoutesShellRequestsToTheShellRules()
     {
@@ -551,8 +529,6 @@ public class WorkspacePolicyTests
         Assert.Equal(ToolVerdict.Reject, decision.Verdict);
     }
 
-    // ---- Construction ----
-
     [Fact]
     public void RootIsNormalisedWithoutATrailingSeparator()
     {
@@ -560,8 +536,6 @@ public class WorkspacePolicyTests
 
         Assert.Equal(Workspace, policy.Root);
     }
-
-    // ---- "Read-only" programs with options that write files or run programs ----
 
     [Theory]
     [InlineData("sort -o .git/config README.md")]

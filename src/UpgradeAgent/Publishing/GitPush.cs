@@ -2,7 +2,6 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Publishing;
 
-/// <summary>Pushes with an auth header passed through git's environment-based config, never argv or .git/config.</summary>
 internal sealed class GitPush(IProcessRunner processRunner)
 {
     public async Task<ProcessResult> PushAsync(string worktree, string remoteUrl, string branch, AzureDevOpsCredential credential, CancellationToken cancellationToken) =>
@@ -13,10 +12,6 @@ internal sealed class GitPush(IProcessRunner processRunner)
             Environment(remoteUrl, credential.AuthorizationHeader),
             cancellationToken);
 
-    /// <summary>
-    /// GIT_CONFIG_COUNT/KEY/VALUE inject config for this process only. The header is scoped to the
-    /// remote's host, and the credential helper is cleared so Git Credential Manager can't pop up on stage.
-    /// </summary>
     internal static Dictionary<string, string?> Environment(string remoteUrl, string authorization)
     {
         var uri = new Uri(remoteUrl);
@@ -32,7 +27,6 @@ internal sealed class GitPush(IProcessRunner processRunner)
         };
     }
 
-    /// <summary>Azure DevOps returns remote URLs like https://org@dev.azure.com/...; a user name there triggers credential prompts.</summary>
     internal static string CleanUrl(string remoteUrl) =>
         new UriBuilder(remoteUrl) { UserName = "", Password = "" }.Uri.ToString();
 }

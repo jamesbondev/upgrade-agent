@@ -3,7 +3,6 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Detection;
 
-/// <summary>The three views of "outdated" that two-step planning needs.</summary>
 internal sealed record OutdatedReports(
     IReadOnlyList<ReportedPackage> Latest,
     IReadOnlyList<ReportedPackage> HighestMinor,
@@ -11,7 +10,6 @@ internal sealed record OutdatedReports(
 
 internal sealed class PackageListRunner(IProcessRunner processRunner)
 {
-    // NuGet audit queries a live vulnerability feed; it adds noise and nondeterminism to detection.
     private static readonly Dictionary<string, string?> DetectionEnvironment = new(DotnetCli.BaseEnvironment)
     {
         ["NuGetAudit"] = "false",
@@ -26,7 +24,6 @@ internal sealed class PackageListRunner(IProcessRunner processRunner)
 
     public async Task<OutdatedReports> ListAllAsync(string solutionPath, bool includePrerelease, CancellationToken cancellationToken)
     {
-        // The first call restores; the others reuse the assets files.
         var latest = await ListAsync(solutionPath, Scope.Latest, includePrerelease, cancellationToken);
         var minor = await ListAsync(solutionPath, Scope.HighestMinor, includePrerelease, cancellationToken);
         var patch = await ListAsync(solutionPath, Scope.HighestPatch, includePrerelease, cancellationToken);

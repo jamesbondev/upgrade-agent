@@ -4,7 +4,6 @@ using AgentHarness.Tests.TestSupport;
 
 namespace AgentHarness.Tests.Testing;
 
-/// <summary>The fake backend itself: what a script does, and how it fails.</summary>
 public sealed class ScriptedBackendTests : IDisposable
 {
     private readonly TempDirectory _workspace = new();

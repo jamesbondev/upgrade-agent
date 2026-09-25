@@ -4,7 +4,6 @@ using UpgradeAgent.Tests.TestSupport;
 
 namespace UpgradeAgent.Tests.Run;
 
-/// <summary>Real git hooks on a temp repo: the company's hooks (e.g. ggshield) must apply to agent commits.</summary>
 public sealed class GroupCommitterTests : IAsyncLifetime
 {
     private TempRepo _repo = null!;

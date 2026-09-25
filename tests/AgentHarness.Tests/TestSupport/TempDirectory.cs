@@ -1,6 +1,5 @@
 namespace AgentHarness.Tests.TestSupport;
 
-/// <summary>A throwaway folder in the temp directory, removed (best effort) on dispose.</summary>
 internal sealed class TempDirectory : IDisposable
 {
     public TempDirectory(string prefix = "agent-harness-") => Path = Directory.CreateTempSubdirectory(prefix).FullName;
@@ -29,7 +28,6 @@ internal sealed class TempDirectory : IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Best effort: a lingering process may still hold a file.
         }
     }
 }

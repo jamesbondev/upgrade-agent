@@ -4,7 +4,6 @@ namespace UpgradeAgent.Tests.Detection;
 
 public class PackageListParserTests
 {
-    // Captured from `dotnet package list --outdated --format json` (SDK 10.0.112) against the fixture.
     private const string FixtureOutput = """
         {
           "version": 1,
@@ -78,7 +77,6 @@ public class PackageListParserTests
     [Fact]
     public void ThrowsWithTheRawOutputWhenItIsNotJson()
     {
-        // Captured: an unreachable feed makes the CLI print plain text and exit 1.
         const string output = """
             error: Unable to load the service index for source https://nonexistent.invalid/v3/index.json.
             error:   Name or service not known (nonexistent.invalid:443)

@@ -1,6 +1,5 @@
 namespace AgentHarness.Copilot;
 
-/// <summary>Built-in Copilot tool names the harness treats specially.</summary>
 public static class CopilotToolNames
 {
     public const string Bash = "bash";
@@ -14,6 +13,5 @@ public static class CopilotToolNames
     public const string ListBash = "list_bash";
     public const string WebFetch = "web_fetch";
 
-    /// <summary>Sub-agents (they were seen routing around refusals), skills and SQL.</summary>
     public static IReadOnlyList<string> Excluded { get; } = ["task", "read_agent", "list_agents", "write_agent", "skill", "sql"];
 }

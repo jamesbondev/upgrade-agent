@@ -1,11 +1,5 @@
 namespace UpgradeAgent.Detection;
 
-/// <summary>
-/// Assigns planned updates to groups. Patch/minor steps share one group. Majors are grouped by family, so that
-/// for example EF Core and its providers move together; if any member's major can't move for a technical reason
-/// (left for a human, or needs a TFM upgrade), none of them do, because a partial family move almost always breaks
-/// the build. A member skipped by the user's own policy (Allow, Deny) doesn't block the rest.
-/// </summary>
 internal static class UpdateGrouper
 {
     public static IReadOnlyList<PlannedUpdate> Assign(IReadOnlyList<PlannedUpdate> updates, PackageFamilies families)

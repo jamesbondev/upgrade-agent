@@ -2,7 +2,6 @@ using System.CommandLine;
 
 namespace UpgradeAgent.Cli;
 
-/// <summary>Options every command accepts.</summary>
 internal static class CommonOptions
 {
     public static readonly Option<FileInfo> Config = new("--config")

@@ -28,7 +28,6 @@ internal sealed record PushResult(PushOutcome Outcome, string Message)
     public static PushResult Failed(string message) => new(PushOutcome.Failed, message);
 }
 
-/// <summary>Where a verified branch goes: a real remote, or nowhere (dry run).</summary>
 internal interface IPushDestination
 {
     Task<string> DescribeAsync(CancellationToken cancellationToken);
@@ -36,7 +35,6 @@ internal interface IPushDestination
     Task<PushResult> PushAsync(RunReport report, CancellationToken cancellationToken);
 }
 
-/// <summary>The default: says what would be pushed where, and pushes nothing.</summary>
 internal sealed class DryRunDestination(GitCli git, string worktree) : IPushDestination
 {
     public async Task<string> DescribeAsync(CancellationToken cancellationToken)
@@ -50,11 +48,6 @@ internal sealed class DryRunDestination(GitCli git, string worktree) : IPushDest
             $"Dry run: would push {report.Branch} ({report.Ledger.Count} verified commit(s)) to {await DescribeAsync(cancellationToken)}. Nothing left the machine.");
 }
 
-/// <summary>
-/// The only way a run's branch leaves the machine. It is exposed to the agent as an approval-required
-/// tool, and it checks for itself that what it pushes is exactly what the guardrails verified:
-/// HEAD must be the last commit in the ledger and the worktree must be clean. It runs at most once.
-/// </summary>
 internal sealed class PushBranchTool(GitCli git, RunReport report, IPushDestination destination)
 {
     public const string Name = "push_branch";
@@ -63,7 +56,6 @@ internal sealed class PushBranchTool(GitCli git, RunReport report, IPushDestinat
 
     public string Branch => report.Branch;
 
-    /// <summary>What the one call did, or null if it hasn't been made.</summary>
     public PushResult? Result { get; private set; }
 
     [Description("Publishes the verified upgrade branch to the remote. Call it once, after all groups are finished. Takes no arguments.")]

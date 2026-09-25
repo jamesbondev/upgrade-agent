@@ -7,7 +7,6 @@ public class BuildOutputParserTests
     [Fact]
     public void ParsesAndDeduplicatesCompilerDiagnostics()
     {
-        // Captured shape: each diagnostic is repeated with the project suffix.
         const string Output = """
             /repo/src/LoanLedger/InterestCalculator.cs(10,36): error CS1061: 'ConfigClient' does not contain a definition for 'GetConfig' [/repo/src/LoanLedger/LoanLedger.csproj]
             /repo/src/LoanLedger/InterestCalculator.cs(10,36): error CS1061: 'ConfigClient' does not contain a definition for 'GetConfig' [/repo/src/LoanLedger/LoanLedger.csproj]

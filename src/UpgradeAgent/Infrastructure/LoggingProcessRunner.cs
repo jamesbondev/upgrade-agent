@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging;
 
 namespace UpgradeAgent.Infrastructure;
 
-/// <summary>Traces every external command (never its environment, which can hold credentials). Shown with --verbose.</summary>
 internal sealed partial class LoggingProcessRunner(IProcessRunner inner, ILogger<LoggingProcessRunner> logger, TimeProvider time) : IProcessRunner
 {
     public async Task<ProcessResult> RunAsync(

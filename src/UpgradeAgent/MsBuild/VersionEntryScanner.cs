@@ -2,22 +2,14 @@ using System.Text.RegularExpressions;
 
 namespace UpgradeAgent.MsBuild;
 
-/// <summary>Where a version value sits in the file text, so an edit replaces exactly those characters.</summary>
 internal sealed record VersionValue(string Text, int Start, int Length);
 
-/// <param name="Value">Null when the entry has no version of its own (e.g. a PackageReference under central package management).</param>
 internal sealed record VersionEntry(string Element, string Id, VersionValue? Value, bool HasVersionOverride);
 
-/// <summary>
-/// Finds <c>PackageVersion</c>, <c>PackageReference</c> and <c>GlobalPackageReference</c> entries by scanning
-/// the raw text rather than round-tripping XML, so an edit changes exactly one value and nothing else.
-/// Entries inside XML comments are ignored.
-/// </summary>
 internal static partial class VersionEntryScanner
 {
     public static IReadOnlyList<VersionEntry> Scan(string text)
     {
-        // Blank out comments with spaces of the same length: offsets stay valid and nothing inside a comment matches.
         var scannable = Comment().Replace(text, m => new string(' ', m.Length));
 
         var entries = new List<VersionEntry>();
@@ -65,7 +57,6 @@ internal static partial class VersionEntryScanner
     [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
     private static partial Regex Comment();
 
-    // Attribute values may contain '>' (conditions such as "'$(X)' > '1'"), so quoted runs are matched whole.
     [GeneratedRegex(@"<(?<name>PackageVersion|PackageReference|GlobalPackageReference)\b(?<attributes>(?:[^>""']|""[^""]*""|'[^']*')*?)(?<selfClose>/?)>", RegexOptions.Singleline)]
     private static partial Regex OpeningTag();
 

@@ -4,8 +4,6 @@ using AgentHarness.Copilot;
 using AgentHarness.Policies;
 using HelloAgent;
 
-// dotnet run -- <folder> "<task>"   a real Copilot session in <folder>
-// dotnet run -- --scripted          the same flow, offline, with ScriptedBackend
 var scripted = args is ["--scripted"];
 if (!scripted && (args.Length != 2 || !Directory.Exists(args[0])))
 {
@@ -17,17 +15,14 @@ var folder = scripted ? ScriptedDemo.CreateWorkspace() : Path.GetFullPath(args[0
 var task = scripted ? "Resolve the TODO in the greeter." : args[1];
 await using IAgentBackend backend = scripted ? ScriptedDemo.Backend() : new CopilotBackend();
 
-// Fail fast: a missing login is a friendly message now, not an exception mid-session.
 if (backend is CopilotBackend copilot && await copilot.CheckAsync(folder) is { Ready: false } status)
 {
     Console.Error.WriteLine(status.Message);
     return 1;
 }
 
-// Our own tool. No side effects, so it runs without asking (requiresApproval: false).
 var listTodos = AgentTool.Create(() => ListTodos(folder), "list_todos", "Lists the TODO comments in the workspace's C# files.");
 
-// Actions the policy answers with Ask go to this prompter. Redirected stdin means nobody can answer: it declines.
 var runner = new AgentRunner(backend, ApprovalPrompter.Console);
 await using var session = await runner.StartAsync(new AgentSessionOptions
 {
@@ -36,8 +31,8 @@ await using var session = await runner.StartAsync(new AgentSessionOptions
     Instructions = "You make small, careful C# changes. Check your work with 'dotnet build'.",
     Policy = new WorkspacePolicy(folder, o =>
     {
-        o.Commands["dotnet"] = CommandRules.ApproveVerbs("build", "test"); // other dotnet verbs are refused
-        o.AutoApprovedEditExtensions.Add(".cs");                             // other edits ask the operator
+        o.Commands["dotnet"] = CommandRules.ApproveVerbs("build", "test");
+        o.AutoApprovedEditExtensions.Add(".cs");
     }),
     Tools = [listTodos],
     Limits = new AgentLimits { MaxDuration = TimeSpan.FromMinutes(5), MaxToolCalls = 40, MaxRefusals = 5 },
@@ -48,19 +43,17 @@ Console.WriteLine($"> {task}");
 var reply = await session.SendAsync(task);
 if (reply.Stopped)
 {
-    // A limit or stop rule ended the turn. Provider failures throw instead.
     Console.WriteLine($"stopped: {reply.StopReason}");
 }
 else
 {
-    // A second, tool-free turn. The JSON schema comes from Summary; a bad reply is an Error, not an exception.
     var summary = await session.AskAsync<Summary>("Summarise what you changed.");
     Console.WriteLine(summary.Value is { } s
         ? $"summary: {s.Outcome} [{string.Join(", ", s.FilesChanged)}]"
         : $"no summary: {summary.Error}");
 }
 
-Console.WriteLine(session.Stats); // time, calls, tokens, refusals, approvals, stop reason
+Console.WriteLine(session.Stats);
 return 0;
 
 static string ListTodos(string folder)

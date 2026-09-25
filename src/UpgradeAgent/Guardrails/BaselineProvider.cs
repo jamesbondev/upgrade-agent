@@ -6,10 +6,6 @@ using UpgradeAgent.Workspace;
 
 namespace UpgradeAgent.Guardrails;
 
-/// <summary>
-/// Green-before-we-start: restores, builds and tests the untouched worktree, or reuses a cached baseline for
-/// the same commit, SDK and test arguments. A red baseline aborts the run: nothing can be verified against it.
-/// </summary>
 internal sealed class BaselineProvider(DotnetCli dotnet, GitCli git, TargetOptions target, IRunProgress progress, TimeProvider time)
 {
     public async Task<Baseline> GetAsync(RunWorkspace workspace, string commit, TestRunnerMode runnerMode, bool forceEvaluate, CancellationToken cancellationToken)

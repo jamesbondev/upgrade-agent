@@ -8,10 +8,8 @@ namespace UpgradeAgent.Preflight;
 
 internal sealed record PreflightCheck(string Name, bool Passed, string Detail);
 
-/// <summary>Cheap checks that fail fast, before any restore, detection or model call.</summary>
 internal sealed class TargetPreflight(GitCli git, DotnetCli dotnet)
 {
-    /// <param name="requireCleanRepo">A run branches from HEAD; uncommitted changes would silently be left out.</param>
     public async Task<IReadOnlyList<PreflightCheck>> RunAsync(ResolvedConfig config, bool requireCleanRepo, CancellationToken cancellationToken)
     {
         var checks = new List<PreflightCheck>
@@ -32,10 +30,6 @@ internal sealed class TargetPreflight(GitCli git, DotnetCli dotnet)
         return checks;
     }
 
-    /// <summary>
-    /// A run works in a git worktree, which only contains committed files. A local, uncommitted nuget.config
-    /// (common for private feeds) would silently be missing there and restores would fail.
-    /// </summary>
     internal async Task<PreflightCheck> CheckUncommittedConfigAsync(string repoPath, CancellationToken cancellationToken)
     {
         const string Name = "Build config in worktree";

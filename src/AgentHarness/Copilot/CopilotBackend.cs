@@ -8,19 +8,8 @@ using FrameworkSession = Microsoft.Agents.AI.AgentSession;
 
 namespace AgentHarness.Copilot;
 
-/// <summary>Whether Copilot can be used, and if not, what to do about it.</summary>
 public sealed record CopilotStatus(bool Ready, string? Login, string Message);
 
-/// <summary>
-/// GitHub Copilot through Agent Framework's <see cref="GitHubCopilotAgent"/>. Copilot owns the tool loop (shell,
-/// file tools, your <see cref="AgentTool"/>s); this class maps its permission requests and events to the harness's
-/// neutral types, and back. One Copilot runtime is started lazily and shared by every session; dispose the
-/// backend to stop it.
-/// <para>
-/// Every session is hardened: the target folder can't change the agent's config, hooks, skills or instructions,
-/// git operations stay with your app, and the agent's environment has no secrets (<see cref="AgentEnvironment"/>).
-/// </para>
-/// </summary>
 public sealed class CopilotBackend(CopilotOptions? options = null) : IAgentBackend
 {
     private readonly CopilotOptions _options = options ?? new CopilotOptions();
@@ -32,10 +21,6 @@ public sealed class CopilotBackend(CopilotOptions? options = null) : IAgentBacke
 
     public string? Model => _options.Model;
 
-    /// <summary>
-    /// Checks that the Copilot runtime starts and is signed in. Never throws for a setup problem: the message says
-    /// what to fix. Call it at startup so a missing login fails fast, before any work.
-    /// </summary>
     public async Task<CopilotStatus> CheckAsync(string? workingDirectory = null, CancellationToken cancellationToken = default)
     {
         try
@@ -61,7 +46,6 @@ public sealed class CopilotBackend(CopilotOptions? options = null) : IAgentBacke
         config.ExcludedTools = settings.AllowWebFetch ? [.. _options.ExcludedTools] : [.. _options.ExcludedTools, CopilotToolNames.WebFetch];
         if (settings.Tools.Count > 0)
         {
-            // Copilot asks before running an approval-required function; that request goes through the policy.
             config.Tools = [.. settings.Tools.Select(t => t.RequiresApproval ? new ApprovalRequiredAIFunction(t.Function) : t.Function)];
         }
 
@@ -72,7 +56,6 @@ public sealed class CopilotBackend(CopilotOptions? options = null) : IAgentBacke
 
         config.OnPermissionRequest = async (request, _) =>
         {
-            // The harness cancels pending approvals itself when the session ends; the start token is gone by then.
             var permission = await settings.AuthorizeAsync(ToToolRequest(request), CancellationToken.None);
             return permission.Allowed ? PermissionDecision.ApproveOnce() : PermissionDecision.Reject(permission.Feedback ?? "Not allowed.");
         };
@@ -118,10 +101,6 @@ public sealed class CopilotBackend(CopilotOptions? options = null) : IAgentBacke
     private const string HowToSignIn =
         "Install the GitHub Copilot CLI, run 'copilot' and then '/login'; or, in a pipeline, set CopilotOptions.GitHubTokenEnvironmentVariable.";
 
-    /// <summary>
-    /// Repo-driven behaviour is off: the working folder must not be able to change the agent's config, hooks,
-    /// skills or instructions, and git stays the app's job.
-    /// </summary>
     private SessionConfig HardenedConfig(string workingDirectory) => new()
     {
         ClientName = _options.ClientName,
@@ -136,7 +115,6 @@ public sealed class CopilotBackend(CopilotOptions? options = null) : IAgentBacke
         EnableHostGitOperations = false,
     };
 
-    /// <summary>One runtime, started in the working folder; a session in another folder restarts it there.</summary>
     private async Task<CopilotClient> GetClientAsync(string workingDirectory, CancellationToken cancellationToken)
     {
         await _starting.WaitAsync(cancellationToken);
@@ -190,7 +168,6 @@ public sealed class CopilotBackend(CopilotOptions? options = null) : IAgentBacke
 
     private static AgentEvent? ToAgentEvent(SessionEvent sessionEvent) => sessionEvent switch
     {
-        // Sub-agent activity (a parent tool call) is the sub-agent's business; only top-level calls count.
         ToolExecutionStartEvent start when start.Data.ParentToolCallId is null => new ToolCallStarted(
             start.Data.ToolCallId,
             KindOf(start.Data.ToolName),

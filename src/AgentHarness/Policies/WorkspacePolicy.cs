@@ -2,10 +2,8 @@ using System.Text.RegularExpressions;
 
 namespace AgentHarness.Policies;
 
-/// <summary>A rule for one program (the first word of a shell command). It gets the words after the program name.</summary>
 public delegate ToolDecision CommandRule(IReadOnlyList<string> arguments);
 
-/// <summary>Ready-made <see cref="CommandRule"/>s.</summary>
 public static class CommandRules
 {
     public static CommandRule Approve(string reason = "allowed command") => _ => ToolDecision.Approve(reason);
@@ -14,42 +12,33 @@ public static class CommandRules
 
     public static CommandRule Reject(string feedback) => _ => ToolDecision.Reject(feedback);
 
-    /// <summary>Approves only the listed sub-commands, e.g. <c>ApproveVerbs("build", "test")</c> for <c>dotnet</c>.</summary>
     public static CommandRule ApproveVerbs(params string[] verbs) => arguments =>
         arguments.Count > 0 && verbs.Contains(arguments[0], StringComparer.OrdinalIgnoreCase)
             ? ToolDecision.Approve($"allowed: {arguments[0]}")
             : ToolDecision.Reject($"Only these sub-commands are available: {string.Join(", ", verbs)}.");
 }
 
-/// <summary>What <see cref="WorkspacePolicy"/> allows. The defaults are safe for an unattended coding agent.</summary>
 public sealed class WorkspacePolicyOptions
 {
-    /// <summary>Folders outside the workspace the agent may read (never write), e.g. a package cache with docs.</summary>
     public IList<string> ReadOnlyRoots { get; } = [];
 
-    /// <summary>Edits to files with these extensions (".cs" or "cs") run on their own; other edits in the workspace go to the operator.</summary>
     public ISet<string> AutoApprovedEditExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Programs that only read. Approved when every path they name stays inside the allowed folders.</summary>
     public ISet<string> ReadOnlyCommands { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "ls", "cat", "head", "tail", "grep", "egrep", "rg", "wc", "pwd", "echo", "sort", "uniq", "tree", "file", "diff", "stat", "basename", "dirname", "realpath", "true",
         "dir", "type", "Get-ChildItem", "gci", "Get-Content", "gc", "Select-String", "sls", "Get-Location", "Measure-Object", "Sort-Object", "Select-Object", "Format-Table", "Out-String",
     };
 
-    /// <summary>Programs that reach the network. Refused with <see cref="NetworkRefusal"/>.</summary>
     public ISet<string> NetworkCommands { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "curl", "wget", "Invoke-WebRequest", "iwr", "Invoke-RestMethod", "irm", "nuget", "ssh", "scp", "ftp", "nc",
     };
 
-    /// <summary>Your rules for other programs, by name: <c>Commands["dotnet"] = CommandRules.ApproveVerbs("build", "test")</c>.</summary>
     public IDictionary<string, CommandRule> Commands { get; } = new Dictionary<string, CommandRule>(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>git sub-commands that only read.</summary>
     public ISet<string> ReadOnlyGitCommands { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "status", "diff", "log", "show", "ls-files", "grep", "blame" };
 
-    /// <summary>Files that can hold credentials. Never read or written, whatever the tool.</summary>
     public ISet<string> SensitiveFileNames { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "nuget.config", ".env", "secrets.json", ".git-credentials", ".npmrc", ".pypirc", "credentials", "credentials.json",
@@ -57,35 +46,18 @@ public sealed class WorkspacePolicyOptions
 
     public ISet<string> SensitiveExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".pfx", ".p12", ".snk", ".pem", ".key" };
 
-    /// <summary>What the operator is told about an edit outside <see cref="AutoApprovedEditExtensions"/>, given its workspace-relative path.</summary>
     public Func<string, string> EditAskReason { get; set; } = _ => "this file type isn't edited without your approval";
 
     public string NetworkRefusal { get; set; } = "No network access in this session. Work from the files in the workspace.";
 
     public string GitRefusal { get; set; } = "Only read-only git commands (status, diff, log, show) are allowed; the app owns commits and branches.";
 
-    /// <summary>Feedback for a sensitive file, given its name.</summary>
     public Func<string, string> SensitiveRefusal { get; set; } = name => $"'{name}' can hold credentials and isn't needed for this task.";
 
-    /// <summary>Feedback for a program no rule covers, given its name. Say what the agent can use instead.</summary>
     public Func<string, string> UnknownCommandRefusal { get; set; } = command =>
         $"'{command}' is not available. Use read-only commands (cat, grep, find, ls, git diff) and the edit tool.";
 }
 
-/// <summary>
-/// A sensible default policy for a coding agent confined to one folder:
-/// <list type="bullet">
-/// <item>Reads inside the workspace (and <see cref="WorkspacePolicyOptions.ReadOnlyRoots"/>) run on their own.</item>
-/// <item>Edits run on their own for <see cref="WorkspacePolicyOptions.AutoApprovedEditExtensions"/>, go to the operator
-/// for other files in the workspace, and are refused outside it and in <c>.git</c>.</item>
-/// <item>Shell commands are parsed (<see cref="ShellCommandParser"/>); each part must be a read-only command, a read-only
-/// git command, <c>cd</c> inside the workspace, or a program with a rule in <see cref="WorkspacePolicyOptions.Commands"/>.
-/// Everything else is refused with feedback that says what to do instead, so unattended runs never stall on a prompt.</item>
-/// <item>Credential files are refused everywhere.</item>
-/// </list>
-/// This is a usability layer on a non-sandboxed shell, not a security boundary: check the agent's work
-/// yourself afterwards (build, tests, diff review), and run it where a mistake is cheap.
-/// </summary>
 public sealed partial class WorkspacePolicy : IToolPolicy
 {
     private static readonly string[] GitRunsPrograms = ["--ext-diff", "--textconv", "--open-files-in-pager"];
@@ -103,7 +75,6 @@ public sealed partial class WorkspacePolicy : IToolPolicy
         _readOnlyRoots = _options.ReadOnlyRoots.Select(Normalize).ToList();
     }
 
-    /// <summary>Creates a policy and lets you adjust its options inline.</summary>
     public WorkspacePolicy(string root, Action<WorkspacePolicyOptions> configure)
         : this(root, Configure(configure))
     {
@@ -200,7 +171,6 @@ public sealed partial class WorkspacePolicy : IToolPolicy
             ? ToolDecision.Approve("read inside the allowed folders")
             : ToolDecision.Reject($"'{path}' is outside the working copy and the folders it may read.");
 
-    /// <summary>True for files that can hold credentials (<see cref="WorkspacePolicyOptions.SensitiveFileNames"/> and extensions).</summary>
     public bool IsSensitive(string path)
     {
         var name = Path.GetFileName(path.TrimEnd('/', '\\'));
@@ -212,7 +182,6 @@ public sealed partial class WorkspacePolicy : IToolPolicy
         var command = tokens[0];
         var arguments = tokens.Skip(1).ToList();
 
-        // Paths hide in option values (--from-file=/etc/passwd) and git revisions (HEAD:nuget.config).
         var paths = arguments.Select(PathIn).OfType<string>().ToList();
         if (paths.SelectMany(p => new[] { p, AfterRevision(p) }).FirstOrDefault(IsSensitive) is { } sensitive)
         {
@@ -227,7 +196,6 @@ public sealed partial class WorkspacePolicy : IToolPolicy
             }
         }
 
-        // The app's own rules come first, so it can allow (or narrow) anything below.
         if (_options.Commands.TryGetValue(command, out var rule))
         {
             return rule(arguments);
@@ -275,7 +243,6 @@ public sealed partial class WorkspacePolicy : IToolPolicy
                         ? ToolDecision.Approve("read-only sed")
                         : ToolDecision.Reject("Only printing sed scripts are allowed (such as sed -n '1,40p' file or s/a/b/g). Edit files with the edit tool.");
 
-            // Read-only programs with options that write files or run other programs.
             case "sort" when arguments.Any(a => a.StartsWith("-o", StringComparison.Ordinal) || a.StartsWith("--output", StringComparison.Ordinal)):
             case "tree" when arguments.Any(a => a == "-o" || a.StartsWith("--output", StringComparison.Ordinal)):
             case "uniq" when arguments.Count(a => !a.StartsWith('-')) > 1:
@@ -301,10 +268,6 @@ public sealed partial class WorkspacePolicy : IToolPolicy
         return options;
     }
 
-    /// <summary>
-    /// sed scripts that only print: line addresses with p, d or =, and s/// with only the g, i, p or number flags.
-    /// Anything else (w, W, r, e, or an s flag of w or e) can write files or run programs.
-    /// </summary>
     private static bool IsPrintOnlySed(IReadOnlyList<string> arguments)
     {
         var scripts = new List<string>();
@@ -335,20 +298,17 @@ public sealed partial class WorkspacePolicy : IToolPolicy
     [GeneratedRegex(@"^(\d+|\$|/[^/]*/)?(,(\d+|\$|/[^/]*/))?\s*([pd=]|s(.)((?!\5).)*\5((?!\5).)*\5[gIip0-9]*)$")]
     private static partial Regex SedPrintCommand();
 
-    /// <summary>The path a word may name: the word itself, or the value of a <c>--option=value</c>.</summary>
     private static string? PathIn(string word) =>
         !word.StartsWith('-') ? word
         : word.IndexOf('=', StringComparison.Ordinal) is var i and > 0 && i < word.Length - 1 ? word[(i + 1)..]
         : null;
 
-    /// <summary>The path in a git <c>revision:path</c> word; a Windows drive letter isn't a revision.</summary>
     private static string AfterRevision(string word)
     {
         var colon = word.LastIndexOf(':');
         return colon > 1 || (colon == 1 && !char.IsLetter(word[0])) ? word[(colon + 1)..] : word;
     }
 
-    /// <summary>Relative paths without ".." stay inside the current folder, which is always inside the workspace.</summary>
     private static bool LooksLikeEscapingPath(string token) =>
         !token.StartsWith('-')
         && (Path.IsPathRooted(token) || token.StartsWith('~') || token.Split('/', '\\').Contains(".."));

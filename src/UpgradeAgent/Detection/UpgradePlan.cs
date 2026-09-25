@@ -15,7 +15,6 @@ internal enum UpdateDecision
 
 internal static class UpdateDecisionLabels
 {
-    /// <summary>The words for a decision, shared by the console and the PR description.</summary>
     public static string Label(this UpdateDecision decision) => decision switch
     {
         UpdateDecision.Planned => "planned",
@@ -31,15 +30,8 @@ internal enum GroupKind
     Major,
 }
 
-/// <param name="ProjectPath">Relative to the repo root, with forward slashes.</param>
 internal sealed record ProjectTarget(string ProjectPath, NuGetFramework Framework);
 
-/// <summary>
-/// One version step for one package. A package with a newer minor and a newer major produces two
-/// steps: current → latest minor (in the patch/minor group), then latest minor → major.
-/// </summary>
-/// <param name="Reason">Why the update isn't planned; null when it is.</param>
-/// <param name="Note">Something worth knowing about a planned update (e.g. compatibility couldn't be verified).</param>
 internal sealed record PlannedUpdate(
     string Id,
     NuGetVersion From,
@@ -51,20 +43,14 @@ internal sealed record PlannedUpdate(
     string? Group,
     string? Note = null);
 
-/// <param name="Kind">Major when any of its updates is a major step.</param>
 internal sealed record UpdateGroup(string Name, GroupKind Kind, IReadOnlyList<PlannedUpdate> Updates);
 
-/// <summary>
-/// The updates the policy decided on. Groups are derived from the planned updates, so a saved or hand-edited
-/// plan can't disagree with itself.
-/// </summary>
 internal sealed record UpgradePlan(DateTimeOffset CreatedUtc, string SolutionPath, IReadOnlyList<PlannedUpdate> Updates)
 {
     public const string PatchMinorGroupName = "patch-minor";
 
     public const string NotSelectedReason = "not selected by --only";
 
-    /// <summary>In run order: the patch/minor group first, then majors by name.</summary>
     [JsonIgnore]
     public IReadOnlyList<UpdateGroup> Groups => Updates
         .Where(u => u is { Decision: UpdateDecision.Planned, Group: not null })
@@ -77,10 +63,6 @@ internal sealed record UpgradePlan(DateTimeOffset CreatedUtc, string SolutionPat
         .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
-    /// <summary>
-    /// Keeps the planned updates whose ID matches one of <paramref name="only"/> (globs) or whose family is named
-    /// there; the rest become Skipped. Applied to every plan, detected or loaded, so --only always means the same.
-    /// </summary>
     public UpgradePlan Narrow(IReadOnlyCollection<string> only, PackageFamilies families)
     {
         if (only.Count == 0)

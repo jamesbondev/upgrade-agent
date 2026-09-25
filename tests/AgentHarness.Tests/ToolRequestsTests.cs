@@ -1,6 +1,5 @@
 namespace AgentHarness.Tests;
 
-/// <summary>What each request looks like in logs and approval prompts.</summary>
 public class ToolRequestsTests
 {
     [Theory]

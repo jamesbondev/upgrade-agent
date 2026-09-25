@@ -9,13 +9,6 @@ using AgentStats = UpgradeAgent.Run.AgentStats;
 
 namespace UpgradeAgent.Agent;
 
-/// <summary>
-/// Fixes a broken group with an AI agent. This is the UpgradeAgent half: it grounds the model (migration notes,
-/// current errors), decides what the agent may do, and asks for a structured summary. The harness
-/// (<see cref="AgentRunner"/>) runs the session: permissions, budgets, stop rules and the provider. The outcome
-/// is never trusted: the orchestrator rebuilds, retests and runs the guardrails afterwards.
-/// </summary>
-/// <param name="backend">Owned: disposed with the fixer, at the end of the run (after publishing, which shares it).</param>
 internal sealed class AgentFixRunner(
     IAgentBackend backend,
     AgentOptions options,
@@ -78,14 +71,11 @@ internal sealed class AgentFixRunner(
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // Only session start can end up here (turns report their own stops): the time budget ran out first.
             stopReason = "agent stopped: time budget exceeded";
             activity.Write(new Note(stopReason));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Model calls fail routinely (not logged in, rate limits, a crashed runtime). That rejects this
-            // group like any other failure; it must not abort the run.
             failure = $"agent failed: {ex.GetBaseException().Message.Truncate(200)}";
             activity.Write(new Note(failure));
         }
@@ -108,10 +98,6 @@ internal sealed class AgentFixRunner(
 
     public ValueTask DisposeAsync() => backend.DisposeAsync();
 
-    /// <summary>
-    /// A second turn on the same session, with every tool refused and its own timeout. A missing or malformed
-    /// summary is only a note: the fix itself already finished.
-    /// </summary>
     private async Task<GroupSummary?> RequestSummaryAsync(AgentSession session, CancellationToken cancellationToken)
     {
         var reply = await session.AskAsync<GroupSummary>(FixPrompts.SummaryRequest(), cancellationToken: cancellationToken);
@@ -125,7 +111,6 @@ internal sealed class AgentFixRunner(
         return GroupSummaryParser.Validate(reply.Value);
     }
 
-    /// <summary>The harness's counters in the app's shape, which recordings and reports store. Duration is the fixer's own.</summary>
     private static AgentStats ToStats(AgentHarness.AgentStats? stats, bool stopped, TimeSpan duration) => stats is null
         ? new AgentStats(null, 0, 0, 0, 0, 0, 0, 0, stopped, duration)
         : new AgentStats(

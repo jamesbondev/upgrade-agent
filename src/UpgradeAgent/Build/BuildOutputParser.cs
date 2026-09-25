@@ -9,18 +9,12 @@ internal enum DiagnosticSeverity
     Warning,
 }
 
-/// <param name="File">The source file, when MSBuild reports one; null for tool-level diagnostics ("CSC : error …").</param>
-/// <param name="Origin">The tool that reported a diagnostic without a file (CSC, MSBUILD, NuGet…).</param>
 internal sealed record Diagnostic(DiagnosticSeverity Severity, string Code, string Message, string? File, int? Line, string? Origin = null);
 
 internal sealed record TestCounts(int Total, int Passed, int Failed, int Skipped);
 
 internal static partial class BuildOutputParser
 {
-    /// <summary>
-    /// Parses MSBuild's canonical error format. Each diagnostic appears once per project that reports it,
-    /// so results are de-duplicated.
-    /// </summary>
     public static (IReadOnlyList<Diagnostic> Errors, IReadOnlyList<Diagnostic> Warnings) ParseDiagnostics(string output)
     {
         var diagnostics = new List<Diagnostic>();
@@ -38,7 +32,6 @@ internal static partial class BuildOutputParser
                 continue;
             }
 
-            // "CSC : error CS2001" names a tool, not a file: only a rooted path or one with an extension is a file.
             var prefix = match.Groups["file"].Value.Trim();
             var isFile = hasLocation || Path.IsPathRooted(prefix) || Path.HasExtension(prefix);
             diagnostics.Add(new Diagnostic(
@@ -54,7 +47,6 @@ internal static partial class BuildOutputParser
         return (distinct.Where(d => d.Severity == DiagnosticSeverity.Error).ToList(), distinct.Where(d => d.Severity == DiagnosticSeverity.Warning).ToList());
     }
 
-    /// <summary>The error count a <c>dotnet build</c> reported: 0 on success, null when the output doesn't say (e.g. cut by <c>| head</c>).</summary>
     public static int? CountErrors(string output)
     {
         if (ErrorSummary().Match(output) is { Success: true } summary)
@@ -73,11 +65,9 @@ internal static partial class BuildOutputParser
             : null;
     }
 
-    /// <summary>The most frequent diagnostic codes, e.g. "CS0117×4, CS1503×2".</summary>
     public static string TopCodes(IEnumerable<Diagnostic> diagnostics, int count) =>
         string.Join(", ", diagnostics.GroupBy(d => d.Code).OrderByDescending(g => g.Count()).Take(count).Select(g => $"{g.Key}×{g.Count()}"));
 
-    /// <summary>Sums VSTest's per-assembly summary lines ("Passed!  - Failed: 0, Passed: 16, ...").</summary>
     public static TestCounts? ParseTestCounts(string output)
     {
         var matches = TestSummary().Matches(output);
@@ -90,7 +80,6 @@ internal static partial class BuildOutputParser
         return new TestCounts(Sum("total"), Sum("passed"), Sum("failed"), Sum("skipped"));
     }
 
-    // Classic logger: "    3 Error(s)"; terminal logger: "Build failed with 3 error(s)".
     [GeneratedRegex(@"(?:^\s*|failed with\s+)(?<count>\d+)\s+Error\(s\)", RegexOptions.IgnoreCase | RegexOptions.Multiline)]
     private static partial Regex ErrorSummary();
 

@@ -15,13 +15,8 @@ internal sealed record RecordingHeader(
     string OperatingSystem,
     UpgradePlan Plan);
 
-/// <summary>One group's recorded agent session.</summary>
 internal sealed record RecordedSession(IReadOnlyList<RecordedActivity> Activity, string PatchPath, FixOutcome Outcome);
 
-/// <summary>
-/// A recording lives in <c>recordings/&lt;name&gt;/</c>: header.json plus, per group the agent worked on,
-/// its activity events, the patch of its changes, and its outcome.
-/// </summary>
 internal sealed class Recording(string directory)
 {
     public string Directory { get; } = directory;
@@ -41,10 +36,6 @@ internal sealed class Recording(string directory)
         File.WriteAllText(HeaderPath, JsonSerializer.Serialize(header, JsonDefaults.Options));
     }
 
-    /// <summary>
-    /// The header, checked against where the replay will run. Recorded patches only apply to the commit they were
-    /// made on, so a different commit is an error; a different SDK is only a warning (build output may differ).
-    /// </summary>
     public (RecordingHeader Header, string? Warning) OpenForReplay(string targetCommit, string sdkVersion)
     {
         if (!Exists)

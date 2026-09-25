@@ -2,7 +2,6 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace AgentHarness.Tests;
 
-/// <summary>The time budget behind <see cref="AgentLimits.MaxDuration"/>. Time is faked, so nothing here waits.</summary>
 public class PausableTimeoutTests
 {
     private static readonly TimeSpan Budget = TimeSpan.FromMinutes(10);
@@ -76,7 +75,6 @@ public class PausableTimeoutTests
         first.Dispose();
         first.Dispose();
 
-        // Had the second dispose counted, this pause would be ignored and the budget would run out.
         using (timeout.Pause())
         {
             _time.Advance(TimeSpan.FromHours(1));

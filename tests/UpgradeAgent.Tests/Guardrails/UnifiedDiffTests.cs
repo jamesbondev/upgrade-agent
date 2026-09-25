@@ -35,7 +35,6 @@ public class UnifiedDiffTests
     [Fact]
     public void ContentLinesThatLookLikeHeadersStayContent()
     {
-        // A removed SQL comment ("-- …") arrives as "--- …"; an added "++x" arrives as "+++x".
         const string Diff = """
             diff --git a/db/Migration.sql b/db/Migration.sql
             index 1111111..2222222 100644

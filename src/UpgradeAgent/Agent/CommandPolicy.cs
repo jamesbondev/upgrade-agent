@@ -3,14 +3,6 @@ using AgentHarness.Policies;
 
 namespace UpgradeAgent.Agent;
 
-/// <summary>
-/// Decides what the fixer agent may do without asking: the harness's <see cref="WorkspacePolicy"/>, set up for
-/// UpgradeAgent. Builds, tests, reads and source edits inside the working copy are automatic; edits to non-source
-/// files (project and build files) go to the operator; everything else is refused with feedback saying what to
-/// do instead, so unattended runs never stall on a prompt the agent had no real need for.
-/// This is a usability layer on a non-sandboxed shell, not a security boundary: the deterministic
-/// guardrails after the agent finishes are what decide whether its work is kept.
-/// </summary>
 internal sealed class CommandPolicy : IToolPolicy
 {
     private const string NoNetwork =
@@ -29,7 +21,6 @@ internal sealed class CommandPolicy : IToolPolicy
 
     private readonly WorkspacePolicy _workspace;
 
-    /// <param name="readOnlyRoots">Extra folders the agent may read, e.g. the NuGet global packages folder for migration notes.</param>
     public CommandPolicy(string worktree, IReadOnlyList<string> readOnlyRoots)
     {
         var options = new WorkspacePolicyOptions
@@ -60,7 +51,6 @@ internal sealed class CommandPolicy : IToolPolicy
 
     public ToolDecision EvaluateRead(string path) => _workspace.EvaluateRead(path);
 
-    /// <summary>Only build and test, the way the guardrails run them: packages are the app's job, and so are MSBuild settings.</summary>
     private static ToolDecision EvaluateDotnet(IReadOnlyList<string> arguments)
     {
         if (arguments.Count == 0)

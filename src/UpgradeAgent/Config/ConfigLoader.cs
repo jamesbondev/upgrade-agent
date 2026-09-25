@@ -3,8 +3,6 @@ using UpgradeAgent.Workspace;
 
 namespace UpgradeAgent.Config;
 
-/// <summary>Configuration with every path resolved to an absolute path.</summary>
-/// <param name="WorkRoot">Run worktrees and the baseline cache.</param>
 internal sealed record ResolvedConfig(
     UpgradeAgentOptions Options,
     string RepoPath,
@@ -15,11 +13,6 @@ internal sealed record ResolvedConfig(
 
 internal static class ConfigLoader
 {
-    /// <summary>
-    /// Layers appsettings.json next to the executable, then the optional <paramref name="configPath"/>,
-    /// user secrets and <c>UPGRADEAGENT_</c> environment variables, in increasing precedence.
-    /// </summary>
-    /// <returns>The configuration, and the folder relative paths in it resolve against.</returns>
     public static (IConfiguration Configuration, string BaseDirectory) Load(string? configPath)
     {
         var builder = new ConfigurationBuilder()
@@ -47,10 +40,6 @@ internal static class ConfigLoader
         return (configuration, baseDirectory);
     }
 
-    /// <summary>
-    /// Target paths resolve against the config file's folder, the work root against the repo, and output
-    /// folders against the current directory.
-    /// </summary>
     internal static ResolvedConfig Resolve(UpgradeAgentOptions options, string baseDirectory)
     {
         var repoPath = Path.GetFullPath(options.Target.RepoPath, baseDirectory);

@@ -3,10 +3,6 @@ using UpgradeAgent.MsBuild;
 
 namespace UpgradeAgent.Guardrails;
 
-/// <summary>
-/// Everything the agent must not change: package version entries, TargetFramework(s), LangVersion and
-/// global.json. Taken after the app's bump and compared after the agent finishes.
-/// </summary>
 internal static partial class BuildSettingsSnapshot
 {
     public static IReadOnlySet<string> Take(string repoRoot, IEnumerable<string> relativeFiles)

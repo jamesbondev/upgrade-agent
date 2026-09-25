@@ -58,7 +58,6 @@ public sealed class VersionBumperTests : IDisposable
     [Fact]
     public void BumpsFromAnOlderVersionWhenAnEarlierStepWasRejected()
     {
-        // Plan said 1.1.0 -> 2.0.0, but the 1.0.0 -> 1.1.0 step was reverted.
         Write("Directory.Packages.props", """<Project><ItemGroup><PackageVersion Include="Foo" Version="1.0.0" /></ItemGroup></Project>""");
         Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk" />""");
 
@@ -82,7 +81,6 @@ public sealed class VersionBumperTests : IDisposable
     [Fact]
     public void AnUpdateIsNeverHalfApplied()
     {
-        // The central version could be bumped, but the project overrides it: leave both for a human.
         Write("Directory.Packages.props", """<Project><ItemGroup><PackageVersion Include="Foo" Version="1.0.0" /></ItemGroup></Project>""");
         Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Foo" VersionOverride="1.0.0" /></ItemGroup></Project>""");
 

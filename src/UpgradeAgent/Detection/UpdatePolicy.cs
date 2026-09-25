@@ -3,19 +3,13 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Detection;
 
-/// <summary>A rule's verdict on a step. Reason says why it isn't planned.</summary>
 internal sealed record UpdateVerdict(UpdateDecision Decision, string Reason);
 
-/// <summary>One policy rule. Returns null when the rule has nothing to say about the step.</summary>
 internal interface IUpdateRule
 {
     UpdateVerdict? Evaluate(VersionStep step);
 }
 
-/// <summary>
-/// Policy:* applied to a step: the first rule with a verdict decides; a step no rule objects to is planned.
-/// Adding a rule means adding an <see cref="IUpdateRule"/> to the list.
-/// </summary>
 internal sealed class UpdatePolicy(PolicyOptions policy)
 {
     private readonly IReadOnlyList<IUpdateRule> _rules =
@@ -63,7 +57,6 @@ internal sealed class UpdatePolicy(PolicyOptions policy)
             step.Kind == BumpKind.Major && !policy.AttemptMajors ? new(UpdateDecision.Skipped, "major bumps disabled (AttemptMajors=false)") : null;
     }
 
-    /// <summary>Far-behind packages (8 → 16) are for a human; 0.x packages are exempt, since their minors already count as majors.</summary>
     private sealed class MaxMajorJumpRule(PolicyOptions policy) : IUpdateRule
     {
         public UpdateVerdict? Evaluate(VersionStep step)

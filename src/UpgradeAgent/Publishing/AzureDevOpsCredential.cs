@@ -7,11 +7,6 @@ using UpgradeAgent.Config;
 
 namespace UpgradeAgent.Publishing;
 
-/// <summary>
-/// One credential in two forms: an HTTP Authorization value for git and VssCredentials for the REST client.
-/// It lives only in this process: it's never written to .git/config, a remote URL, a command line or the
-/// agent's environment.
-/// </summary>
 internal sealed record AzureDevOpsCredential(string Source, string AuthorizationHeader, VssCredentials VssCredentials)
 {
     public override string ToString() => $"AzureDevOpsCredential({Source})";
@@ -23,12 +18,8 @@ internal sealed record AzureDevOpsCredential(string Source, string Authorization
         new(source, "Bearer " + token, new VssOAuthAccessTokenCredential(token));
 }
 
-/// <summary>Finds a credential: PAT env var, then bearer-token env var, then a PAT from user secrets, then Azure identity.</summary>
-/// <param name="getEnvironmentVariable">Environment lookup (a seam: precedence is testable without touching the process environment).</param>
-/// <param name="identity">Entra credential for the last step; null means <see cref="DefaultAzureCredential"/>.</param>
 internal sealed class AzureDevOpsCredentialProvider(AzureDevOpsOptions options, Func<string, string?> getEnvironmentVariable, TokenCredential? identity = null)
 {
-    /// <summary>Azure DevOps' Entra resource ID.</summary>
     private const string Scope = "499b84ac-1321-427f-aa17-267ca6975798/.default";
 
     public AzureDevOpsCredentialProvider(AzureDevOpsOptions options)

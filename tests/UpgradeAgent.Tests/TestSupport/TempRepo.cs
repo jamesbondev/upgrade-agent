@@ -2,7 +2,6 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Tests.TestSupport;
 
-/// <summary>A throwaway git repo. Create it with <see cref="CreateAsync"/> from a test's <c>InitializeAsync</c>.</summary>
 internal sealed class TempRepo : IDisposable
 {
     private readonly TempDirectory _directory = new("ua-repo-");
@@ -23,7 +22,6 @@ internal sealed class TempRepo : IDisposable
         await repo.RunAsync("config", "user.email", "test@example.invalid");
         await repo.RunAsync("config", "commit.gpgsign", "false");
 
-        // Keep a developer's global hooks (e.g. a ggshield core.hooksPath) out of throwaway test repos.
         Directory.CreateDirectory(System.IO.Path.Combine(repo.Path, ".git", "no-hooks"));
         await repo.RunAsync("config", "core.hooksPath", ".git/no-hooks");
         return repo;

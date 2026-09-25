@@ -19,7 +19,6 @@ public sealed class ReplayTests(FixtureEnvironment fixture) : IClassFixture<Fixt
         Assert.Contains("\"Fixture.Lib\" Version=\"2.0.0\"", props, StringComparison.Ordinal);
         Assert.Contains("GetConfigAsync", File.ReadAllText(Path.Combine(worktree, "src", "LoanLedger", "InterestCalculator.cs")), StringComparison.Ordinal);
 
-        // What PLAN §10 promises: the test methods survive, and a PR description is written.
         Assert.Contains("every baseline test method still passes", output, StringComparison.Ordinal);
         Assert.True(File.Exists(Path.Combine(fixture.Root, "out", "pr-description.md")));
     }
@@ -37,7 +36,6 @@ public sealed class ReplayTests(FixtureEnvironment fixture) : IClassFixture<Fixt
         Assert.Contains("Skip =", reason, StringComparison.Ordinal);
         Assert.Contains("ToJson_ContainsAllFields", reason, StringComparison.Ordinal);
 
-        // Reverted: the worktree holds only the accepted patch/minor commit.
         Assert.Contains("\"Fixture.Lib\" Version=\"1.1.0\"", File.ReadAllText(Path.Combine(worktree, "Directory.Packages.props")), StringComparison.Ordinal);
         Assert.DoesNotContain("#pragma", File.ReadAllText(Path.Combine(worktree, "src", "LoanLedger", "PortfolioSummary.cs")), StringComparison.Ordinal);
     }

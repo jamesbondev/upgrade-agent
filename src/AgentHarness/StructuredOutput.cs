@@ -4,19 +4,11 @@ using Microsoft.Extensions.AI;
 
 namespace AgentHarness;
 
-/// <summary>A reply that should have been JSON: the parsed value when it was, and the raw text either way.</summary>
-/// <param name="Error">Why <paramref name="Value"/> is null: no reply, no JSON, or JSON that doesn't fit the type.</param>
 public sealed record StructuredReply<T>(T? Value, string? Text, string? Error)
     where T : class;
 
-/// <summary>
-/// Structured replies from a model: the JSON schema is generated from your C# type, so the prompt and the parser
-/// can't drift apart. Use <see cref="System.ComponentModel.DescriptionAttribute"/> on properties to guide the model,
-/// and <c>required</c> for fields it must fill.
-/// </summary>
 public static class StructuredOutput
 {
-    /// <summary>Lenient about what models get wrong (case, trailing commas, comments, extra fields); strict about required fields.</summary>
     public static JsonSerializerOptions SerializerOptions { get; } = new(JsonSerializerDefaults.Web)
     {
         AllowTrailingCommas = true,
@@ -26,17 +18,12 @@ public static class StructuredOutput
 
     public static string SchemaFor<T>() => AIJsonUtilities.CreateJsonSchema(typeof(T), serializerOptions: SerializerOptions).GetRawText();
 
-    /// <summary>The instruction appended to a question so the model replies with JSON only.</summary>
     public static string PromptFor<T>(string question) => $"""
         {question}
         Reply with ONLY a JSON object, with no prose and no code fence. Do not call any tools.
         It must match this JSON schema: {SchemaFor<T>()}
         """;
 
-    /// <summary>
-    /// Accepts bare JSON or JSON inside a Markdown code fence. Never throws for a bad reply: the error says what
-    /// was wrong, so a missing summary can be a note rather than a failure.
-    /// </summary>
     public static StructuredReply<T> Parse<T>(string? text)
         where T : class
     {

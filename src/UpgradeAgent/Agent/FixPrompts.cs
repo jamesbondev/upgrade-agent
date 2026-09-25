@@ -6,23 +6,16 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Agent;
 
-/// <param name="RequiredReads">Migration notes too large to inline; edits are refused until the agent has read them.</param>
 internal sealed record FixTaskPrompt(string Text, IReadOnlyList<string> RequiredReads);
 
-/// <summary>
-/// Every word the fixer agent is given. Pure (files are read through a delegate), so the wording is
-/// unit-tested and reviewable in one place, apart from any provider SDK.
-/// </summary>
 internal static class FixPrompts
 {
-    /// <summary>Migration notes up to this size are pasted into the task so the model can't skip them.</summary>
     public const int InlineDocBudget = 16_000;
 
     private const int MaxErrorsListed = 25;
     private const int MaxReleaseNotesLength = 400;
     private const string DocTag = "package-doc";
 
-    /// <param name="testArgs">Target:TestArgs, so the agent runs exactly the tests the guardrails compare (e.g. a filter that leaves out Aspire tests).</param>
     public static string SystemPrompt(string solution, TestRunnerMode runnerMode, GroupKind kind, IReadOnlyList<string> testArgs)
     {
         var testCommand = runnerMode == TestRunnerMode.TestingPlatform
@@ -103,16 +96,11 @@ internal static class FixPrompts
         return new FixTaskPrompt(builder.ToString(), requiredReads);
     }
 
-    /// <summary>
-    /// The question for the summary turn. The harness appends the JSON-only instruction and the schema
-    /// (<see cref="AgentHarness.StructuredOutput.PromptFor{T}"/>), so this only says what to describe.
-    /// </summary>
     public static string SummaryRequest() => """
         Now describe this group: for each package, its breaking changes, what you changed and why, and anything left unresolved.
         Use repository-relative paths in "file".
         """;
 
-    /// <summary>Double-quotes arguments with shell-significant characters (filters often contain &amp;, | or !).</summary>
     internal static string Quote(string argument) =>
         argument.Length > 0 && argument.All(c => char.IsLetterOrDigit(c) || c is '.' or '_' or '-' or '/' or ':' or '=' or '~' or ',')
             ? argument
@@ -166,10 +154,6 @@ internal static class FixPrompts
         return parts.Count == 0 ? "none found in the package" : string.Join("; ", parts);
     }
 
-    /// <summary>
-    /// Third-party text goes in a tag the system prompt marks as data. A closing tag inside the text is escaped
-    /// so the document can't end its own framing and continue as instructions.
-    /// </summary>
     private static void AppendDoc(StringBuilder builder, string source, string content)
     {
         var escaped = content.Trim().Replace($"</{DocTag}", $"<\\/{DocTag}", StringComparison.OrdinalIgnoreCase);

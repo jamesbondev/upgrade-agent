@@ -2,7 +2,6 @@ using Microsoft.Extensions.Options;
 
 namespace UpgradeAgent.Config;
 
-/// <summary>Rejects settings that would make a run misbehave, before any work starts.</summary>
 internal sealed class UpgradeAgentOptionsValidator : IValidateOptions<UpgradeAgentOptions>
 {
     public ValidateOptionsResult Validate(string? name, UpgradeAgentOptions options)

@@ -2,10 +2,6 @@ using AgentHarness.Testing;
 
 namespace HelloAgent;
 
-/// <summary>
-/// The offline half of the sample: a throwaway workspace and a scripted "model" that plays one turn of tool calls
-/// through the real session (policy, prompter, limits, observers), then answers the summary question.
-/// </summary>
 internal static class ScriptedDemo
 {
     private const string Before = """
@@ -27,7 +23,6 @@ internal static class ScriptedDemo
         }
         """;
 
-    /// <summary>A temp folder with one C# file and a README. Deleted when the process exits.</summary>
     public static string CreateWorkspace()
     {
         var folder = Directory.CreateTempSubdirectory("hello-agent-").FullName;
@@ -42,13 +37,13 @@ internal static class ScriptedDemo
         .Turn(t => t
             .Usage(inputTokens: 2400, outputTokens: 180)
             .Say("Let me look at the code first.")
-            .Shell("ls src", output: "Greeter.cs")                     // read-only command: approved
-            .Read("src/Greeter.cs")                                    // read inside the workspace: approved
-            .CallTool("list_todos")                                    // our AgentTool: runs for real
-            .Shell("curl -s https://example.com/style-guide")          // network: refused, with feedback
-            .Edit("src/Greeter.cs", After)                             // .cs edit: auto-approved
-            .Edit("README.md", "# Demo\n\nGreeter.Greet(name) greets by name.\n") // other edit: asks you
-            .Shell("dotnet build", output: "Build succeeded.")         // Commands["dotnet"] rule: approved
+            .Shell("ls src", output: "Greeter.cs")
+            .Read("src/Greeter.cs")
+            .CallTool("list_todos")
+            .Shell("curl -s https://example.com/style-guide")
+            .Edit("src/Greeter.cs", After)
+            .Edit("README.md", "# Demo\n\nGreeter.Greet(name) greets by name.\n")
+            .Shell("dotnet build", output: "Build succeeded.")
             .Reply("Greeter.Greet now takes a name, and the build passes."))
         .Turn(t => t
             .Usage(inputTokens: 2600, outputTokens: 60)

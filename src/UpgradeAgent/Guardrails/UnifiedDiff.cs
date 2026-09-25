@@ -2,13 +2,10 @@ namespace UpgradeAgent.Guardrails;
 
 internal sealed record FileDiff(string Path, IReadOnlyList<string> Added, IReadOnlyList<string> Removed, bool IsNew, bool IsDeleted)
 {
-    /// <summary>Added lines with no whitespace-insensitive match among the removed ones: new, not moved or reformatted.</summary>
     public IEnumerable<string> GenuinelyAdded => Unmatched(Added, Removed);
 
-    /// <summary>Removed lines with no whitespace-insensitive match among the added ones.</summary>
     public IEnumerable<string> GenuinelyRemoved => Unmatched(Removed, Added);
 
-    /// <summary>Lines in <paramref name="lines"/> with no counterpart in <paramref name="counterparts"/>, counting duplicates.</summary>
     private static IEnumerable<string> Unmatched(IReadOnlyList<string> lines, IReadOnlyList<string> counterparts)
     {
         var remaining = counterparts
@@ -30,11 +27,6 @@ internal sealed record FileDiff(string Path, IReadOnlyList<string> Added, IReadO
     }
 }
 
-/// <summary>
-/// Parses <c>git diff -U0</c> output. Header lines (<c>---</c>, <c>+++</c>, modes) are only read before a file's
-/// first hunk: inside a hunk, a removed line starting "-- " (an SQL comment) or an added one starting "++" is
-/// content like any other.
-/// </summary>
 internal static class UnifiedDiff
 {
     public static IReadOnlyList<FileDiff> Parse(string diff)
@@ -103,7 +95,6 @@ internal static class UnifiedDiff
 
     private static string ParseHeaderPath(string header)
     {
-        // "diff --git a/x b/x": good enough for the fallback; "+++ b/x" refines it.
         var bIndex = header.LastIndexOf(" b/", StringComparison.Ordinal);
         return bIndex > 0 ? header[(bIndex + 3)..] : header["diff --git ".Length..];
     }

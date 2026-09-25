@@ -5,16 +5,13 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Agent;
 
-/// <summary>Migration material for one package version, found by the app so the agent never has to search the disk.</summary>
 internal sealed record PackageDocs(string Id, string Version, string? PackageFolder, IReadOnlyList<string> DocFiles, string? ReleaseNotes, string? ProjectUrl, string? RepositoryUrl)
 {
-    /// <summary>Files that describe how to migrate, as opposed to general READMEs.</summary>
     public IEnumerable<string> MigrationFiles => DocFiles.Where(PackageDocsLocator.IsMigrationDoc);
 }
 
 internal sealed class PackageDocsLocator(IProcessRunner processRunner)
 {
-    /// <summary>Documentation file names in a package root, and whether each kind explains a migration.</summary>
     private static readonly (string Pattern, bool IsMigration)[] DocKinds =
     [
         ("MIGRATION*", true), ("BREAKING*", true), ("UPGRADING*", true), ("CHANGELOG*", true), ("CHANGES*", true), ("RELEASE*NOTES*", true),
@@ -26,7 +23,6 @@ internal sealed class PackageDocsLocator(IProcessRunner processRunner)
     public static bool IsMigrationDoc(string path) =>
         DocKinds.Any(k => k.IsMigration && Glob.IsMatch(k.Pattern + ".*", Path.GetFileName(path)));
 
-    /// <summary>Resolved inside the worktree: a repo's nuget.config can move the global packages folder.</summary>
     public async Task<string?> GlobalPackagesFolderAsync(string worktree, CancellationToken cancellationToken)
     {
         var result = await processRunner.RunAsync(
@@ -75,7 +71,6 @@ internal sealed class PackageDocsLocator(IProcessRunner processRunner)
         }
         catch (XmlException)
         {
-            // A malformed nuspec just means fewer hints.
             return default;
         }
     }

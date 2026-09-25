@@ -4,10 +4,6 @@ using AgentHarness.Tests.TestSupport;
 
 namespace AgentHarness.Tests;
 
-/// <summary>
-/// Every tool action goes through the policy, and through the operator when the policy asks. The scripted backend
-/// records what the model was told in <see cref="ScriptedBackend.Decisions"/>.
-/// </summary>
 public sealed class AgentSessionPermissionTests : IDisposable
 {
     private readonly TempDirectory _workspace = new();
@@ -229,8 +225,6 @@ public sealed class AgentSessionPermissionTests : IDisposable
         Assert.Equal(new FileWriteRequest(_workspace.Combine("src/A.cs")), seen);
     }
 
-    // ---- Custom tools ----
-
     [Fact]
     public async Task ACustomToolThatNeedsNoApprovalRunsWithoutAsking()
     {
@@ -248,7 +242,6 @@ public sealed class AgentSessionPermissionTests : IDisposable
     [Fact]
     public async Task ASessionAllowsACustomToolThatNeedsNoApprovalWhateverThePolicy()
     {
-        // Some runtimes ask about every custom tool; the session answers for the ones that don't need approval.
         var tool = AgentTool.Create(() => "ok", "get_status");
         var backend = new ScriptedBackend().Turn(t => t.Authorize(new CustomToolRequest("get_status")).Reply("done"));
         var runner = new AgentRunner(backend);

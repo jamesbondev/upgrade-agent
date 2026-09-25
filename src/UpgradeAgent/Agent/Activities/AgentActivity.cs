@@ -1,9 +1,5 @@
 namespace UpgradeAgent.Agent.Activities;
 
-/// <summary>
-/// Fans agent activity out to the attached sinks. Agent events arrive on background threads, so writes are
-/// serialised; a sink is attached for as long as its scope lives (a group's log file, a recording).
-/// </summary>
 internal sealed class AgentActivity : IActivitySink
 {
     private readonly Lock _lock = new();
@@ -22,7 +18,6 @@ internal sealed class AgentActivity : IActivitySink
         }
     }
 
-    /// <summary>Adds <paramref name="sink"/> until the returned scope is disposed.</summary>
     public IDisposable Attach(IActivitySink sink)
     {
         lock (_lock)

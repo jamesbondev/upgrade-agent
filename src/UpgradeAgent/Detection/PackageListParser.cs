@@ -2,8 +2,6 @@ using System.Text.Json;
 
 namespace UpgradeAgent.Detection;
 
-/// <summary>One top-level package reference as reported by <c>dotnet package list --outdated --format json</c>.</summary>
-/// <param name="RequestedVersion">What the project asks for; null when the CLI doesn't report it.</param>
 internal sealed record ReportedPackage(
     string ProjectPath,
     string Framework,
@@ -21,11 +19,6 @@ internal static class PackageListParser
 {
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { RespectNullableAnnotations = true };
 
-    /// <summary>
-    /// Parses JSON output (format version 1). Projects with nothing outdated have no <c>frameworks</c>
-    /// property. When a feed is unreachable the CLI prints plain text instead of JSON; that is an error, and so
-    /// is JSON that doesn't match the schema (a changed CLI).
-    /// </summary>
     public static IReadOnlyList<ReportedPackage> Parse(string output)
     {
         if (!output.TrimStart().StartsWith('{'))
@@ -59,7 +52,6 @@ internal static class PackageListParser
             .ToList();
     }
 
-    // The CLI's JSON (format version 1). Missing lists are empty; missing required values are a schema change.
     private sealed class PackageListDocument
     {
         public IReadOnlyList<ProjectEntry> Projects { get; init; } = [];
@@ -96,7 +88,6 @@ internal static class PackageListParser
     {
         public string? Level { get; init; }
 
-        /// <summary>Usually a string, but not guaranteed: kept raw.</summary>
         public JsonElement? Text { get; init; }
     }
 }

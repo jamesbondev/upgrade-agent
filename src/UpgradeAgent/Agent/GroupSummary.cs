@@ -1,40 +1,110 @@
+using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.AI;
 
 namespace UpgradeAgent.Agent;
 
 /// <summary>The agent's own account of a group. Informational: the app checks the claims against the diff.</summary>
-public sealed record GroupSummary(IReadOnlyList<PackageSummary> Packages);
-
-public sealed record PackageSummary(
-    string Id,
-    string From,
-    string To,
-    string Status,
-    IReadOnlyList<string> BreakingChanges,
-    IReadOnlyList<AppliedFix> Fixes,
-    IReadOnlyList<string> UpcomingDeprecations,
-    IReadOnlyList<string> Unresolved);
-
-public sealed record AppliedFix(string File, string Reason);
-
-public static class GroupSummaryParser
+internal sealed record GroupSummary
 {
-    private static readonly JsonSerializerOptions Options = new()
+    public required IReadOnlyList<PackageSummary> Packages { get; init; }
+}
+
+[JsonConverter(typeof(PackageStatusConverter))]
+internal enum PackageStatus
+{
+    Fixed,
+    NoChangesNeeded,
+    Unresolved,
+}
+
+/// <summary>Kebab-case names on the wire ("no-changes-needed"), read case-insensitively: models vary the case.</summary>
+internal sealed class PackageStatusConverter : JsonConverter<PackageStatus>
+{
+    private static readonly Dictionary<string, PackageStatus> ByName = new(StringComparer.OrdinalIgnoreCase)
     {
-        PropertyNameCaseInsensitive = true,
+        ["fixed"] = PackageStatus.Fixed,
+        ["no-changes-needed"] = PackageStatus.NoChangesNeeded,
+        ["unresolved"] = PackageStatus.Unresolved,
+    };
+
+    public const string Names = "fixed, no-changes-needed or unresolved";
+
+    public override PackageStatus Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.GetString() is { } name && ByName.TryGetValue(name, out var status)
+            ? status
+            : throw new JsonException($"Unknown package status '{reader.GetString()}'; expected {Names}.");
+
+    public override void Write(Utf8JsonWriter writer, PackageStatus value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ByName.First(n => n.Value == value).Key);
+}
+
+internal static class PackageStatusExtensions
+{
+    public static string Label(this PackageStatus status) => status switch
+    {
+        PackageStatus.Fixed => "fixed",
+        PackageStatus.NoChangesNeeded => "no changes needed",
+        _ => "unresolved",
+    };
+}
+
+internal sealed record PackageSummary
+{
+    [Description("NuGet package ID.")]
+    public required string Id { get; init; }
+
+    [Description("Version before the update.")]
+    public required string From { get; init; }
+
+    [Description("Version after the update.")]
+    public required string To { get; init; }
+
+    [Description("One of: " + PackageStatusConverter.Names + ".")]
+    public required PackageStatus Status { get; init; }
+
+    // Lists are optional: models often send null for an empty one, which reads as empty.
+    [Description("Breaking changes in this update that affected this repository, one line each.")]
+    public IReadOnlyList<string> BreakingChanges { get; init => field = value ?? []; } = [];
+
+    public IReadOnlyList<AppliedFix> Fixes { get; init => field = value ?? []; } = [];
+
+    [Description("Deprecation warnings left in place, one line each.")]
+    public IReadOnlyList<string> UpcomingDeprecations { get; init => field = value ?? []; } = [];
+
+    [Description("Errors still failing, with what was tried.")]
+    public IReadOnlyList<string> Unresolved { get; init => field = value ?? []; } = [];
+}
+
+internal sealed record AppliedFix
+{
+    [Description("Repository-relative path of the changed file.")]
+    public required string File { get; init; }
+
+    [Description("What changed and why, in one line.")]
+    public required string Reason { get; init; }
+}
+
+/// <summary>
+/// The contract for the summary turn. The JSON schema sent to the model is generated from the C# types above,
+/// so the prompt and the parser can't drift apart.
+/// </summary>
+internal static class GroupSummaryParser
+{
+    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
+    {
         AllowTrailingCommas = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
     };
 
-    public const string Schema = """
-        {"packages":[{"id":"string","from":"string","to":"string","status":"fixed|no-changes-needed|unresolved",
-          "breakingChanges":["string"],"fixes":[{"file":"repo-relative path","reason":"one line"}],
-          "upcomingDeprecations":["string"],"unresolved":["error text and what was tried"]}]}
-        """;
+    public static string Schema { get; } = AIJsonUtilities.CreateJsonSchema(typeof(GroupSummary), serializerOptions: Options).GetRawText();
 
-    /// <summary>Accepts bare JSON or JSON inside a Markdown code fence; returns null rather than throwing.</summary>
+    /// <summary>
+    /// Accepts bare JSON or JSON inside a Markdown code fence. Returns null rather than throwing when the reply
+    /// isn't a valid summary (missing required fields included): a summary is useful, never essential.
+    /// </summary>
     public static GroupSummary? TryParse(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -52,19 +122,11 @@ public static class GroupSummaryParser
         try
         {
             var summary = JsonSerializer.Deserialize<GroupSummary>(text[start..(end + 1)], Options);
-            return summary?.Packages is null ? null : Normalize(summary);
+            return summary?.Packages is { } packages && packages.All(p => p is { Id.Length: > 0, From.Length: > 0, To.Length: > 0 }) ? summary : null;
         }
         catch (JsonException)
         {
             return null;
         }
     }
-
-    private static GroupSummary Normalize(GroupSummary summary) => new(summary.Packages.Select(p => p with
-    {
-        BreakingChanges = p.BreakingChanges ?? [],
-        Fixes = p.Fixes ?? [],
-        UpcomingDeprecations = p.UpcomingDeprecations ?? [],
-        Unresolved = p.Unresolved ?? [],
-    }).ToList());
 }

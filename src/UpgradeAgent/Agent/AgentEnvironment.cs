@@ -7,7 +7,7 @@ namespace UpgradeAgent.Agent;
 /// exactly this dictionary (verified: it replaces the inherited environment), so dropping a name here
 /// really hides it.
 /// </summary>
-public static class AgentEnvironment
+internal static class AgentEnvironment
 {
     private static readonly string[] SecretNames =
     [
@@ -17,7 +17,11 @@ public static class AgentEnvironment
 
     private static readonly string[] SecretPrefixes = ["AZURE_", "ARM_", "AWS_"];
 
-    private static readonly string[] SecretFragments = ["_PAT", "SECRET", "PASSWORD", "PASSWD", "APIKEY", "API_KEY", "CONNECTIONSTRING", "CONNECTION_STRING", "ACCESS_TOKEN", "ACCESSTOKEN"];
+    /// <summary>Anything named like a token, key, password or credential.</summary>
+    private static readonly string[] SecretFragments =
+    [
+        "_PAT", "SECRET", "PASSWORD", "PASSWD", "TOKEN", "APIKEY", "_KEY", "KEY_", "CREDENTIAL", "AUTH", "CONNECTIONSTRING", "CONNECTION_STRING",
+    ];
 
     public static Dictionary<string, string> Build(IDictionary current, IEnumerable<string> extraNamesToRemove, IReadOnlyDictionary<string, string?> overrides)
     {

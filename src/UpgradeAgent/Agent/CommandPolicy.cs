@@ -1,6 +1,8 @@
+using UpgradeAgent.Infrastructure;
+
 namespace UpgradeAgent.Agent;
 
-public enum PolicyVerdict
+internal enum PolicyVerdict
 {
     Approve,
     AskOperator,
@@ -8,7 +10,7 @@ public enum PolicyVerdict
 }
 
 /// <param name="Reason">For a rejection, this goes back to the agent as feedback, so it says what to do instead.</param>
-public sealed record PolicyDecision(PolicyVerdict Verdict, string Reason)
+internal sealed record PolicyDecision(PolicyVerdict Verdict, string Reason)
 {
     public static PolicyDecision Approve(string reason) => new(PolicyVerdict.Approve, reason);
 
@@ -25,7 +27,7 @@ public sealed record PolicyDecision(PolicyVerdict Verdict, string Reason)
 /// This is a usability layer on a non-sandboxed shell, not a security boundary: the deterministic
 /// guardrails after the agent finishes are what decide whether its work is kept.
 /// </summary>
-public sealed class CommandPolicy
+internal sealed class CommandPolicy
 {
     private static readonly HashSet<string> SourceExtensions = new(StringComparer.OrdinalIgnoreCase) { ".cs", ".fs", ".vb", ".razor", ".cshtml" };
 
@@ -83,8 +85,7 @@ public sealed class CommandPolicy
             return PolicyDecision.Reject("Writing files with shell redirection is not allowed. Edit files with the edit tool; read command output directly.");
         }
 
-        var parsed = ShellCommandParser.Parse(commandLine, out var error);
-        if (error is not null)
+        if (!ShellCommandParser.TryParse(commandLine, out var parsed, out var error))
         {
             return PolicyDecision.Reject($"Command not allowed: {error}. Run one simple command at a time from the repository root.");
         }
@@ -100,6 +101,11 @@ public sealed class CommandPolicy
             {
                 return PolicyDecision.Reject($"'{path}' is outside the working copy.");
             }
+        }
+
+        if (parsed.Segments.Count == 0)
+        {
+            return PolicyDecision.Reject("Empty command.");
         }
 
         var cwd = _worktree;
@@ -132,7 +138,7 @@ public sealed class CommandPolicy
             return PolicyDecision.Reject($"'{path}' is outside the working copy; only files in the repository may be edited.");
         }
 
-        var relative = Path.GetRelativePath(_worktree, full).Replace('\\', '/');
+        var relative = RepoPath.Relative(_worktree, full);
         if (relative == ".git" || relative.StartsWith(".git/", StringComparison.Ordinal))
         {
             return PolicyDecision.Reject("The .git folder must not be edited.");
@@ -188,9 +194,14 @@ public sealed class CommandPolicy
                 return EvaluateDotnet(arguments);
 
             case "git":
-                return arguments.Count > 0 && ReadOnlyGit.Contains(arguments[0])
-                    ? PolicyDecision.Approve($"read-only git {arguments[0]}")
-                    : PolicyDecision.Reject("Only read-only git commands (status, diff, log, show) are allowed; UpgradeAgent owns commits and branches.");
+                if (arguments.Count == 0 || !ReadOnlyGit.Contains(arguments[0]))
+                {
+                    return PolicyDecision.Reject("Only read-only git commands (status, diff, log, show) are allowed; UpgradeAgent owns commits and branches.");
+                }
+
+                return arguments.Any(a => a.StartsWith("--output", StringComparison.Ordinal))
+                    ? PolicyDecision.Reject("git --output writes a file; read the output directly.")
+                    : PolicyDecision.Approve($"read-only git {arguments[0]}");
 
             case "find":
                 return arguments.Any(FindWriteActions.Contains)
@@ -198,7 +209,7 @@ public sealed class CommandPolicy
                     : PolicyDecision.Approve("read-only find");
 
             case "sed":
-                return arguments.Any(a => a == "-i" || a.StartsWith("-i", StringComparison.Ordinal) || a == "--in-place")
+                return arguments.Any(a => a.StartsWith("-i", StringComparison.Ordinal) || a.StartsWith("--in-place", StringComparison.Ordinal))
                     ? PolicyDecision.Reject("Edit files with the edit tool, not sed -i.")
                     : PolicyDecision.Approve("read-only sed");
 
@@ -238,7 +249,7 @@ public sealed class CommandPolicy
             return PolicyDecision.Reject("Add --no-restore: packages are already restored.");
         }
 
-        if (verb == "test" && !rest.Any(a => a is "--no-restore" or "--no-build"))
+        if (verb == "test" && !rest.Any(a => a.Equals("--no-restore", StringComparison.OrdinalIgnoreCase) || a.Equals("--no-build", StringComparison.OrdinalIgnoreCase)))
         {
             return PolicyDecision.Reject("Add --no-build (after a successful dotnet build --no-restore) or --no-restore.");
         }

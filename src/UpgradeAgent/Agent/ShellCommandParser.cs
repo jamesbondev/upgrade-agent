@@ -1,24 +1,38 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.RegularExpressions;
 
 namespace UpgradeAgent.Agent;
 
 /// <summary>A command line split into simple commands (by <c>&amp;&amp;</c>, <c>||</c>, <c>;</c> and <c>|</c>).</summary>
-public sealed record ParsedCommand(IReadOnlyList<IReadOnlyList<string>> Segments);
+internal sealed record ParsedCommand(IReadOnlyList<IReadOnlyList<string>> Segments);
 
 /// <summary>
-/// A deliberately small POSIX/PowerShell-ish tokenizer. Anything it can't reason about (substitution,
-/// redirection, background jobs, script blocks, multi-line input) is refused rather than guessed at.
+/// A deliberately small POSIX/PowerShell-ish tokenizer. Anything it can't reason about is refused rather
+/// than guessed at: substitution and variable expansion (<c>$(…)</c>, <c>$VAR</c>, backticks, PowerShell
+/// <c>(…)</c> and <c>@(…)</c>), redirection, background jobs, script blocks and multi-line input. Single
+/// quotes keep everything literal.
 /// </summary>
-public static partial class ShellCommandParser
+internal static partial class ShellCommandParser
 {
-    public static ParsedCommand Parse(string commandLine, out string? error)
+    public static bool TryParse(string commandLine, [NotNullWhen(true)] out ParsedCommand? parsed, [NotNullWhen(false)] out string? error)
     {
-        error = null;
+        parsed = null;
+        error = Tokenize(commandLine, out var segments);
+        if (error is not null)
+        {
+            return false;
+        }
 
+        parsed = new ParsedCommand(segments);
+        return true;
+    }
+
+    private static string? Tokenize(string commandLine, out List<IReadOnlyList<string>> segments)
+    {
         // "2>&1" only merges stderr into stdout; it writes no file. Agents append it habitually.
         commandLine = StderrToStdout().Replace(commandLine, " ");
-        var segments = new List<IReadOnlyList<string>>();
+        segments = [];
         var tokens = new List<string>();
         var token = new StringBuilder();
         var hasToken = false;
@@ -34,12 +48,12 @@ public static partial class ShellCommandParser
             }
         }
 
-        void EndSegment()
+        void EndSegment(List<IReadOnlyList<string>> into)
         {
             EndToken();
             if (tokens.Count > 0)
             {
-                segments.Add(tokens.ToList());
+                into.Add(tokens.ToList());
                 tokens.Clear();
             }
         }
@@ -49,22 +63,44 @@ public static partial class ShellCommandParser
             var c = commandLine[i];
             var next = i + 1 < commandLine.Length ? commandLine[i + 1] : '\0';
 
-            if (quote is not null)
+            if (quote == '\'')
             {
-                if (c == quote)
+                if (c == '\'')
                 {
                     quote = null;
-                }
-                else if (quote == '"' && (c == '`' || (c == '$' && next == '(')))
-                {
-                    error = "command substitution is not allowed";
-                    return new ParsedCommand([]);
                 }
                 else
                 {
                     token.Append(c);
                 }
 
+                continue;
+            }
+
+            if (quote == '"')
+            {
+                if (c == '"')
+                {
+                    quote = null;
+                    continue;
+                }
+
+                if (c == '`')
+                {
+                    return "command substitution is not allowed";
+                }
+
+                if (c == '\\' && next is '"' or '$' or '`' or '\\')
+                {
+                    return "backslash escapes are not allowed; use single quotes for literal text";
+                }
+
+                if (c == '$' && IsExpansionStart(next))
+                {
+                    return "variable expansion and command substitution are not allowed; write paths out in full";
+                }
+
+                token.Append(c);
                 continue;
             }
 
@@ -78,36 +114,36 @@ public static partial class ShellCommandParser
                     EndToken();
                     break;
                 case '\r' or '\n':
-                    error = "multi-line commands are not allowed";
-                    return new ParsedCommand([]);
+                    return "multi-line commands are not allowed";
                 case '`':
-                    error = "backticks are not allowed";
-                    return new ParsedCommand([]);
-                case '$' when next == '(':
-                    error = "command substitution is not allowed";
-                    return new ParsedCommand([]);
+                    return "backticks are not allowed";
+                case '\\' when IsEscapable(next):
+                    // A backslash before a quote or an operator hides it from this parser but not from the shell.
+                    // Before an ordinary character it's a Windows path separator, which is fine.
+                    return "backslash escapes are not allowed; use single quotes for literal text";
+                case '$' when IsExpansionStart(next):
+                    return "variable expansion and command substitution are not allowed; write paths out in full";
+                case '(' or ')':
+                    return "subshells and PowerShell subexpressions are not allowed";
                 case '>' or '<':
-                    error = "redirection is not allowed; read output directly";
-                    return new ParsedCommand([]);
+                    return "redirection is not allowed; read output directly";
                 case '{' or '}':
-                    error = "script blocks are not allowed";
-                    return new ParsedCommand([]);
+                    return "script blocks are not allowed";
                 case ';':
-                    EndSegment();
+                    EndSegment(segments);
                     break;
                 case '&' when next == '&':
-                    EndSegment();
+                    EndSegment(segments);
                     i++;
                     break;
                 case '&':
-                    error = "background jobs are not allowed";
-                    return new ParsedCommand([]);
+                    return "background jobs are not allowed";
                 case '|' when next == '|':
-                    EndSegment();
+                    EndSegment(segments);
                     i++;
                     break;
                 case '|':
-                    EndSegment();
+                    EndSegment(segments);
                     break;
                 default:
                     token.Append(c);
@@ -118,13 +154,18 @@ public static partial class ShellCommandParser
 
         if (quote is not null)
         {
-            error = "unbalanced quotes";
-            return new ParsedCommand([]);
+            return "unbalanced quotes";
         }
 
-        EndSegment();
-        return new ParsedCommand(segments);
+        EndSegment(segments);
+        return null;
     }
+
+    private static bool IsEscapable(char next) =>
+        next is '\'' or '"' or ';' or '&' or '|' or '`' or '$' or '(' or ')' or '<' or '>' or '{' or '}' or ' ' or '\t' or '\\' or '\r' or '\n' or '\0';
+
+    /// <summary>What can follow <c>$</c> to expand: a name, <c>{</c>, <c>(</c>, or a special parameter.</summary>
+    private static bool IsExpansionStart(char next) => char.IsLetter(next) || next is '_' or '{' or '(' or '?' or '$' or '@' or '*' or '!' or '#';
 
     [GeneratedRegex(@"(?<=^|\s)2>&1(?=\s|$)")]
     private static partial Regex StderrToStdout();

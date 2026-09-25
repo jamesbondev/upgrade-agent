@@ -1,12 +1,21 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace UpgradeAgent.Build;
 
-public sealed record Diagnostic(string Severity, string Code, string Message, string? File, int? Line);
+internal enum DiagnosticSeverity
+{
+    Error,
+    Warning,
+}
 
-public sealed record TestCounts(int Total, int Passed, int Failed, int Skipped);
+/// <param name="File">The source file, when MSBuild reports one; null for tool-level diagnostics ("CSC : error …").</param>
+/// <param name="Origin">The tool that reported a diagnostic without a file (CSC, MSBUILD, NuGet…).</param>
+internal sealed record Diagnostic(DiagnosticSeverity Severity, string Code, string Message, string? File, int? Line, string? Origin = null);
 
-public static partial class BuildOutputParser
+internal sealed record TestCounts(int Total, int Passed, int Failed, int Skipped);
+
+internal static partial class BuildOutputParser
 {
     /// <summary>
     /// Parses MSBuild's canonical error format. Each diagnostic appears once per project that reports it,
@@ -18,7 +27,8 @@ public static partial class BuildOutputParser
         foreach (var line in output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
         {
             var match = WithLocation().Match(line);
-            if (!match.Success)
+            var hasLocation = match.Success;
+            if (!hasLocation)
             {
                 match = WithoutLocation().Match(line);
             }
@@ -28,17 +38,44 @@ public static partial class BuildOutputParser
                 continue;
             }
 
+            // "CSC : error CS2001" names a tool, not a file: only a rooted path or one with an extension is a file.
+            var prefix = match.Groups["file"].Value.Trim();
+            var isFile = hasLocation || Path.IsPathRooted(prefix) || Path.HasExtension(prefix);
             diagnostics.Add(new Diagnostic(
-                match.Groups["severity"].Value,
+                match.Groups["severity"].Value == "error" ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
                 match.Groups["code"].Value,
                 match.Groups["message"].Value.Trim(),
-                match.Groups["file"].Value.Trim() is { Length: > 0 } file ? file : null,
-                int.TryParse(match.Groups["line"].Value, out var number) ? number : null));
+                prefix.Length > 0 && isFile ? prefix : null,
+                int.TryParse(match.Groups["line"].Value, out var number) ? number : null,
+                prefix.Length > 0 && !isFile ? prefix : null));
         }
 
         var distinct = diagnostics.Distinct().ToList();
-        return (distinct.Where(d => d.Severity == "error").ToList(), distinct.Where(d => d.Severity == "warning").ToList());
+        return (distinct.Where(d => d.Severity == DiagnosticSeverity.Error).ToList(), distinct.Where(d => d.Severity == DiagnosticSeverity.Warning).ToList());
     }
+
+    /// <summary>The error count a <c>dotnet build</c> reported: 0 on success, null when the output doesn't say (e.g. cut by <c>| head</c>).</summary>
+    public static int? CountErrors(string output)
+    {
+        if (ErrorSummary().Match(output) is { Success: true } summary)
+        {
+            return int.Parse(summary.Groups["count"].Value, CultureInfo.InvariantCulture);
+        }
+
+        if (output.Contains("Build succeeded", StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        var (errors, _) = ParseDiagnostics(output);
+        return errors.Count > 0 && output.Contains("Build FAILED", StringComparison.OrdinalIgnoreCase)
+            ? errors.Count
+            : null;
+    }
+
+    /// <summary>The most frequent diagnostic codes, e.g. "CS0117×4, CS1503×2".</summary>
+    public static string TopCodes(IEnumerable<Diagnostic> diagnostics, int count) =>
+        string.Join(", ", diagnostics.GroupBy(d => d.Code).OrderByDescending(g => g.Count()).Take(count).Select(g => $"{g.Key}×{g.Count()}"));
 
     /// <summary>Sums VSTest's per-assembly summary lines ("Passed!  - Failed: 0, Passed: 16, ...").</summary>
     public static TestCounts? ParseTestCounts(string output)
@@ -52,6 +89,10 @@ public static partial class BuildOutputParser
         int Sum(string group) => matches.Sum(m => int.Parse(m.Groups[group].Value, System.Globalization.CultureInfo.InvariantCulture));
         return new TestCounts(Sum("total"), Sum("passed"), Sum("failed"), Sum("skipped"));
     }
+
+    // Classic logger: "    3 Error(s)"; terminal logger: "Build failed with 3 error(s)".
+    [GeneratedRegex(@"(?:^\s*|failed with\s+)(?<count>\d+)\s+Error\(s\)", RegexOptions.IgnoreCase | RegexOptions.Multiline)]
+    private static partial Regex ErrorSummary();
 
     [GeneratedRegex(@"^\s*(?<file>[^\s].*?)\((?<line>\d+)(?:,\d+)*\)\s*:\s*(?<severity>error|warning)\s+(?<code>[A-Za-z]+\d+)\s*:\s*(?<message>.*?)(?:\s+\[[^\]]+\])?\s*$")]
     private static partial Regex WithLocation();

@@ -8,18 +8,18 @@ using NuGet.Versioning;
 
 namespace UpgradeAgent.Detection;
 
-public enum CompatibilityStatus
+internal enum CompatibilityStatus
 {
     Compatible,
     Incompatible,
     Unknown,
 }
 
-public sealed record CompatibilityResult(CompatibilityStatus Status, string? Detail = null);
+internal sealed record CompatibilityResult(CompatibilityStatus Status, string? Detail = null);
 
-public interface IPackageCompatibilityChecker
+internal interface IPackageCompatibilityChecker
 {
-    Task<CompatibilityResult> CheckAsync(string id, string version, IReadOnlyCollection<string> projectFrameworks, CancellationToken cancellationToken);
+    Task<CompatibilityResult> CheckAsync(string id, NuGetVersion version, IReadOnlyCollection<NuGetFramework> projectFrameworks, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -28,25 +28,26 @@ public interface IPackageCompatibilityChecker
 /// Failures (for example a private feed that needs credentials) return Unknown; restore is the
 /// authoritative check later (NU1202).
 /// </summary>
-public sealed class NuGetPackageCompatibilityChecker : IPackageCompatibilityChecker
+internal sealed class NuGetPackageCompatibilityChecker : IPackageCompatibilityChecker, IDisposable
 {
     private static readonly TimeSpan SourceTimeout = TimeSpan.FromSeconds(30);
 
     private readonly ISettings _settings;
     private readonly SourceCacheContext _cache = new();
 
-    public NuGetPackageCompatibilityChecker(string repoRoot) => _settings = Settings.LoadDefaultSettings(repoRoot);
+    /// <param name="settings">NuGet settings as the repo sees them (its nuget.config, source mapping, packages folder).</param>
+    public NuGetPackageCompatibilityChecker(ISettings settings) => _settings = settings;
+
+    /// <summary>Loads NuGet settings the way restore would from <paramref name="repoRoot"/>.</summary>
+    public static NuGetPackageCompatibilityChecker ForRepo(string repoRoot) => new(Settings.LoadDefaultSettings(repoRoot));
 
     public async Task<CompatibilityResult> CheckAsync(
-        string id, string version, IReadOnlyCollection<string> projectFrameworks, CancellationToken cancellationToken)
+        string id, NuGetVersion version, IReadOnlyCollection<NuGetFramework> projectFrameworks, CancellationToken cancellationToken)
     {
-        var nugetVersion = NuGetVersion.Parse(version);
-
-        var installed = Path.Combine(
-            SettingsUtility.GetGlobalPackagesFolder(_settings), id.ToLowerInvariant(), nugetVersion.ToNormalizedString().ToLowerInvariant());
-        if (File.Exists(Path.Combine(installed, $"{id.ToLowerInvariant()}.nuspec")))
+        var resolver = new VersionFolderPathResolver(SettingsUtility.GetGlobalPackagesFolder(_settings));
+        if (File.Exists(resolver.GetManifestFilePath(id, version)))
         {
-            using var folderReader = new PackageFolderReader(installed);
+            using var folderReader = new PackageFolderReader(resolver.GetInstallPath(id, version));
             return Evaluate(folderReader, projectFrameworks);
         }
 
@@ -61,7 +62,7 @@ public sealed class NuGetPackageCompatibilityChecker : IPackageCompatibilityChec
                 var repository = Repository.Factory.GetCoreV3(source);
                 var resource = await repository.GetResourceAsync<FindPackageByIdResource>(timeout.Token);
                 using var stream = new MemoryStream();
-                if (resource is not null && await resource.CopyNupkgToStreamAsync(id, nugetVersion, stream, _cache, NullLogger.Instance, timeout.Token))
+                if (resource is not null && await resource.CopyNupkgToStreamAsync(id, version, stream, _cache, NullLogger.Instance, timeout.Token))
                 {
                     stream.Position = 0;
                     using var archiveReader = new PackageArchiveReader(stream);
@@ -79,7 +80,9 @@ public sealed class NuGetPackageCompatibilityChecker : IPackageCompatibilityChec
             failures.Count == 0 ? "package not found on configured sources" : string.Join("; ", failures));
     }
 
-    internal static CompatibilityResult Evaluate(PackageReaderBase reader, IReadOnlyCollection<string> projectFrameworks)
+    public void Dispose() => _cache.Dispose();
+
+    internal static CompatibilityResult Evaluate(PackageReaderBase reader, IReadOnlyCollection<NuGetFramework> projectFrameworks)
     {
         var assetFrameworks = reader.GetLibItems()
             .Concat(reader.GetReferenceItems())
@@ -94,7 +97,7 @@ public sealed class NuGetPackageCompatibilityChecker : IPackageCompatibilityChec
         return Evaluate(supported, projectFrameworks);
     }
 
-    internal static CompatibilityResult Evaluate(IReadOnlyCollection<NuGetFramework> supported, IReadOnlyCollection<string> projectFrameworks)
+    internal static CompatibilityResult Evaluate(IReadOnlyCollection<NuGetFramework> supported, IReadOnlyCollection<NuGetFramework> projectFrameworks)
     {
         if (supported.Count == 0 || supported.Any(f => f.IsAny || f.IsAgnostic))
         {
@@ -102,14 +105,14 @@ public sealed class NuGetPackageCompatibilityChecker : IPackageCompatibilityChec
         }
 
         var incompatible = projectFrameworks
-            .Where(fw => !supported.Any(s => DefaultCompatibilityProvider.Instance.IsCompatible(NuGetFramework.Parse(fw), s)))
+            .Where(fw => !supported.Any(s => DefaultCompatibilityProvider.Instance.IsCompatible(fw, s)))
             .ToList();
 
         return incompatible.Count == 0
             ? new CompatibilityResult(CompatibilityStatus.Compatible)
             : new CompatibilityResult(
                 CompatibilityStatus.Incompatible,
-                $"supports {string.Join(", ", supported.Select(s => s.GetShortFolderName()))}; not {string.Join(", ", incompatible)}");
+                $"supports {string.Join(", ", supported.Select(s => s.GetShortFolderName()))}; not {string.Join(", ", incompatible.Select(f => f.GetShortFolderName()))}");
     }
 
     private IEnumerable<PackageSource> GetSources(string id)

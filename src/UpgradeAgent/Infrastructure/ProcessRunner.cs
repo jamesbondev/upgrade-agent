@@ -1,16 +1,21 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 
 namespace UpgradeAgent.Infrastructure;
 
-public sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError)
+internal sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError)
 {
     public bool Succeeded => ExitCode == 0;
 
     public string CombinedOutput => StandardError.Length == 0 ? StandardOutput : $"{StandardOutput}{Environment.NewLine}{StandardError}";
 }
 
-public interface IProcessRunner
+/// <summary>The program couldn't be started at all (not installed, not on PATH).</summary>
+internal sealed class ProcessStartException(string fileName, Exception inner)
+    : Exception($"Could not start '{fileName}': {inner.Message}. Is it installed and on PATH?", inner);
+
+internal interface IProcessRunner
 {
     /// <param name="environment">Variables to set; a null value removes the variable from the child's environment.</param>
     Task<ProcessResult> RunAsync(
@@ -21,7 +26,7 @@ public interface IProcessRunner
         CancellationToken cancellationToken = default);
 }
 
-public sealed class ProcessRunner : IProcessRunner
+internal sealed class ProcessRunner : IProcessRunner
 {
     public async Task<ProcessResult> RunAsync(
         string fileName,
@@ -58,7 +63,14 @@ public sealed class ProcessRunner : IProcessRunner
         }
 
         using var process = new Process { StartInfo = startInfo };
-        process.Start();
+        try
+        {
+            process.Start();
+        }
+        catch (Win32Exception ex)
+        {
+            throw new ProcessStartException(fileName, ex);
+        }
 
         var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var stderr = process.StandardError.ReadToEndAsync(cancellationToken);

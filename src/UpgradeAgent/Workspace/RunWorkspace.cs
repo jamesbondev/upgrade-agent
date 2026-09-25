@@ -1,4 +1,6 @@
+using System.Globalization;
 using UpgradeAgent.Infrastructure;
+using UpgradeAgent.MsBuild;
 
 namespace UpgradeAgent.Workspace;
 
@@ -7,7 +9,7 @@ namespace UpgradeAgent.Workspace;
 /// MSBuild and NuGet read Directory.Build.*, Directory.Packages.props, nuget.config and global.json
 /// from parent folders, so a worktree elsewhere could build differently from the real repo.
 /// </summary>
-public sealed record RunWorkspace(
+internal sealed record RunWorkspace(
     string RepoPath,
     string WorkRoot,
     string RunId,
@@ -16,37 +18,34 @@ public sealed record RunWorkspace(
     string SolutionPath,
     string OutputDirectory)
 {
-    // Matched case-insensitively against the files that actually exist: probing "nuget.config" and
-    // "NuGet.Config" separately finds the same file twice on case-insensitive file systems (Windows).
-    private static readonly HashSet<string> InheritedConfigFiles = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "Directory.Build.props", "Directory.Build.targets", "Directory.Build.rsp", "Directory.Packages.props",
-        "nuget.config", "global.json", ".editorconfig",
-    };
-
     public static string DefaultWorkRoot(string repoPath) =>
         Path.Combine(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(repoPath))!, ".ua-work");
 
-    public static async Task<RunWorkspace> CreateAsync(
+    /// <summary>Names the run, its branch and folders. Creates nothing, so checks can run before anything exists.</summary>
+    public static async Task<RunWorkspace> PlanAsync(
         GitCli git, string repoPath, string solutionPath, string workRoot, string outputRoot, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        var runId = now.UtcDateTime.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
-        var branch = $"agent/nuget-updates-{now.UtcDateTime:yyyyMMdd-HHmm}";
+        var runId = now.UtcDateTime.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+        var branch = string.Create(CultureInfo.InvariantCulture, $"agent/nuget-updates-{now.UtcDateTime:yyyyMMdd-HHmm}");
         if (await git.BranchExistsAsync(repoPath, branch, cancellationToken))
         {
-            branch = $"{branch}{now.UtcDateTime:ss}";
+            branch = string.Create(CultureInfo.InvariantCulture, $"{branch}{now.UtcDateTime:ss}");
         }
 
         var worktree = Path.Combine(workRoot, runId);
-        Directory.CreateDirectory(workRoot);
-        await git.RunAsync(repoPath, ["worktree", "add", "-b", branch, worktree, "HEAD"], cancellationToken);
-
-        var relativeSolution = Path.GetRelativePath(repoPath, solutionPath);
         return new RunWorkspace(
-            repoPath, workRoot, runId, branch, worktree, Path.Combine(worktree, relativeSolution), Path.Combine(outputRoot, $"run-{runId}"));
+            repoPath, workRoot, runId, branch, worktree, Path.Combine(worktree, Path.GetRelativePath(repoPath, solutionPath)), Path.Combine(outputRoot, $"run-{runId}"));
     }
 
-    /// <summary>Inherited config files that affect the worktree but not the original repo.</summary>
+    /// <summary>Adds the worktree on a new branch from HEAD, and the output folder.</summary>
+    public async Task CreateAsync(GitCli git, CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(WorkRoot);
+        Directory.CreateDirectory(OutputDirectory);
+        await git.RunAsync(RepoPath, ["worktree", "add", "-b", BranchName, WorktreePath, "HEAD"], cancellationToken);
+    }
+
+    /// <summary>Inherited config files that would affect the worktree but not the original repo.</summary>
     public static IReadOnlyList<string> FindConfigLeaks(string repoPath, string worktreePath)
     {
         var original = InheritedConfigFilesAbove(repoPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -59,7 +58,9 @@ public sealed record RunWorkspace(
              current is not null;
              current = Path.GetDirectoryName(current))
         {
-            foreach (var file in FilesIn(current).Where(f => InheritedConfigFiles.Contains(Path.GetFileName(f))))
+            // Matched case-insensitively against the files that actually exist: probing "nuget.config" and
+            // "NuGet.Config" separately finds the same file twice on case-insensitive file systems (Windows).
+            foreach (var file in FilesIn(current).Where(f => MsBuildFiles.InheritedConfig.Contains(Path.GetFileName(f))))
             {
                 yield return file;
             }
@@ -70,7 +71,7 @@ public sealed record RunWorkspace(
     {
         try
         {
-            return Directory.GetFiles(directory);
+            return Directory.Exists(directory) ? Directory.GetFiles(directory) : [];
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {

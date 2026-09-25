@@ -1,17 +1,18 @@
 using System.Text;
 using UpgradeAgent.Bumping;
 using UpgradeAgent.Detection;
+using UpgradeAgent.Tests.TestSupport;
 
 namespace UpgradeAgent.Tests.Bumping;
 
 public sealed class VersionBumperTests : IDisposable
 {
-    private readonly string _root = Directory.CreateTempSubdirectory("ua-bump-").FullName;
+    private readonly TempDirectory _root = new("ua-bump-");
 
     [Fact]
     public void EditsCentralVersionChangingNothingElse()
     {
-        const string props = """
+        const string Props = """
             <Project>
               <ItemGroup>
                 <!-- keep this comment -->
@@ -20,13 +21,13 @@ public sealed class VersionBumperTests : IDisposable
               </ItemGroup>
             </Project>
             """;
-        Write("Directory.Packages.props", props);
+        Write("Directory.Packages.props", Props);
         Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Foo" /></ItemGroup></Project>""");
 
-        var result = VersionBumper.Apply(_root, [Update("Foo", "1.0.0", "1.1.0")]);
+        var result = VersionBumper.Apply(_root.Path, [Update("Foo", "1.0.0", "1.1.0")]);
 
-        Assert.Equal(props.Replace("\"1.0.0\"", "\"1.1.0\"", StringComparison.Ordinal), Read("Directory.Packages.props"));
-        Assert.Equal([new VersionEdit("Directory.Packages.props", "Foo", "1.0.0", "1.1.0")], result.Edits);
+        Assert.Equal(Props.Replace("\"1.0.0\"", "\"1.1.0\"", StringComparison.Ordinal), Read("Directory.Packages.props"));
+        Assert.Equal([TestData.Edit("Foo", "1.0.0", "1.1.0")], result.Edits);
         Assert.Empty(result.Manual);
     }
 
@@ -35,7 +36,7 @@ public sealed class VersionBumperTests : IDisposable
     {
         Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Foo" Version="1.0.0" /></ItemGroup></Project>""");
 
-        var result = VersionBumper.Apply(_root, [Update("Foo", "1.0.0", "1.0.5")]);
+        var result = VersionBumper.Apply(_root.Path, [Update("Foo", "1.0.0", "1.0.5")]);
 
         Assert.Contains("Version=\"1.0.5\"", Read("src/App/App.csproj"), StringComparison.Ordinal);
         Assert.Equal("src/App/App.csproj", Assert.Single(result.Edits).File);
@@ -48,7 +49,7 @@ public sealed class VersionBumperTests : IDisposable
         Write("src/Directory.Packages.props", """<Project><ItemGroup><PackageVersion Include="Foo" Version="1.0.0" /></ItemGroup></Project>""");
         Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk" />""");
 
-        VersionBumper.Apply(_root, [Update("Foo", "1.0.0", "1.1.0")]);
+        VersionBumper.Apply(_root.Path, [Update("Foo", "1.0.0", "1.1.0")]);
 
         Assert.Contains("1.1.0", Read("src/Directory.Packages.props"), StringComparison.Ordinal);
         Assert.Contains("1.0.0", Read("Directory.Packages.props"), StringComparison.Ordinal);
@@ -61,9 +62,9 @@ public sealed class VersionBumperTests : IDisposable
         Write("Directory.Packages.props", """<Project><ItemGroup><PackageVersion Include="Foo" Version="1.0.0" /></ItemGroup></Project>""");
         Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk" />""");
 
-        var result = VersionBumper.Apply(_root, [Update("Foo", "1.1.0", "2.0.0")]);
+        var result = VersionBumper.Apply(_root.Path, [Update("Foo", "1.1.0", "2.0.0")]);
 
-        Assert.Equal(new VersionEdit("Directory.Packages.props", "Foo", "1.0.0", "2.0.0"), Assert.Single(result.Edits));
+        Assert.Equal(TestData.Edit("Foo", "1.0.0", "2.0.0"), Assert.Single(result.Edits));
     }
 
     [Fact]
@@ -71,7 +72,7 @@ public sealed class VersionBumperTests : IDisposable
     {
         Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Foo" Version="$(FooVersion)" /><PackageReference Include="Bar" VersionOverride="1.0.0" /></ItemGroup></Project>""");
 
-        var result = VersionBumper.Apply(_root, [Update("Foo", "1.0.0", "2.0.0"), Update("Bar", "1.0.0", "2.0.0")]);
+        var result = VersionBumper.Apply(_root.Path, [Update("Foo", "1.0.0", "2.0.0"), Update("Bar", "1.0.0", "2.0.0")]);
 
         Assert.Empty(result.Edits);
         Assert.Contains("not a plain version", result.Manual.Single(m => m.Update.Id == "Foo").Reason, StringComparison.Ordinal);
@@ -79,11 +80,25 @@ public sealed class VersionBumperTests : IDisposable
     }
 
     [Fact]
+    public void AnUpdateIsNeverHalfApplied()
+    {
+        // The central version could be bumped, but the project overrides it: leave both for a human.
+        Write("Directory.Packages.props", """<Project><ItemGroup><PackageVersion Include="Foo" Version="1.0.0" /></ItemGroup></Project>""");
+        Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Foo" VersionOverride="1.0.0" /></ItemGroup></Project>""");
+
+        var result = VersionBumper.Apply(_root.Path, [Update("Foo", "1.0.0", "1.1.0")]);
+
+        Assert.Empty(result.Edits);
+        Assert.Contains("1.0.0", Read("Directory.Packages.props"), StringComparison.Ordinal);
+        Assert.Contains("VersionOverride in src/App/App.csproj", Assert.Single(result.Manual).Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void MissingEntryIsManual()
     {
         Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk" />""");
 
-        var result = VersionBumper.Apply(_root, [Update("Foo", "1.0.0", "2.0.0")]);
+        var result = VersionBumper.Apply(_root.Path, [Update("Foo", "1.0.0", "2.0.0")]);
 
         Assert.Contains("no version entry found", Assert.Single(result.Manual).Reason, StringComparison.Ordinal);
     }
@@ -91,26 +106,20 @@ public sealed class VersionBumperTests : IDisposable
     [Fact]
     public void PreservesByteOrderMark()
     {
-        File.WriteAllText(Path.Combine(_root, "Directory.Packages.props"), """<Project><ItemGroup><PackageVersion Include="Foo" Version="1.0.0" /></ItemGroup></Project>""", new UTF8Encoding(true));
+        File.WriteAllText(_root.Combine("Directory.Packages.props"), """<Project><ItemGroup><PackageVersion Include="Foo" Version="1.0.0" /></ItemGroup></Project>""", new UTF8Encoding(true));
         Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk" />""");
 
-        VersionBumper.Apply(_root, [Update("Foo", "1.0.0", "1.1.0")]);
+        VersionBumper.Apply(_root.Path, [Update("Foo", "1.0.0", "1.1.0")]);
 
-        var bytes = File.ReadAllBytes(Path.Combine(_root, "Directory.Packages.props"));
+        var bytes = File.ReadAllBytes(_root.Combine("Directory.Packages.props"));
         Assert.Equal([0xEF, 0xBB, 0xBF], bytes[..3]);
     }
 
-    public void Dispose() => Directory.Delete(_root, recursive: true);
+    public void Dispose() => _root.Dispose();
 
-    private static PlannedUpdate Update(string id, string from, string to) =>
-        new(id, from, to, BumpKind.Minor, [new ProjectTarget("src/App/App.csproj", "net10.0")], UpdateDecision.Planned, null, "patch-minor");
+    private static PlannedUpdate Update(string id, string from, string to) => TestData.Update(id, from, to);
 
-    private void Write(string relativePath, string content)
-    {
-        var path = Path.Combine(_root, relativePath);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, content);
-    }
+    private void Write(string relativePath, string content) => _root.Write(relativePath, content);
 
-    private string Read(string relativePath) => File.ReadAllText(Path.Combine(_root, relativePath));
+    private string Read(string relativePath) => _root.Read(relativePath);
 }

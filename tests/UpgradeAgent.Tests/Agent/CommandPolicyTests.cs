@@ -83,8 +83,24 @@ public class CommandPolicyTests
         Assert.Contains(expectedReason, decision.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ; ")]
+    public void RejectsEmptyCommands(string command)
+    {
+        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateShell(command, false).Verdict);
+    }
+
+    [Theory]
+    [InlineData("sed --in-place=.bak 's/a/b/' src/a.cs")]
+    [InlineData("git diff --output=patch.txt")]
+    public void RejectsFlagsThatWriteFiles(string command)
+    {
+        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateShell(command, false).Verdict);
+    }
+
     [Fact]
-    public void RejectsWhenCopilotReportsFileRedirection()
+    public void RejectsWhenTheRuntimeReportsFileRedirection()
     {
         Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateShell("dotnet build x.slnx --no-restore", hasWriteFileRedirection: true).Verdict);
     }
@@ -96,15 +112,15 @@ public class CommandPolicyTests
     }
 
     [Theory]
-    [InlineData("src/LoanLedger/StatementService.cs", PolicyVerdict.Approve)]
-    [InlineData("src/LoanLedger/LoanLedger.csproj", PolicyVerdict.AskOperator)]
-    [InlineData("Directory.Packages.props", PolicyVerdict.AskOperator)]
-    [InlineData(".editorconfig", PolicyVerdict.AskOperator)]
-    [InlineData(".git/config", PolicyVerdict.Reject)]
-    [InlineData("../other-repo/a.cs", PolicyVerdict.Reject)]
-    public void WritesAreApprovedOnlyForSourceFilesInTheWorktree(string relativePath, PolicyVerdict expected)
+    [InlineData("src/LoanLedger/StatementService.cs", nameof(PolicyVerdict.Approve))]
+    [InlineData("src/LoanLedger/LoanLedger.csproj", nameof(PolicyVerdict.AskOperator))]
+    [InlineData("Directory.Packages.props", nameof(PolicyVerdict.AskOperator))]
+    [InlineData(".editorconfig", nameof(PolicyVerdict.AskOperator))]
+    [InlineData(".git/config", nameof(PolicyVerdict.Reject))]
+    [InlineData("../other-repo/a.cs", nameof(PolicyVerdict.Reject))]
+    public void WritesAreApprovedOnlyForSourceFilesInTheWorktree(string relativePath, string expected)
     {
-        Assert.Equal(expected, _policy.EvaluateWrite(Path.Combine(Worktree, relativePath)).Verdict);
+        Assert.Equal(Enum.Parse<PolicyVerdict>(expected), _policy.EvaluateWrite(Path.Combine(Worktree, relativePath)).Verdict);
     }
 
     [Fact]
@@ -114,12 +130,6 @@ public class CommandPolicyTests
         Assert.Equal(PolicyVerdict.Approve, _policy.EvaluateRead(Path.Combine(Packages, "fixture.lib", "2.0.0", "MIGRATION.md")).Verdict);
         Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateRead(Path.Combine(Path.GetTempPath(), "ua-policy", "wt-sibling", "a.cs")).Verdict);
     }
-}
-
-public class CommandPolicyCredentialFileTests
-{
-    private static readonly string Worktree = Path.Combine(Path.GetTempPath(), "ua-policy", "wt");
-    private readonly CommandPolicy _policy = new(Worktree, []);
 
     [Theory]
     [InlineData("nuget.config")]

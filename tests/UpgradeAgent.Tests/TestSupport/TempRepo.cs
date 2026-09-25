@@ -2,55 +2,51 @@ using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Tests.TestSupport;
 
-/// <summary>A throwaway git repo in the temp folder.</summary>
-public sealed class TempRepo : IDisposable
+/// <summary>A throwaway git repo. Create it with <see cref="CreateAsync"/> from a test's <c>InitializeAsync</c>.</summary>
+internal sealed class TempRepo : IDisposable
 {
-    public TempRepo()
-    {
-        Path = Directory.CreateTempSubdirectory("ua-test-").FullName;
-        Git = new GitCli(new ProcessRunner());
-        Run("init", "-q", "-b", "main");
-        Run("config", "user.name", "Test");
-        Run("config", "user.email", "test@example.invalid");
-        Run("config", "commit.gpgsign", "false");
+    private readonly TempDirectory _directory = new("ua-repo-");
 
-        // Keep a developer's global hooks (e.g. a ggshield core.hooksPath) out of throwaway test repos.
-        Directory.CreateDirectory(System.IO.Path.Combine(Path, ".git", "no-hooks"));
-        Run("config", "core.hooksPath", ".git/no-hooks");
+    private TempRepo()
+    {
     }
 
-    public string Path { get; }
+    public string Path => _directory.Path;
 
-    public GitCli Git { get; }
+    public GitCli Git { get; } = new(new ProcessRunner());
+
+    public static async Task<TempRepo> CreateAsync()
+    {
+        var repo = new TempRepo();
+        await repo.RunAsync("init", "-q", "-b", "main");
+        await repo.RunAsync("config", "user.name", "Test");
+        await repo.RunAsync("config", "user.email", "test@example.invalid");
+        await repo.RunAsync("config", "commit.gpgsign", "false");
+
+        // Keep a developer's global hooks (e.g. a ggshield core.hooksPath) out of throwaway test repos.
+        Directory.CreateDirectory(System.IO.Path.Combine(repo.Path, ".git", "no-hooks"));
+        await repo.RunAsync("config", "core.hooksPath", ".git/no-hooks");
+        return repo;
+    }
 
     public TempRepo Write(string relativePath, string content)
     {
-        var full = System.IO.Path.Combine(Path, relativePath);
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(full)!);
-        File.WriteAllText(full, content);
+        _directory.Write(relativePath, content);
         return this;
     }
 
-    public string Read(string relativePath) => File.ReadAllText(System.IO.Path.Combine(Path, relativePath));
+    public string Read(string relativePath) => _directory.Read(relativePath);
 
-    public void Delete(string relativePath) => File.Delete(System.IO.Path.Combine(Path, relativePath));
+    public void Delete(string relativePath) => _directory.Delete(relativePath);
 
-    public string Commit(string message = "commit")
+    public async Task<string> CommitAsync(string message = "commit")
     {
-        Run("add", "-A");
-        Run("commit", "-q", "-m", message);
-        return Git.HeadAsync(Path).GetAwaiter().GetResult();
+        await RunAsync("add", "-A");
+        await RunAsync("commit", "-q", "-m", message);
+        return await Git.HeadAsync(Path);
     }
 
-    public string Run(params string[] arguments) => Git.RunAsync(Path, arguments).GetAwaiter().GetResult();
+    public Task<string> RunAsync(params string[] arguments) => Git.RunAsync(Path, arguments);
 
-    public void Dispose()
-    {
-        foreach (var file in Directory.EnumerateFiles(Path, "*", SearchOption.AllDirectories))
-        {
-            File.SetAttributes(file, FileAttributes.Normal);
-        }
-
-        Directory.Delete(Path, recursive: true);
-    }
+    public void Dispose() => _directory.Dispose();
 }

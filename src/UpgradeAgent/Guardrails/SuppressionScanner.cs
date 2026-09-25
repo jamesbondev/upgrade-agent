@@ -2,14 +2,14 @@ using System.Text.RegularExpressions;
 
 namespace UpgradeAgent.Guardrails;
 
-public sealed record Violation(string File, string Rule, string Line);
+internal sealed record Violation(string File, string Rule, string Line);
 
 /// <summary>
 /// Looks for ways to make a build or test run pass without fixing anything. Only lines that are
 /// genuinely new to a file count: a line removed and re-added (moved or reformatted) is ignored,
 /// so pre-existing suppressions don't cause false rejections.
 /// </summary>
-public static partial class SuppressionScanner
+internal static partial class SuppressionScanner
 {
     private static readonly (string Rule, Regex Pattern)[] Rules =
     [
@@ -37,7 +37,7 @@ public static partial class SuppressionScanner
                 violations.Add(new Violation(diff.Path, "new GlobalSuppressions.cs", ""));
             }
 
-            foreach (var line in GenuinelyAdded(diff))
+            foreach (var line in diff.GenuinelyAdded)
             {
                 foreach (var (rule, pattern) in Rules)
                 {
@@ -50,29 +50,6 @@ public static partial class SuppressionScanner
         }
 
         return violations;
-    }
-
-    internal static IEnumerable<string> GenuinelyAdded(FileDiff diff) => Unmatched(diff.Added, diff.Removed);
-
-    /// <summary>Lines in <paramref name="lines"/> with no whitespace-insensitive counterpart in <paramref name="counterparts"/> (multiset).</summary>
-    internal static IEnumerable<string> Unmatched(IReadOnlyList<string> lines, IReadOnlyList<string> counterparts)
-    {
-        var remaining = counterparts
-            .Select(l => l.Trim())
-            .GroupBy(l => l, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
-
-        foreach (var line in lines)
-        {
-            var key = line.Trim();
-            if (remaining.TryGetValue(key, out var count) && count > 0)
-            {
-                remaining[key] = count - 1;
-                continue;
-            }
-
-            yield return line;
-        }
     }
 
     [GeneratedRegex(@"#\s*pragma\s+warning\s+disable", RegexOptions.IgnoreCase)]

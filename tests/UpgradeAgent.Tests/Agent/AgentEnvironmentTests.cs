@@ -35,6 +35,12 @@ public class AgentEnvironmentTests
     [InlineData("VSS_NUGET_EXTERNAL_FEED_ENDPOINTS", true)]
     [InlineData("OPENAI_API_KEY", true)]
     [InlineData("Sql_ConnectionString", true)]
+    [InlineData("NPM_TOKEN", true)]
+    [InlineData("HF_TOKEN", true)]
+    [InlineData("SENTRY_AUTH_TOKEN", true)]
+    [InlineData("STRIPE_KEY", true)]
+    [InlineData("GOOGLE_APPLICATION_CREDENTIALS", true)]
+    [InlineData("DOTNET_CLI_UI_LANGUAGE", false)]
     public void ClassifiesSecrets(string name, bool expected)
     {
         Assert.Equal(expected, AgentEnvironment.IsSecret(name));

@@ -4,10 +4,10 @@ using UpgradeAgent.Preflight;
 
 namespace UpgradeAgent.Ui;
 
-/// <summary>Append-only rendering. Nothing here is live, so prompts can safely follow any output.</summary>
-public static class PlanRenderer
+/// <summary>Preflight checks and the plan table. Append-only, so prompts can safely follow.</summary>
+internal sealed class PlanRenderer(IAnsiConsole console)
 {
-    public static void RenderPreflight(IAnsiConsole console, IReadOnlyList<PreflightCheck> checks)
+    public void Preflight(IReadOnlyList<PreflightCheck> checks)
     {
         console.Write(new Rule("[bold]Preflight[/]").LeftJustified());
         foreach (var check in checks)
@@ -19,7 +19,9 @@ public static class PlanRenderer
         console.WriteLine();
     }
 
-    public static void RenderPlan(IAnsiConsole console, UpgradePlan plan, string repoPath)
+    public void Note(string message) => console.MarkupLine($"[grey]{Markup.Escape(message)}[/]");
+
+    public void Plan(UpgradePlan plan)
     {
         console.Write(new Rule("[bold]Upgrade plan[/]").LeftJustified());
 
@@ -43,9 +45,9 @@ public static class PlanRenderer
         {
             table.AddRow(
                 new Markup(Markup.Escape(update.Id)),
-                new Markup($"[grey]{Markup.Escape(DescribeProjects(update.Projects, repoPath))}[/]"),
-                new Markup(Markup.Escape(update.From)),
-                new Markup($"[bold]{Markup.Escape(update.To)}[/]"),
+                new Markup($"[grey]{Markup.Escape(DescribeProjects(update.Projects))}[/]"),
+                new Markup(Markup.Escape(update.From.ToNormalizedString())),
+                new Markup($"[bold]{Markup.Escape(update.To.ToNormalizedString())}[/]"),
                 new Markup(BumpMarkup(update.Kind)),
                 new Markup(Markup.Escape(update.Group ?? "")),
                 new Markup(DecisionMarkup(update)));
@@ -60,10 +62,10 @@ public static class PlanRenderer
         console.WriteLine();
     }
 
-    private static string DescribeProjects(IReadOnlyList<ProjectTarget> projects, string repoPath)
+    private static string DescribeProjects(IReadOnlyList<ProjectTarget> projects)
     {
         var names = projects.Select(p => Path.GetFileNameWithoutExtension(p.ProjectPath)).Distinct().ToList();
-        var frameworks = projects.Select(p => p.Framework).Distinct().ToList();
+        var frameworks = projects.Select(p => p.Framework.GetShortFolderName()).Distinct().ToList();
         var label = names.Count <= 2 ? string.Join(", ", names) : $"{names.Count} projects";
         return frameworks.Count > 1 ? $"{label} ({string.Join(", ", frameworks)})" : label;
     }
@@ -77,13 +79,14 @@ public static class PlanRenderer
 
     private static string DecisionMarkup(PlannedUpdate update)
     {
-        var reason = update.Reason is null ? "" : $" [grey]{Markup.Escape(update.Reason)}[/]";
-        return update.Decision switch
+        var color = update.Decision switch
         {
-            UpdateDecision.Planned => $"[green]planned[/]{reason}",
-            UpdateDecision.Manual => $"[yellow]manual[/]{reason}",
-            UpdateDecision.NeedsTfmUpgrade => $"[fuchsia]needs TFM upgrade[/]{reason}",
-            _ => $"[grey]skipped[/]{reason}",
+            UpdateDecision.Planned => "green",
+            UpdateDecision.Manual => "yellow",
+            UpdateDecision.NeedsTfmUpgrade => "fuchsia",
+            _ => "grey",
         };
+        var reason = (update.Reason ?? update.Note) is { } detail ? $" [grey]{Markup.Escape(detail)}[/]" : "";
+        return $"[{color}]{Markup.Escape(update.Decision.Label())}[/]{reason}";
     }
 }

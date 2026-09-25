@@ -1,18 +1,23 @@
+using UpgradeAgent.Build;
+using UpgradeAgent.Infrastructure;
 using UpgradeAgent.Preflight;
+using UpgradeAgent.Tests.TestSupport;
 
 namespace UpgradeAgent.Tests.Preflight;
 
-public sealed class TargetPreflightTests : IDisposable
+public sealed class TargetPreflightTests : IAsyncLifetime
 {
-    private readonly string _root = Directory.CreateTempSubdirectory("ua-preflight-").FullName;
+    private TempRepo _repo = null!;
+
+    public async Task InitializeAsync() => _repo = await TempRepo.CreateAsync();
 
     [Fact]
     public void SdkStyleProjectsPass()
     {
-        Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk" />""");
-        Write("src/Web/Web.csproj", """<Project><Sdk Name="Microsoft.NET.Sdk.Web" /></Project>""");
+        _repo.Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk" />""");
+        _repo.Write("src/Web/Web.csproj", """<Project><Sdk Name="Microsoft.NET.Sdk.Web" /></Project>""");
 
-        var check = TargetPreflight.CheckProjectStyle(_root);
+        var check = TargetPreflight.CheckProjectStyle(_repo.Path);
 
         Assert.True(check.Passed);
         Assert.Equal("2 projects", check.Detail);
@@ -21,9 +26,9 @@ public sealed class TargetPreflightTests : IDisposable
     [Fact]
     public void LegacyProjectsFail()
     {
-        Write("src/Old/Old.csproj", """<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" />""");
+        _repo.Write("src/Old/Old.csproj", """<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" />""");
 
-        var check = TargetPreflight.CheckProjectStyle(_root);
+        var check = TargetPreflight.CheckProjectStyle(_repo.Path);
 
         Assert.False(check.Passed);
         Assert.Contains("Old.csproj", check.Detail, StringComparison.Ordinal);
@@ -32,10 +37,10 @@ public sealed class TargetPreflightTests : IDisposable
     [Fact]
     public void PackagesConfigFails()
     {
-        Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk" />""");
-        Write("src/App/packages.config", "<packages />");
+        _repo.Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk" />""");
+        _repo.Write("src/App/packages.config", "<packages />");
 
-        var check = TargetPreflight.CheckProjectStyle(_root);
+        var check = TargetPreflight.CheckProjectStyle(_repo.Path);
 
         Assert.False(check.Passed);
         Assert.Contains("packages.config", check.Detail, StringComparison.Ordinal);
@@ -44,48 +49,40 @@ public sealed class TargetPreflightTests : IDisposable
     [Fact]
     public void BuildOutputIsIgnored()
     {
-        Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk" />""");
-        Write("src/App/obj/App.csproj.nuget.g.props", "<Project />");
-        Write("src/App/bin/Debug/Old.csproj", "<Project />");
+        _repo.Write("src/App/App.csproj", """<Project Sdk="Microsoft.NET.Sdk" />""");
+        _repo.Write("src/App/obj/App.csproj.nuget.g.props", "<Project />");
+        _repo.Write("src/App/bin/Debug/Old.csproj", "<Project />");
 
-        Assert.True(TargetPreflight.CheckProjectStyle(_root).Passed);
+        Assert.True(TargetPreflight.CheckProjectStyle(_repo.Path).Passed);
     }
-
-    public void Dispose() => Directory.Delete(_root, recursive: true);
-
-    private void Write(string relativePath, string content)
-    {
-        var path = Path.Combine(_root, relativePath);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, content);
-    }
-}
-
-public sealed class UncommittedConfigTests : IDisposable
-{
-    private readonly UpgradeAgent.Tests.TestSupport.TempRepo _repo = new();
 
     [Fact]
-    public async Task PassesWhenConfigFilesAreCommitted()
+    public async Task CommittedBuildConfigPasses()
     {
-        _repo.Write("nuget.config", "<configuration />").Write("src/App/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />").Commit();
+        await _repo.Write("nuget.config", "<configuration />").Write("src/App/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />").CommitAsync();
 
-        var check = await new TargetPreflight(new UpgradeAgent.Infrastructure.ProcessRunner()).CheckUncommittedConfigAsync(_repo.Path, CancellationToken.None);
+        var check = await Preflight().CheckUncommittedConfigAsync(_repo.Path, CancellationToken.None);
 
         Assert.True(check.Passed, check.Detail);
     }
 
     [Fact]
-    public async Task FailsForALocalUncommittedNuGetConfig()
+    public async Task ALocalUncommittedNuGetConfigFails()
     {
-        _repo.Write(".gitignore", "nuget.config\n").Write("src/App/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />").Commit();
+        await _repo.Write(".gitignore", "nuget.config\n").Write("src/App/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />").CommitAsync();
         _repo.Write("nuget.config", "<configuration />").Write("src/Directory.Build.props", "<Project />");
 
-        var check = await new TargetPreflight(new UpgradeAgent.Infrastructure.ProcessRunner()).CheckUncommittedConfigAsync(_repo.Path, CancellationToken.None);
+        var check = await Preflight().CheckUncommittedConfigAsync(_repo.Path, CancellationToken.None);
 
         Assert.False(check.Passed);
         Assert.StartsWith("nuget.config, src/Directory.Build.props exist(s) but aren't committed", check.Detail, StringComparison.Ordinal);
     }
 
-    public void Dispose() => _repo.Dispose();
+    public Task DisposeAsync()
+    {
+        _repo.Dispose();
+        return Task.CompletedTask;
+    }
+
+    private TargetPreflight Preflight() => new(_repo.Git, new DotnetCli(new ProcessRunner(), TimeProvider.System));
 }

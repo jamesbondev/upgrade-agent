@@ -16,7 +16,7 @@ public class ReviewNotesTests
             new("tests/App.Tests/CalcTests.cs", ["    public async Task Adds()"], ["    public void Adds()"], false, false),
         ];
 
-        var notes = GuardrailRunner.PublicApiChanges(diffs, ["tests/App.Tests/CalcTests.cs"]).ToList();
+        var notes = PublicApiNotes.Find(diffs, f => f == "tests/App.Tests/CalcTests.cs").Select(n => n.Message).ToList();
 
         Assert.Equal(["public API changed in src/App/InterestCalculator.cs: `public decimal DailyInterest(decimal principal)`"], notes);
     }
@@ -27,7 +27,7 @@ public class ReviewNotesTests
     [InlineData("    public static string Format(decimal value) => value.ToString();")]
     public void RecognisesTypeAndMemberSignatures(string line)
     {
-        Assert.Single(GuardrailRunner.PublicApiChanges([new FileDiff("src/A.cs", [], [line], false, false)], []));
+        Assert.Single(PublicApiNotes.Find([new FileDiff("src/A.cs", [], [line], false, false)], _ => false));
     }
 
     [Theory]
@@ -35,7 +35,7 @@ public class ReviewNotesTests
     [InlineData("    public const int Limit = 3;")]
     public void IgnoresPropertiesAndConstants(string line)
     {
-        Assert.Empty(GuardrailRunner.PublicApiChanges([new FileDiff("src/A.cs", [], [line], false, false)], []));
+        Assert.Empty(PublicApiNotes.Find([new FileDiff("src/A.cs", [], [line], false, false)], _ => false));
     }
 
     [Fact]
@@ -43,7 +43,7 @@ public class ReviewNotesTests
     {
         var diff = new FileDiff("src/A.cs", ["        public void Run()"], ["    public void Run()"], false, false);
 
-        Assert.Empty(GuardrailRunner.PublicApiChanges([diff], []));
+        Assert.Empty(PublicApiNotes.Find([diff], _ => false));
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class ReviewNotesTests
         ];
         var review = new ReviewContext(["./src/A.cs", "src/C.cs"], ["Directory.Packages.props"]);
 
-        var notes = GuardrailRunner.ClaimMismatches(diffs, review).ToList();
+        var notes = ClaimNotes.Find(diffs, review).Select(n => n.Message).ToList();
 
         Assert.Equal(
         [
@@ -71,6 +71,6 @@ public class ReviewNotesTests
     [Fact]
     public void NoSummaryMeansNoClaimNotes()
     {
-        Assert.Empty(GuardrailRunner.ClaimMismatches([new FileDiff("src/A.cs", ["x"], [], false, false)], new ReviewContext(null, [])));
+        Assert.Empty(ClaimNotes.Find([new FileDiff("src/A.cs", ["x"], [], false, false)], new ReviewContext(null, [])));
     }
 }

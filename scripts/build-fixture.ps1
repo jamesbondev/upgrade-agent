@@ -18,12 +18,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-
-function Invoke-Checked {
-    param([string] $File, [string[]] $Arguments)
-    & $File @Arguments
-    if ($LASTEXITCODE -ne 0) { throw "'$File $($Arguments -join ' ')' failed with exit code $LASTEXITCODE." }
-}
+Import-Module (Join-Path $PSScriptRoot 'Common.psm1') -Force
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $source = Join-Path $root 'fixtures' 'SampleRepo'
@@ -39,11 +34,13 @@ if ($Repack -or -not (Test-Path (Join-Path $sourceFeed 'fixture.lib.2.0.0.nupkg'
         Invoke-Checked dotnet @('build', $library, '-c', 'Release', "-p:FixtureApi=$api", '--no-incremental', '-nologo', '-v', 'q')
         Invoke-Checked dotnet @('pack', $library, '-c', 'Release', "-p:FixtureApi=$api", '--no-build', '-o', $sourceFeed, '-nologo', '-v', 'q')
     }
-    Get-ChildItem $sourceFeed -Filter '*.nupkg' | Rename-Item -NewName { $_.Name.ToLowerInvariant() } -ErrorAction SilentlyContinue
+    # Lower-case names (as NuGet expects); skip files that already are, which Rename-Item would refuse.
+    Get-ChildItem $sourceFeed -Filter '*.nupkg' | Where-Object { $_.Name -cne $_.Name.ToLowerInvariant() } |
+        Rename-Item -NewName { $_.Name.ToLowerInvariant() }
 }
 
 # Repacking reuses version numbers, so never let restore serve a stale Fixture.Lib from the global cache.
-$globalPackages = (dotnet nuget locals global-packages --list) -replace '^global-packages:\s*', ''
+$globalPackages = (Invoke-Checked dotnet @('nuget', 'locals', 'global-packages', '--list') -PassThru) -replace '^global-packages:\s*', ''
 Remove-Item (Join-Path $globalPackages.Trim() 'fixture.lib') -Recurse -Force -ErrorAction SilentlyContinue
 
 if (Test-Path $OutputRoot) {
@@ -83,5 +80,5 @@ finally {
 Write-Host 'Verifying baseline build and tests...'
 Invoke-Checked dotnet @('test', (Join-Path $repo 'LoanLedger.slnx'), '-nologo', '-v', 'q')
 
-$commit = (git -C $repo rev-parse HEAD).Trim()
+$commit = (Invoke-Checked git @('-C', $repo, 'rev-parse', 'HEAD') -PassThru).Trim()
 Write-Host "Fixture ready: $repo (commit $commit)"

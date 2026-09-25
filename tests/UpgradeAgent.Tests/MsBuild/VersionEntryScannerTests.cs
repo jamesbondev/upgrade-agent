@@ -1,13 +1,13 @@
-using UpgradeAgent.Bumping;
+using UpgradeAgent.MsBuild;
 
-namespace UpgradeAgent.Tests.Bumping;
+namespace UpgradeAgent.Tests.MsBuild;
 
 public class VersionEntryScannerTests
 {
     [Fact]
     public void FindsCentralVersionsWithValueOffsets()
     {
-        const string text = """
+        const string Text = """
             <Project>
               <ItemGroup>
                 <PackageVersion Include="Foo" Version="1.0.0" />
@@ -16,16 +16,16 @@ public class VersionEntryScannerTests
             </Project>
             """;
 
-        var entries = VersionEntryScanner.Scan(text);
+        var entries = VersionEntryScanner.Scan(Text);
 
         Assert.Equal(["Foo", "Bar"], entries.Select(e => e.Id));
-        Assert.All(entries, e => Assert.Equal(e.Version, text.Substring(e.ValueStart!.Value, e.ValueLength!.Value)));
+        Assert.All(entries, e => Assert.Equal(e.Value!.Text, Text.Substring(e.Value.Start, e.Value.Length)));
     }
 
     [Fact]
     public void FindsChildVersionElementsAndMultilineTags()
     {
-        const string text = """
+        const string Text = """
             <ItemGroup>
               <PackageReference
                   Include="Foo"
@@ -35,39 +35,47 @@ public class VersionEntryScannerTests
             </ItemGroup>
             """;
 
-        var entry = Assert.Single(VersionEntryScanner.Scan(text));
+        var entry = Assert.Single(VersionEntryScanner.Scan(Text));
 
-        Assert.Equal(("Foo", "1.2.3"), (entry.Id, entry.Version));
-        Assert.Equal("1.2.3", text.Substring(entry.ValueStart!.Value, entry.ValueLength!.Value));
+        Assert.Equal(("Foo", "1.2.3"), (entry.Id, entry.Value!.Text));
+        Assert.Equal("1.2.3", Text.Substring(entry.Value.Start, entry.Value.Length));
     }
 
     [Fact]
     public void IgnoresEntriesInComments()
     {
-        const string text = """
+        const string Text = """
             <!-- <PackageVersion Include="Old" Version="0.1.0" /> -->
             <PackageVersion Include="Foo" Version="1.0.0" />
             """;
 
-        Assert.Equal(["Foo"], VersionEntryScanner.Scan(text).Select(e => e.Id));
+        Assert.Equal(["Foo"], VersionEntryScanner.Scan(Text).Select(e => e.Id));
+    }
+
+    [Fact]
+    public void AttributesMayContainAngleBrackets()
+    {
+        const string Text = """<PackageReference Include="Foo" Version="1.0.0" Condition="'$(Major)' > '1'" />""";
+
+        Assert.Equal("1.0.0", Assert.Single(VersionEntryScanner.Scan(Text)).Value!.Text);
     }
 
     [Fact]
     public void ReportsVersionOverrideAndCentralReferencesWithoutVersion()
     {
-        const string text = """
+        const string Text = """
             <PackageReference Include="Foo" />
             <PackageReference Include="Bar" VersionOverride="3.0.0" />
             <PackageReference Update="Baz" Version="$(BazVersion)" />
             <GlobalPackageReference Include="Analyzers" Version="9.0.0" />
             """;
 
-        var entries = VersionEntryScanner.Scan(text);
+        var entries = VersionEntryScanner.Scan(Text);
 
-        Assert.Null(entries[0].Version);
+        Assert.Null(entries[0].Value);
         Assert.True(entries[1].HasVersionOverride);
-        Assert.Null(entries[1].Version);
-        Assert.Equal(("Baz", "$(BazVersion)"), (entries[2].Id, entries[2].Version));
-        Assert.Equal(("GlobalPackageReference", "9.0.0"), (entries[3].Element, entries[3].Version));
+        Assert.Null(entries[1].Value);
+        Assert.Equal(("Baz", "$(BazVersion)"), (entries[2].Id, entries[2].Value!.Text));
+        Assert.Equal(("GlobalPackageReference", "9.0.0"), (entries[3].Element, entries[3].Value!.Text));
     }
 }

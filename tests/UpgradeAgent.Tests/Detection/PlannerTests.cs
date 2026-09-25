@@ -1,3 +1,5 @@
+using NuGet.Frameworks;
+using NuGet.Versioning;
 using UpgradeAgent.Config;
 using UpgradeAgent.Detection;
 
@@ -30,8 +32,8 @@ public class PlannerTests
             .Add(App, "Fixture.Lib", "1.0.0", latest: "2.0.0", minor: "1.1.0"));
 
         Assert.Collection(plan.Updates,
-            u => Assert.Equal(("1.0.0", "1.1.0", BumpKind.Minor, "patch-minor"), (u.From, u.To, u.Kind, u.Group)),
-            u => Assert.Equal(("1.1.0", "2.0.0", BumpKind.Major, "Fixture.Lib"), (u.From, u.To, u.Kind, u.Group)));
+            u => Assert.Equal(("1.0.0", "1.1.0", BumpKind.Minor, "patch-minor"), (u.From.ToNormalizedString(), u.To.ToNormalizedString(), u.Kind, u.Group)),
+            u => Assert.Equal(("1.1.0", "2.0.0", BumpKind.Major, "Fixture.Lib"), (u.From.ToNormalizedString(), u.To.ToNormalizedString(), u.Kind, u.Group)));
         Assert.Equal(["patch-minor", "Fixture.Lib"], plan.Groups.Select(g => g.Name));
     }
 
@@ -43,7 +45,7 @@ public class PlannerTests
             .Add(App, "Humanizer.Core", "2.14.1", latest: "3.0.1"));
 
         var update = Assert.Single(plan.Updates);
-        Assert.Equal(("2.14.1", "3.0.1", BumpKind.Major), (update.From, update.To, update.Kind));
+        Assert.Equal(("2.14.1", "3.0.1", BumpKind.Major), (update.From.ToNormalizedString(), update.To.ToNormalizedString(), update.Kind));
     }
 
     [Fact]
@@ -53,8 +55,8 @@ public class PlannerTests
             .Add(App, "Early.Package", "0.3.1", latest: "0.5.0", minor: "0.4.2", patch: "0.3.4"));
 
         Assert.Collection(plan.Updates,
-            u => Assert.Equal(("0.3.1", "0.3.4", BumpKind.Patch), (u.From, u.To, u.Kind)),
-            u => Assert.Equal(("0.3.4", "0.5.0", BumpKind.Major), (u.From, u.To, u.Kind)));
+            u => Assert.Equal(("0.3.1", "0.3.4", BumpKind.Patch), (u.From.ToNormalizedString(), u.To.ToNormalizedString(), u.Kind)),
+            u => Assert.Equal(("0.3.4", "0.5.0", BumpKind.Major), (u.From.ToNormalizedString(), u.To.ToNormalizedString(), u.Kind)));
     }
 
     [Fact]
@@ -65,9 +67,9 @@ public class PlannerTests
             .Add(Lib, "Newtonsoft.Json", "13.0.1", latest: "13.0.4", minor: "13.0.4"));
 
         Assert.Collection(plan.Updates,
-            u => Assert.Equal(("12.0.1", "12.0.3", AppRelative), (u.From, u.To, Assert.Single(u.Projects).ProjectPath)),
-            u => Assert.Equal(("12.0.3", "13.0.4", AppRelative), (u.From, u.To, Assert.Single(u.Projects).ProjectPath)),
-            u => Assert.Equal(("13.0.1", "13.0.4", LibRelative), (u.From, u.To, Assert.Single(u.Projects).ProjectPath)));
+            u => Assert.Equal(("12.0.1", "12.0.3", AppRelative), (u.From.ToNormalizedString(), u.To.ToNormalizedString(), Assert.Single(u.Projects).ProjectPath)),
+            u => Assert.Equal(("12.0.3", "13.0.4", AppRelative), (u.From.ToNormalizedString(), u.To.ToNormalizedString(), Assert.Single(u.Projects).ProjectPath)),
+            u => Assert.Equal(("13.0.1", "13.0.4", LibRelative), (u.From.ToNormalizedString(), u.To.ToNormalizedString(), Assert.Single(u.Projects).ProjectPath)));
     }
 
     [Fact]
@@ -89,7 +91,7 @@ public class PlannerTests
 
         var plan = await CreatePlanAsync(new Reports().Add(App, "Fixture.Lib", "1.0.0", latest: "3.1.0", minor: "1.1.0"), policy);
 
-        Assert.Equal(["1.1.0", "2.0.0"], plan.Updates.Select(u => u.To));
+        Assert.Equal(["1.1.0", "2.0.0"], plan.Updates.Select(u => u.To.ToNormalizedString()));
     }
 
     [Fact]
@@ -163,25 +165,25 @@ public class PlannerTests
         var plan = await CreatePlanAsync(new Reports().Add(App, "Old.Lib", "8.0.0", latest: "16.0.0", minor: "8.4.0"));
 
         Assert.Collection(plan.Updates,
-            u => Assert.Equal(("8.4.0", UpdateDecision.Planned), (u.To, u.Decision)),
+            u => Assert.Equal(("8.4.0", UpdateDecision.Planned), (u.To.ToNormalizedString(), u.Decision)),
             u =>
             {
-                Assert.Equal(("16.0.0", UpdateDecision.Manual), (u.To, u.Decision));
+                Assert.Equal(("16.0.0", UpdateDecision.Manual), (u.To.ToNormalizedString(), u.Decision));
                 Assert.StartsWith("8 major versions behind (limit 2)", u.Reason, StringComparison.Ordinal);
             });
         Assert.Equal(["patch-minor"], plan.Groups.Select(g => g.Name));
     }
 
     [Theory]
-    [InlineData("10.0.0", UpdateDecision.Planned)]
-    [InlineData("11.0.0", UpdateDecision.Manual)]
-    public async Task MaxMajorJumpAppliesToTargetOverrides(string target, UpdateDecision expected)
+    [InlineData("10.0.0", nameof(UpdateDecision.Planned))]
+    [InlineData("11.0.0", nameof(UpdateDecision.Manual))]
+    public async Task MaxMajorJumpAppliesToTargetOverrides(string target, string expected)
     {
         var policy = new PolicyOptions { TargetOverrides = { ["Old.Lib"] = target } };
 
         var plan = await CreatePlanAsync(new Reports().Add(App, "Old.Lib", "8.0.0", latest: "16.0.0"), policy);
 
-        Assert.Equal(expected, Assert.Single(plan.Updates).Decision);
+        Assert.Equal(Enum.Parse<UpdateDecision>(expected), Assert.Single(plan.Updates).Decision);
     }
 
     [Fact]
@@ -231,8 +233,57 @@ public class PlannerTests
         var provider = plan.Updates.Single(u => u.Id == "Microsoft.EntityFrameworkCore.SqlServer");
         Assert.Equal((UpdateDecision.NeedsTfmUpgrade, "supports net10.0; not net8.0"), (core.Decision, core.Reason));
         Assert.Equal(UpdateDecision.Skipped, provider.Decision);
-        Assert.Contains("needs a TFM upgrade", provider.Reason, StringComparison.Ordinal);
+        Assert.Contains("can't move (needs TFM upgrade:", provider.Reason, StringComparison.Ordinal);
         Assert.Empty(plan.Groups);
+    }
+
+    [Fact]
+    public async Task AFamilyMemberLeftForAHumanBlocksTheWholeFamily()
+    {
+        // EF Core is 3 majors behind (manual); its provider alone would be within the limit, but moving it alone breaks the build.
+        var plan = await CreatePlanAsync(new Reports()
+            .Add(App, "Microsoft.EntityFrameworkCore", "6.0.0", latest: "9.0.0")
+            .Add(App, "Npgsql.EntityFrameworkCore.PostgreSQL", "7.0.0", latest: "9.0.0"));
+
+        var provider = plan.Updates.Single(u => u.Id == "Npgsql.EntityFrameworkCore.PostgreSQL");
+        Assert.Equal(UpdateDecision.Skipped, provider.Decision);
+        Assert.StartsWith("blocked: family 'efcore' member Microsoft.EntityFrameworkCore can't move (manual: 3 major versions behind", provider.Reason, StringComparison.Ordinal);
+        Assert.Empty(plan.Groups);
+    }
+
+    [Fact]
+    public async Task APolicySkipDoesNotBlockTheRestOfTheFamily()
+    {
+        var policy = new PolicyOptions { Allow = ["Serilog"] };
+
+        var plan = await CreatePlanAsync(new Reports()
+            .Add(App, "Serilog", "3.0.0", latest: "4.0.0")
+            .Add(App, "Serilog.Sinks.Console", "5.0.0", latest: "6.0.0"), policy);
+
+        Assert.Equal(UpdateDecision.Planned, plan.Updates.Single(u => u.Id == "Serilog").Decision);
+    }
+
+    [Fact]
+    public async Task EachFrameworkSetIsCheckedForCompatibility()
+    {
+        var checker = new FakeCompatibility();
+
+        await CreatePlanAsync(new Reports()
+            .Add(App, "Foo", "1.9.0", latest: "3.0.0", framework: "net10.0")
+            .Add(Lib, "Foo", "2.5.0", latest: "3.0.0", framework: "net8.0"), checker: checker);
+
+        Assert.Equal(2, checker.Calls.Count);
+    }
+
+    [Fact]
+    public async Task VersionsAreNormalizedWhateverTheirSource()
+    {
+        var policy = new PolicyOptions { TargetOverrides = new(StringComparer.OrdinalIgnoreCase) { ["Foo"] = "2.0" } };
+
+        var plan = await CreatePlanAsync(new Reports().Add(App, "Foo", "1.0", latest: "3.0"), policy);
+
+        var update = Assert.Single(plan.Updates);
+        Assert.Equal(("1.0.0", "2.0.0"), (update.From.ToString(), update.To.ToString()));
     }
 
     [Fact]
@@ -244,7 +295,7 @@ public class PlannerTests
 
         var update = Assert.Single(plan.Updates);
         Assert.Equal(UpdateDecision.Planned, update.Decision);
-        Assert.Contains("401 Unauthorized", update.Reason, StringComparison.Ordinal);
+        Assert.Contains("401 Unauthorized", update.Note, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -259,28 +310,11 @@ public class PlannerTests
         Assert.Equal([("Fixture.Lib", "2.0.0")], checker.Calls);
     }
 
-    [Fact]
-    public async Task OnlySelectsByIdOrFamilyAndKeepsBothStepsOfAPackage()
-    {
-        var reports = new Reports()
-            .Add(App, "Fixture.Lib", "1.0.0", latest: "2.0.0", minor: "1.1.0")
-            .Add(App, "Microsoft.EntityFrameworkCore", "8.0.10", latest: "10.0.1")
-            .Add(App, "Newtonsoft.Json", "13.0.1", latest: "13.0.4");
+    internal static Task<UpgradePlan> CreatePlanAsync(Reports reports, PolicyOptions? policy = null, FakeCompatibility? checker = null) =>
+        new Planner(policy ?? new PolicyOptions(), checker ?? new FakeCompatibility(), TimeProvider.System)
+            .CreateAsync(reports.Build(), "/repo", "/repo/App.slnx", CancellationToken.None);
 
-        var byId = await CreatePlanAsync(reports, only: ["fixture.*"]);
-        var byFamily = await CreatePlanAsync(reports, only: ["efcore"]);
-
-        Assert.Equal(["patch-minor", "Fixture.Lib"], byId.Groups.Select(g => g.Name));
-        Assert.Equal(["efcore"], byFamily.Groups.Select(g => g.Name));
-        Assert.Equal("not selected by --only", byFamily.Updates.Single(u => u.Id == "Newtonsoft.Json").Reason);
-    }
-
-    private static Task<UpgradePlan> CreatePlanAsync(
-        Reports reports, PolicyOptions? policy = null, FakeCompatibility? checker = null, string[]? only = null) =>
-        new Planner(policy ?? new PolicyOptions(), checker ?? new FakeCompatibility())
-            .CreateAsync(reports.Build(), "/repo", "/repo/App.slnx", only ?? [], CancellationToken.None);
-
-    private sealed class Reports
+    internal sealed class Reports
     {
         private readonly List<ReportedPackage> _latest = [];
         private readonly List<ReportedPackage> _minor = [];
@@ -307,14 +341,14 @@ public class PlannerTests
         public OutdatedReports Build() => new(_latest, _minor, _patch);
     }
 
-    private sealed class FakeCompatibility : Dictionary<string, CompatibilityResult>, IPackageCompatibilityChecker
+    internal sealed class FakeCompatibility : Dictionary<string, CompatibilityResult>, IPackageCompatibilityChecker
     {
         public List<(string Id, string Version)> Calls { get; } = [];
 
         public Task<CompatibilityResult> CheckAsync(
-            string id, string version, IReadOnlyCollection<string> projectFrameworks, CancellationToken cancellationToken)
+            string id, NuGetVersion version, IReadOnlyCollection<NuGetFramework> projectFrameworks, CancellationToken cancellationToken)
         {
-            Calls.Add((id, version));
+            Calls.Add((id, version.ToNormalizedString()));
             return Task.FromResult(TryGetValue(id, out var result) ? result : new CompatibilityResult(CompatibilityStatus.Compatible));
         }
     }

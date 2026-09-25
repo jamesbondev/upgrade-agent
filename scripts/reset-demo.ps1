@@ -30,6 +30,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+Import-Module (Join-Path $PSScriptRoot 'Common.psm1') -Force
 
 $repo = (Resolve-Path $RepoPath).Path.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
 if (-not $WorkRoot) { $WorkRoot = Join-Path (Split-Path $repo -Parent) '.ua-work' }
@@ -40,23 +41,22 @@ if ($PSCmdlet.ShouldProcess('dotnet build servers', 'shut down')) {
     dotnet build-server shutdown | Out-Null
 }
 
-$worktrees = git -C $repo worktree list --porcelain |
+$worktrees = Invoke-Checked git @('-C', $repo, 'worktree', 'list', '--porcelain') -PassThru |
     Where-Object { $_ -like 'worktree *' } |
-    ForEach-Object { [IO.Path]::GetFullPath($_.Substring(9)) } |
-    Where-Object { $_.StartsWith($WorkRoot, [StringComparison]::OrdinalIgnoreCase) }
+    ForEach-Object { [IO.Path]::GetFullPath(($_ -replace '^worktree ', '')) } |
+    Where-Object { Test-PathInside -Path $_ -Root $WorkRoot }
 
 foreach ($worktree in $worktrees) {
     if ($PSCmdlet.ShouldProcess($worktree, 'remove worktree')) {
-        git -C $repo worktree remove --force $worktree
-        if ($LASTEXITCODE -ne 0) { throw "Could not remove worktree $worktree." }
+        Invoke-Checked git @('-C', $repo, 'worktree', 'remove', '--force', $worktree)
     }
 }
-git -C $repo worktree prune
+Invoke-Checked git @('-C', $repo, 'worktree', 'prune')
 
-$branches = git -C $repo for-each-ref --format='%(refname:short)' 'refs/heads/agent/nuget-updates-*'
+$branches = Invoke-Checked git @('-C', $repo, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/agent/nuget-updates-*') -PassThru
 foreach ($branch in $branches) {
     if ($PSCmdlet.ShouldProcess($branch, 'delete local branch')) {
-        git -C $repo branch -D -q $branch
+        Invoke-Checked git @('-C', $repo, 'branch', '-D', '-q', $branch)
     }
 }
 
@@ -74,6 +74,7 @@ if (Test-Path $OutputDirectory) {
 if ($Ado) {
     if (-not $Config) { throw '-Ado needs -Config <file> with the AzureDevOps settings.' }
     $project = Join-Path $PSScriptRoot '..' 'src' 'UpgradeAgent'
+    # Called directly, not through Invoke-Checked: ado-cleanup asks for confirmation, so it needs the real console.
     dotnet run --project $project -- ado-cleanup --config (Resolve-Path $Config).Path
     if ($LASTEXITCODE -ne 0) { throw "ado-cleanup failed with exit code $LASTEXITCODE." }
 }

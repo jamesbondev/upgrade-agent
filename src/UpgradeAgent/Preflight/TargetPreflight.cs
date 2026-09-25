@@ -1,13 +1,15 @@
 using System.Xml.Linq;
+using UpgradeAgent.Build;
 using UpgradeAgent.Config;
 using UpgradeAgent.Infrastructure;
+using UpgradeAgent.MsBuild;
 
 namespace UpgradeAgent.Preflight;
 
-public sealed record PreflightCheck(string Name, bool Passed, string Detail);
+internal sealed record PreflightCheck(string Name, bool Passed, string Detail);
 
 /// <summary>Cheap checks that fail fast, before any restore, detection or model call.</summary>
-public sealed class TargetPreflight(IProcessRunner processRunner)
+internal sealed class TargetPreflight(GitCli git, DotnetCli dotnet)
 {
     /// <param name="requireCleanRepo">A run branches from HEAD; uncommitted changes would silently be left out.</param>
     public async Task<IReadOnlyList<PreflightCheck>> RunAsync(ResolvedConfig config, bool requireCleanRepo, CancellationToken cancellationToken)
@@ -16,7 +18,7 @@ public sealed class TargetPreflight(IProcessRunner processRunner)
         {
             await CheckSdkAsync(config.RepoPath, cancellationToken),
             File.Exists(config.SolutionPath)
-                ? new PreflightCheck("Solution", true, Path.GetRelativePath(config.RepoPath, config.SolutionPath))
+                ? new PreflightCheck("Solution", true, RepoPath.Relative(config.RepoPath, config.SolutionPath))
                 : new PreflightCheck("Solution", false, $"not found: {config.SolutionPath}"),
             CheckProjectStyle(config.RepoPath),
         };
@@ -30,11 +32,6 @@ public sealed class TargetPreflight(IProcessRunner processRunner)
         return checks;
     }
 
-    private static readonly HashSet<string> BuildConfigNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "nuget.config", "Directory.Build.props", "Directory.Build.targets", "Directory.Build.rsp", "Directory.Packages.props", "global.json",
-    };
-
     /// <summary>
     /// A run works in a git worktree, which only contains committed files. A local, uncommitted nuget.config
     /// (common for private feeds) would silently be missing there and restores would fail.
@@ -42,7 +39,6 @@ public sealed class TargetPreflight(IProcessRunner processRunner)
     internal async Task<PreflightCheck> CheckUncommittedConfigAsync(string repoPath, CancellationToken cancellationToken)
     {
         const string Name = "Build config in worktree";
-        var git = new GitCli(processRunner);
         var listing = await git.TryRunAsync(repoPath, ["ls-files"], cancellationToken);
         if (!listing.Succeeded)
         {
@@ -50,9 +46,9 @@ public sealed class TargetPreflight(IProcessRunner processRunner)
         }
 
         var tracked = GitCli.SplitLines(listing.StandardOutput).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var missing = EnumerateRepoFiles(repoPath)
-            .Where(f => BuildConfigNames.Contains(Path.GetFileName(f)))
-            .Select(f => Path.GetRelativePath(repoPath, f).Replace('\\', '/'))
+        var missing = MsBuildFiles.EnumerateRepoFiles(repoPath)
+            .Where(f => MsBuildFiles.BuildConfig.Contains(Path.GetFileName(f)))
+            .Select(f => RepoPath.Relative(repoPath, f))
             .Where(f => !tracked.Contains(f))
             .Order(StringComparer.Ordinal)
             .ToList();
@@ -67,8 +63,16 @@ public sealed class TargetPreflight(IProcessRunner processRunner)
 
     private async Task<PreflightCheck> CheckGitAsync(string repoPath, CancellationToken cancellationToken)
     {
-        var git = new GitCli(processRunner);
-        var head = await git.TryRunAsync(repoPath, ["rev-parse", "--short", "HEAD"], cancellationToken);
+        ProcessResult head;
+        try
+        {
+            head = await git.TryRunAsync(repoPath, ["rev-parse", "--short", "HEAD"], cancellationToken);
+        }
+        catch (ProcessStartException ex)
+        {
+            return new PreflightCheck("Git repo", false, ex.Message);
+        }
+
         if (!head.Succeeded)
         {
             return new PreflightCheck("Git repo", false, "not a git repository with at least one commit");
@@ -85,8 +89,16 @@ public sealed class TargetPreflight(IProcessRunner processRunner)
 
     private async Task<PreflightCheck> CheckSdkAsync(string repoPath, CancellationToken cancellationToken)
     {
-        // Run in the repo so its global.json decides which SDK is selected.
-        var result = await processRunner.RunAsync("dotnet", ["--version"], repoPath, cancellationToken: cancellationToken);
+        ProcessResult result;
+        try
+        {
+            result = await dotnet.VersionAsync(repoPath, cancellationToken);
+        }
+        catch (ProcessStartException ex)
+        {
+            return new PreflightCheck(".NET SDK", false, ex.Message);
+        }
+
         var version = result.StandardOutput.Trim();
         if (!result.Succeeded)
         {
@@ -100,7 +112,7 @@ public sealed class TargetPreflight(IProcessRunner processRunner)
 
     internal static PreflightCheck CheckProjectStyle(string repoPath)
     {
-        var files = EnumerateRepoFiles(repoPath).ToList();
+        var files = MsBuildFiles.EnumerateRepoFiles(repoPath).ToList();
 
         var packagesConfig = files.Where(f => string.Equals(Path.GetFileName(f), "packages.config", StringComparison.OrdinalIgnoreCase)).ToList();
         if (packagesConfig.Count > 0)
@@ -109,8 +121,7 @@ public sealed class TargetPreflight(IProcessRunner processRunner)
                 $"packages.config is not supported: {string.Join(", ", packagesConfig.Select(f => Path.GetRelativePath(repoPath, f)))}");
         }
 
-        var projects = files.Where(f => f.EndsWith("proj", StringComparison.OrdinalIgnoreCase)
-            && Path.GetExtension(f) is ".csproj" or ".fsproj" or ".vbproj").ToList();
+        var projects = files.Where(MsBuildFiles.IsProjectFile).ToList();
         var legacy = projects.Where(p => !IsSdkStyle(p)).ToList();
 
         return legacy.Count == 0
@@ -131,27 +142,6 @@ public sealed class TargetPreflight(IProcessRunner processRunner)
         catch (System.Xml.XmlException)
         {
             return false;
-        }
-    }
-
-    private static IEnumerable<string> EnumerateRepoFiles(string repoPath)
-    {
-        var pending = new Stack<string>([repoPath]);
-        while (pending.Count > 0)
-        {
-            var directory = pending.Pop();
-            foreach (var file in Directory.EnumerateFiles(directory))
-            {
-                yield return file;
-            }
-
-            foreach (var child in Directory.EnumerateDirectories(directory))
-            {
-                if (Path.GetFileName(child) is not ("bin" or "obj" or ".git" or "node_modules" or "TestResults"))
-                {
-                    pending.Push(child);
-                }
-            }
         }
     }
 }

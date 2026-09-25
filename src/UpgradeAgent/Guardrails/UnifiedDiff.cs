@@ -1,16 +1,48 @@
 namespace UpgradeAgent.Guardrails;
 
-public sealed record FileDiff(string Path, IReadOnlyList<string> Added, IReadOnlyList<string> Removed, bool IsNew, bool IsDeleted);
+internal sealed record FileDiff(string Path, IReadOnlyList<string> Added, IReadOnlyList<string> Removed, bool IsNew, bool IsDeleted)
+{
+    /// <summary>Added lines with no whitespace-insensitive match among the removed ones: new, not moved or reformatted.</summary>
+    public IEnumerable<string> GenuinelyAdded => Unmatched(Added, Removed);
 
-/// <summary>Parses <c>git diff -U0</c> output.</summary>
-public static class UnifiedDiff
+    /// <summary>Removed lines with no whitespace-insensitive match among the added ones.</summary>
+    public IEnumerable<string> GenuinelyRemoved => Unmatched(Removed, Added);
+
+    /// <summary>Lines in <paramref name="lines"/> with no counterpart in <paramref name="counterparts"/>, counting duplicates.</summary>
+    private static IEnumerable<string> Unmatched(IReadOnlyList<string> lines, IReadOnlyList<string> counterparts)
+    {
+        var remaining = counterparts
+            .Select(l => l.Trim())
+            .GroupBy(l => l, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+
+        foreach (var line in lines)
+        {
+            var key = line.Trim();
+            if (remaining.TryGetValue(key, out var count) && count > 0)
+            {
+                remaining[key] = count - 1;
+                continue;
+            }
+
+            yield return line;
+        }
+    }
+}
+
+/// <summary>
+/// Parses <c>git diff -U0</c> output. Header lines (<c>---</c>, <c>+++</c>, modes) are only read before a file's
+/// first hunk: inside a hunk, a removed line starting "-- " (an SQL comment) or an added one starting "++" is
+/// content like any other.
+/// </summary>
+internal static class UnifiedDiff
 {
     public static IReadOnlyList<FileDiff> Parse(string diff)
     {
         var files = new List<FileDiff>();
         string? path = null;
         List<string> added = [], removed = [];
-        bool isNew = false, isDeleted = false;
+        bool isNew = false, isDeleted = false, inHunk = false;
 
         void Flush()
         {
@@ -27,11 +59,26 @@ public static class UnifiedDiff
             {
                 Flush();
                 path = ParseHeaderPath(line);
-                (added, removed, isNew, isDeleted) = ([], [], false, false);
+                (added, removed, isNew, isDeleted, inHunk) = ([], [], false, false, false);
             }
             else if (path is null)
             {
                 continue;
+            }
+            else if (line.StartsWith("@@", StringComparison.Ordinal))
+            {
+                inHunk = true;
+            }
+            else if (inHunk)
+            {
+                if (line.StartsWith('+'))
+                {
+                    added.Add(line[1..]);
+                }
+                else if (line.StartsWith('-'))
+                {
+                    removed.Add(line[1..]);
+                }
             }
             else if (line.StartsWith("new file mode", StringComparison.Ordinal))
             {
@@ -47,18 +94,6 @@ public static class UnifiedDiff
                 {
                     path = StripPrefix(line[4..]);
                 }
-            }
-            else if (line.StartsWith("--- ", StringComparison.Ordinal))
-            {
-                continue;
-            }
-            else if (line.StartsWith('+'))
-            {
-                added.Add(line[1..]);
-            }
-            else if (line.StartsWith('-'))
-            {
-                removed.Add(line[1..]);
             }
         }
 

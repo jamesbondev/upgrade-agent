@@ -1,75 +1,55 @@
+using UpgradeAgent.Build;
 using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Detection;
 
-public enum OutdatedScope
-{
-    Latest,
-    HighestMinor,
-    HighestPatch,
-}
-
 /// <summary>The three views of "outdated" that two-step planning needs.</summary>
-public sealed record OutdatedReports(
+internal sealed record OutdatedReports(
     IReadOnlyList<ReportedPackage> Latest,
     IReadOnlyList<ReportedPackage> HighestMinor,
     IReadOnlyList<ReportedPackage> HighestPatch);
 
-public sealed class PackageListRunner(IProcessRunner processRunner)
+internal sealed class PackageListRunner(IProcessRunner processRunner)
 {
     // NuGet audit queries a live vulnerability feed; it adds noise and nondeterminism to detection.
-    private static readonly Dictionary<string, string?> Environment = new()
+    private static readonly Dictionary<string, string?> DetectionEnvironment = new(DotnetCli.BaseEnvironment)
     {
         ["NuGetAudit"] = "false",
-        ["DOTNET_CLI_UI_LANGUAGE"] = "en",
-        ["DOTNET_NOLOGO"] = "1",
     };
+
+    private enum Scope
+    {
+        Latest,
+        HighestMinor,
+        HighestPatch,
+    }
 
     public async Task<OutdatedReports> ListAllAsync(string solutionPath, bool includePrerelease, CancellationToken cancellationToken)
     {
         // The first call restores; the others reuse the assets files.
-        var latest = await ListAsync(solutionPath, OutdatedScope.Latest, includePrerelease, restore: true, cancellationToken);
-        var minor = await ListAsync(solutionPath, OutdatedScope.HighestMinor, includePrerelease, restore: false, cancellationToken);
-        var patch = await ListAsync(solutionPath, OutdatedScope.HighestPatch, includePrerelease, restore: false, cancellationToken);
+        var latest = await ListAsync(solutionPath, Scope.Latest, includePrerelease, cancellationToken);
+        var minor = await ListAsync(solutionPath, Scope.HighestMinor, includePrerelease, cancellationToken);
+        var patch = await ListAsync(solutionPath, Scope.HighestPatch, includePrerelease, cancellationToken);
         return new OutdatedReports(latest, minor, patch);
     }
 
-    public async Task<IReadOnlyList<ReportedPackage>> ListAsync(
-        string solutionPath,
-        OutdatedScope scope,
-        bool includePrerelease,
-        bool restore,
-        CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<ReportedPackage>> ListAsync(string solutionPath, Scope scope, bool includePrerelease, CancellationToken cancellationToken)
     {
         List<string> arguments = ["package", "list", "--project", solutionPath, "--outdated", "--format", "json"];
-        if (scope == OutdatedScope.HighestMinor)
+        arguments.AddRange(scope switch
         {
-            arguments.Add("--highest-minor");
-        }
-        else if (scope == OutdatedScope.HighestPatch)
-        {
-            arguments.Add("--highest-patch");
-        }
-
+            Scope.HighestMinor => ["--highest-minor", "--no-restore"],
+            Scope.HighestPatch => ["--highest-patch", "--no-restore"],
+            _ => [],
+        });
         if (includePrerelease)
         {
             arguments.Add("--include-prerelease");
         }
 
-        if (!restore)
-        {
-            arguments.Add("--no-restore");
-        }
-
-        var result = await processRunner.RunAsync(
-            "dotnet", arguments, Path.GetDirectoryName(solutionPath)!, Environment, cancellationToken);
-
-        if (!result.Succeeded)
-        {
-            throw new PackageListException(
-                $"dotnet package list ({scope}) exited with code {result.ExitCode}.", result.CombinedOutput);
-        }
-
-        return PackageListParser.Parse(result.StandardOutput);
+        var result = await processRunner.RunAsync("dotnet", arguments, Path.GetDirectoryName(solutionPath)!, DetectionEnvironment, cancellationToken);
+        return result.Succeeded
+            ? PackageListParser.Parse(result.StandardOutput)
+            : throw new PackageListException($"dotnet package list ({scope}) exited with code {result.ExitCode}.", result.CombinedOutput);
     }
 }

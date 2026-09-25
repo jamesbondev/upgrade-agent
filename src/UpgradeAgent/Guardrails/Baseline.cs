@@ -2,11 +2,12 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using UpgradeAgent.Build;
+using UpgradeAgent.Infrastructure;
 
 namespace UpgradeAgent.Guardrails;
 
 /// <summary>Green-before-we-start evidence, cached per (commit, SDK, test args) so rehearsals skip it.</summary>
-public sealed record Baseline(
+internal sealed record Baseline(
     string Commit,
     string SdkVersion,
     TestRunnerMode RunnerMode,
@@ -18,16 +19,12 @@ public sealed record Baseline(
     public int PassedCount => Tests?.Passed ?? Counts?.Passed ?? 0;
 }
 
-public sealed class BaselineCache(string cacheDirectory)
+/// <summary>Baselines on disk, one file per (commit, SDK, test arguments).</summary>
+internal sealed class BaselineCache(string cacheDirectory)
 {
-    public string PathFor(string commit, string sdkVersion, IReadOnlyList<string> testArguments)
+    public Baseline? TryLoad(string commit, string sdkVersion, IReadOnlyList<string> testArguments)
     {
-        var argumentsHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', testArguments))))[..8];
-        return Path.Combine(cacheDirectory, $"{commit[..12]}-{sdkVersion}-{argumentsHash}.json");
-    }
-
-    public Baseline? TryLoad(string path)
-    {
+        var path = PathFor(commit, sdkVersion, testArguments);
         try
         {
             return File.Exists(path) ? JsonSerializer.Deserialize<Baseline>(File.ReadAllText(path), JsonDefaults.Options) : null;
@@ -38,9 +35,16 @@ public sealed class BaselineCache(string cacheDirectory)
         }
     }
 
-    public void Save(string path, Baseline baseline)
+    public void Save(Baseline baseline, IReadOnlyList<string> testArguments)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var path = PathFor(baseline.Commit, baseline.SdkVersion, testArguments);
+        Directory.CreateDirectory(cacheDirectory);
         File.WriteAllText(path, JsonSerializer.Serialize(baseline, JsonDefaults.Options));
+    }
+
+    private string PathFor(string commit, string sdkVersion, IReadOnlyList<string> testArguments)
+    {
+        var argumentsHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', testArguments))))[..8];
+        return Path.Combine(cacheDirectory, $"{commit[..12]}-{sdkVersion}-{argumentsHash}.json");
     }
 }

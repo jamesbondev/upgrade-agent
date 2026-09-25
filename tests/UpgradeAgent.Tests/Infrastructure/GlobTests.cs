@@ -1,6 +1,6 @@
 using UpgradeAgent.Infrastructure;
 
-namespace UpgradeAgent.Tests.Detection;
+namespace UpgradeAgent.Tests.Infrastructure;
 
 public class GlobTests
 {
@@ -12,7 +12,7 @@ public class GlobTests
     [InlineData("Foo.?ar", "Foo.Bar", true)]
     [InlineData("Foo.Bar", "Foo.Bar.Baz", false)]
     [InlineData("Foo(1)", "Foo(1)", true)]
-    public void IsMatch_SupportsStarAndQuestionMark(string pattern, string value, bool expected)
+    public void SupportsStarAndQuestionMarkCaseInsensitively(string pattern, string value, bool expected)
     {
         Assert.Equal(expected, Glob.IsMatch(pattern, value));
     }

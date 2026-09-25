@@ -3,10 +3,10 @@ using UpgradeAgent.Detection;
 
 namespace UpgradeAgent.Tests.Detection;
 
-public class PackageCompatibilityTests
+public class NuGetPackageCompatibilityCheckerTests
 {
     [Fact]
-    public void Evaluate_CompatibleWhenAnySupportedFrameworkFits()
+    public void CompatibleWhenAnySupportedFrameworkFits()
     {
         var result = Evaluate(["netstandard2.0", "net8.0"], ["net10.0"]);
 
@@ -14,7 +14,7 @@ public class PackageCompatibilityTests
     }
 
     [Fact]
-    public void Evaluate_IncompatibleWhenPackageNeedsNewerFramework()
+    public void IncompatibleWhenThePackageNeedsANewerFramework()
     {
         var result = Evaluate(["net10.0"], ["net8.0"]);
 
@@ -24,7 +24,7 @@ public class PackageCompatibilityTests
     }
 
     [Fact]
-    public void Evaluate_ReportsOnlyTheIncompatibleProjectFrameworks()
+    public void ReportsOnlyTheIncompatibleProjectFrameworks()
     {
         var result = Evaluate(["net10.0"], ["net8.0", "net10.0"]);
 
@@ -33,12 +33,12 @@ public class PackageCompatibilityTests
     }
 
     [Fact]
-    public void Evaluate_CompatibleWhenPackageHasNoFrameworkSpecificAssets()
+    public void CompatibleWhenThePackageHasNoFrameworkSpecificAssets()
     {
         Assert.Equal(CompatibilityStatus.Compatible, Evaluate([], ["net8.0"]).Status);
-        Assert.Equal(CompatibilityStatus.Compatible, NuGetPackageCompatibilityChecker.Evaluate([NuGetFramework.AnyFramework], ["net8.0"]).Status);
+        Assert.Equal(CompatibilityStatus.Compatible, NuGetPackageCompatibilityChecker.Evaluate([NuGetFramework.AnyFramework], [NuGetFramework.Parse("net8.0")]).Status);
     }
 
     private static CompatibilityResult Evaluate(string[] supported, string[] projectFrameworks) =>
-        NuGetPackageCompatibilityChecker.Evaluate(supported.Select(NuGetFramework.Parse).ToList(), projectFrameworks);
+        NuGetPackageCompatibilityChecker.Evaluate(supported.Select(NuGetFramework.Parse).ToList(), projectFrameworks.Select(NuGetFramework.Parse).ToList());
 }

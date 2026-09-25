@@ -2,7 +2,7 @@ using UpgradeAgent.Detection;
 
 namespace UpgradeAgent.Config;
 
-public sealed class UpgradeAgentOptions
+internal sealed class UpgradeAgentOptions
 {
     public TargetOptions Target { get; set; } = new();
 
@@ -15,7 +15,7 @@ public sealed class UpgradeAgentOptions
     public AzureDevOpsOptions AzureDevOps { get; set; } = new();
 }
 
-public sealed class AzureDevOpsOptions
+internal sealed class AzureDevOpsOptions
 {
     /// <summary>For example https://dev.azure.com/contoso.</summary>
     public string OrganizationUrl { get; set; } = "";
@@ -41,10 +41,18 @@ public sealed class AzureDevOpsOptions
     public bool IsConfigured => OrganizationUrl.Length > 0 && Project.Length > 0 && Repository.Length > 0;
 }
 
-public sealed class AgentOptions
+internal enum AgentProvider
 {
-    /// <summary><c>copilot</c> (GitHub Copilot via the local Copilot CLI login) or <c>none</c>.</summary>
-    public string Provider { get; set; } = "copilot";
+    /// <summary>GitHub Copilot via the local Copilot CLI login (or a token in pipelines).</summary>
+    Copilot,
+
+    /// <summary>No agent: groups that need code changes are rejected.</summary>
+    None,
+}
+
+internal sealed class AgentOptions
+{
+    public AgentProvider Provider { get; set; } = AgentProvider.Copilot;
 
     /// <summary>Copilot model ID; null lets Copilot choose.</summary>
     public string? Model { get; set; }
@@ -74,7 +82,7 @@ public sealed class AgentOptions
     public string? GitHubTokenEnvVar { get; set; }
 }
 
-public sealed class TargetOptions
+internal sealed class TargetOptions
 {
     /// <summary>Path to the target git repo. Relative paths resolve against the config file's folder.</summary>
     public string RepoPath { get; set; } = "";
@@ -95,7 +103,7 @@ public sealed class TargetOptions
     public List<string> TestArgs { get; set; } = [];
 }
 
-public sealed class PolicyOptions
+internal sealed class PolicyOptions
 {
     /// <summary>Package ID globs. When non-empty, only matching packages are updated.</summary>
     public List<string> Allow { get; set; } = [];
@@ -134,14 +142,14 @@ public sealed class PolicyOptions
     public IReadOnlyDictionary<string, List<string>> EffectiveGroups => Groups ?? DefaultGroups;
 }
 
-public sealed class DenyRule
+internal sealed class DenyRule
 {
     public string Id { get; set; } = "";
 
     public string? Reason { get; set; }
 }
 
-public sealed class OutputOptions
+internal sealed class OutputOptions
 {
     /// <summary>Folder for plans, reports and PR descriptions. Relative paths resolve against the current directory.</summary>
     public string Directory { get; set; } = "out";

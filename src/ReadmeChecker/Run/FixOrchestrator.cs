@@ -1,6 +1,7 @@
 using System.Globalization;
 using ReadmeChecker.Agent;
 using ReadmeChecker.Config;
+using ReadmeChecker.Detection;
 using ReadmeChecker.Fixing;
 using ReadmeChecker.Publishing;
 using ReadmeChecker.Reporting;
@@ -76,7 +77,7 @@ internal sealed class FixOrchestrator(
             return report with { Reason = check.Note is null ? check.Verdict.ToString() : $"{check.Verdict}: {check.Note}" };
         }
 
-        var certain = check.Signals.Where(s => s.Definitive).ToList();
+        var certain = UncoveredBrokenLinks(check.Signals, check.Issues);
         if (check.Issues.Count == 0 && certain.Count == 0)
         {
             return report with { Reason = "stale, but with no specific problem to fix" };
@@ -141,6 +142,9 @@ internal sealed class FixOrchestrator(
             return report with { Status = FixStatus.Failed, Reason = $"pushed {branch}, but the pull request couldn't be opened: {ex.Message}" };
         }
     }
+
+    internal static List<Signal> UncoveredBrokenLinks(IReadOnlyList<Signal> signals, IReadOnlyList<ReadmeIssue> issues) =>
+        signals.Where(s => s.Definitive && !issues.Any(i => i.Quote.Contains(s.Text, StringComparison.Ordinal))).ToList();
 
     private async Task<string?> PreviousPullRequestAsync(IPullRequestHost host, CancellationToken cancellationToken)
     {

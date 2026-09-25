@@ -2,6 +2,7 @@ using AgentHarness.Policies;
 using AgentHarness.Testing;
 using ReadmeChecker.Agent;
 using ReadmeChecker.Config;
+using ReadmeChecker.Detection;
 using ReadmeChecker.Fixing;
 using ReadmeChecker.Publishing;
 using ReadmeChecker.Run;
@@ -159,6 +160,17 @@ public sealed class FixOrchestratorTests : IAsyncLifetime, IDisposable
         Assert.Equal(FixStatus.NothingToFix, repo.Status);
         Assert.Empty(backend.Messages);
         Assert.True(File.Exists(Path.Combine(report.OutputDirectory, "fix-report.md")));
+    }
+
+    [Fact]
+    public void ABrokenLinkAnIssueAlreadyQuotesIsListedOnce()
+    {
+        var covered = new Signal(SignalKind.BrokenLink, 3, "docs/setup.md", "gone", "docs/setup.md");
+        var other = new Signal(SignalKind.BrokenLink, 9, "docs/old.md", "gone", "docs/old.md");
+        var maybe = new Signal(SignalKind.MissingPath, 5, "src/x.cs", "gone", "src/x.cs");
+        var issue = new ReadmeIssue { Kind = IssueKind.BrokenReference, Quote = "See the [setup guide](docs/setup.md).", SuggestedFix = "Link the guide." };
+
+        Assert.Equal([other], FixOrchestrator.UncoveredBrokenLinks([covered, other, maybe], [issue]));
     }
 
     private static ScriptedBackend Scripted(Action<ScriptedTurn> fix) => new ScriptedBackend()

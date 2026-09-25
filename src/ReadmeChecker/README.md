@@ -47,6 +47,43 @@ The run prints one line per repo and a summary table, and writes `out/run-<utc>/
 Exit codes: 0 when at least one repo was checked, 2 for configuration, sign-in or Azure DevOps problems, 3 when every
 repo failed, 4 when Copilot isn't ready, 130 when cancelled.
 
+## Deep mode: check every claim
+
+The default check confirms the script's signals and looks for obvious gaps. It catches broken references well, but not
+a README that names the wrong model, the wrong queue names or a feature that was removed. `--deep` (or
+`Readme:Depth: Deep`, or `"Depth": "Deep"` on one repo) checks the README claim by claim:
+
+```sh
+dotnet run --project src/ReadmeChecker -- check --config readme-checker.json --only payments-api --deep
+```
+
+1. The README is split at `#`/`##` headings into parts of about 80 lines, never inside a code block or a list, and
+   at most 8 parts (the rest is reported as not checked).
+2. Each part gets its own read-only session. It lists every concrete claim (names, counts, values, versions, lists,
+   behaviour) and checks each against source and config files, treating docs and tests as possibly stale too. It
+   answers even when it hits its limits, so what it confirmed before that is kept ("partly checked").
+3. A new kind of issue, `WrongClaim`, needs proof the script can check:
+   - a `Truth` (what the code says) and an `EvidenceQuote` copied from a cited file. The quote must really be in that
+     file, which must be source or config (not Markdown, not only under a test folder, at most 1 MB, and not a file
+     the agent isn't allowed to read), at least 12 characters long, and share a name or value with the `Truth`; or
+   - a `MissingTerm` for something that no longer exists: the README must contain it and `git grep` must find it
+     nowhere outside Markdown.
+
+   In deep mode every other kind of problem needs the same proof too, except broken references the script found and
+   missing list entries with evidence. The README quote must lie in the part being checked.
+4. The result is `Stale` if any problem survives, `Current` if every part was fully checked and none did, and
+   `Unsure` otherwise. The report shows each problem's line, the truth and its evidence, and per part: status,
+   claims checked and AI credits.
+
+Deep mode ignores `Agent:SkipWhenClean`: a README with no signals is exactly what it is for. It costs one session per
+part (argus's 287-line README is 5 parts), so pin `Agent:Model` and set `Agent:MaxAiCreditsPerRun`; the remaining
+budget is passed down, and parts past it are skipped.
+
+The quote check stops invented evidence, not misreading: a count ("two producers") is backed by one real example of
+the third, not proven exhaustive. When `fix` changes a wrong claim, the new text must contain what the code says (a
+name or value shared by the truth and its evidence), or the fix is rejected; a term that no longer exists must be
+gone. Claims the fix left alone are listed in the pull request under "Left unchanged".
+
 ## Fix and open pull requests
 
 ```sh

@@ -81,6 +81,41 @@ public sealed class CheckOrchestratorTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
+    public async Task ADeepCheckRunsEvenWhenTheScriptFindsNothingAndReportsCoverage()
+    {
+        var backend = new ScriptedBackend()
+            .Turn(t => t.Read("README.md").Reply("checked"))
+            .Turn(t => t.ReplyJson(new ChunkCheck { ClaimsChecked = 2, Summary = "All accurate." }));
+
+        var report = await Orchestrator(backend, new ListProgress(), Local("fresh", _fresh))
+            .RunAsync(new CheckArguments([], AgentProvider.Copilot, Deep: true), CancellationToken.None);
+
+        var repo = Assert.Single(report.Repos);
+        Assert.Equal((RepoVerdict.Current, false), (repo.Verdict, repo.Deterministic));
+        Assert.Equal(2, repo.Coverage?.ClaimsChecked);
+        Assert.Contains("Readme", backend.LastSettings?.Instructions ?? "", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(false, null, "Quick", "Quick")]
+    [InlineData(false, "Deep", "Quick", "Deep")]
+    [InlineData(false, null, "Deep", "Deep")]
+    [InlineData(true, "Quick", "Quick", "Deep")]
+    public void TheFlagBeatsTheRepoWhichBeatsTheDefault(bool flag, string? repoDepth, string defaultDepth, string expected)
+    {
+        var target = new RepoTarget("r", null, "/r", null, repoDepth is null ? null : Enum.Parse<ReadmeDepth>(repoDepth));
+        var options = new ReadmeCheckerOptions { Readme = new ReadmeOptions { Depth = Enum.Parse<ReadmeDepth>(defaultDepth) } };
+        var git = new GitCli(new ProcessRunner());
+        var factory = new ReadmeAssessorTests.ScriptedFactory(new ScriptedBackend());
+        var inspector = new RepoInspector(
+            new ResolvedConfig(options, [target], _out.Path, _work.Path), git,
+            new AzureDevOpsCredentialProvider(new AzureDevOpsAuthOptions { UseAzureIdentity = false }, _ => null),
+            new ReadmeAssessor(factory, options.Agent, git, TimeProvider.System), new DeepReadmeAssessor(factory, options.Agent, git, TimeProvider.System), TimeProvider.System);
+
+        Assert.Equal(Enum.Parse<ReadmeDepth>(expected), inspector.DepthFor(target, flag));
+    }
+
+    [Fact]
     public async Task WithoutTheAgentBrokenLinksStillMakeItStale()
     {
         var report = await Orchestrator(new ScriptedBackend(), new ListProgress(), Local("stale", _stale))

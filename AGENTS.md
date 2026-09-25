@@ -57,6 +57,9 @@ and every test project passes.
   system. Parse its files defensively: XML with DTDs prohibited, and a malformed file is skipped, not fatal.
 - **One repo's failure never stops a multi-repo run.** Catch per repo and report it as that repo's result; only
   configuration, sign-in and "Copilot isn't ready" errors end the run.
+- **Claims about code need machine-checkable proof.** When an agent says the code contradicts a document, require a
+  snippet copied from a cited source or config file that the app then finds in that file, or a term that `git grep`
+  can't find; reject anything else. See `ReadmeChecker/Agent/EvidenceChecks.cs`.
 - **Publishing is gated.** An agent's write session may change only the files the task owns (an exact path, not an
   extension). After the script's checks, a person approves each push unless they pass `--yes`, pull requests are
   drafts, and agent text in a PR is escaped with `@` mentions defused. Use a new branch per run, and decide whether

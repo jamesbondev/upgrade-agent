@@ -1,3 +1,4 @@
+using AgentHarness.Policies;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -53,8 +54,8 @@ internal static class AppServices
         services.AddSingleton<IRunProgress>(sp => sp.GetRequiredService<RunRenderer>());
         services.AddSingleton<PublishRenderer>();
         services.AddSingleton<IApprovalPrompter>(sp => interactive && console.Profile.Capabilities.Interactive
-            ? new ConsoleApprovalPrompter(sp.GetRequiredService<SynchronizedConsole>())
-            : new DeclineAllPrompter());
+            ? new SpectreApprovalPrompter(sp.GetRequiredService<SynchronizedConsole>())
+            : ApprovalPrompter.DeclineAll);
 
         // External tools.
         services.AddSingleton(TimeProvider.System);

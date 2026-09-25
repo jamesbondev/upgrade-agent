@@ -1,3 +1,5 @@
+using AgentHarness;
+using AgentHarness.Policies;
 using UpgradeAgent.Agent;
 
 namespace UpgradeAgent.Tests.Agent;
@@ -22,14 +24,14 @@ public class CommandPolicyTests
     [InlineData("Get-ChildItem -Recurse -Filter *.cs")]
     public void AutoApprovesBuildsTestsAndReads(string command)
     {
-        Assert.Equal(PolicyVerdict.Approve, _policy.EvaluateShell(command, false).Verdict);
+        Assert.Equal(ToolVerdict.Approve, _policy.EvaluateShell(command, false).Verdict);
     }
 
     [Fact]
     public void AutoApprovesAbsolutePathsInsideTheWorktreeAndPackageFolder()
     {
-        Assert.Equal(PolicyVerdict.Approve, _policy.EvaluateShell($"find {Worktree}/tests -name \"*.cs\"", false).Verdict);
-        Assert.Equal(PolicyVerdict.Approve, _policy.EvaluateShell($"cat {Packages}/fixture.lib/2.0.0/MIGRATION.md", false).Verdict);
+        Assert.Equal(ToolVerdict.Approve, _policy.EvaluateShell($"find {Worktree}/tests -name \"*.cs\"", false).Verdict);
+        Assert.Equal(ToolVerdict.Approve, _policy.EvaluateShell($"cat {Packages}/fixture.lib/2.0.0/MIGRATION.md", false).Verdict);
     }
 
     [Theory]
@@ -54,7 +56,7 @@ public class CommandPolicyTests
     {
         var decision = _policy.EvaluateShell(command, false);
 
-        Assert.Equal(PolicyVerdict.Reject, decision.Verdict);
+        Assert.Equal(ToolVerdict.Reject, decision.Verdict);
         Assert.Contains(expectedReason, decision.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -62,8 +64,8 @@ public class CommandPolicyTests
     public void TracksCdWhenResolvingRelativePaths()
     {
         // From the worktree root "../x" escapes; after "cd src" it doesn't.
-        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateShell("cat ../x", false).Verdict);
-        Assert.Equal(PolicyVerdict.Approve, _policy.EvaluateShell("cd src && cat ../x", false).Verdict);
+        Assert.Equal(ToolVerdict.Reject, _policy.EvaluateShell("cat ../x", false).Verdict);
+        Assert.Equal(ToolVerdict.Approve, _policy.EvaluateShell("cd src && cat ../x", false).Verdict);
     }
 
     [Theory]
@@ -79,7 +81,7 @@ public class CommandPolicyTests
     {
         var decision = _policy.EvaluateShell(command, false);
 
-        Assert.Equal(PolicyVerdict.Reject, decision.Verdict);
+        Assert.Equal(ToolVerdict.Reject, decision.Verdict);
         Assert.Contains(expectedReason, decision.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -88,7 +90,7 @@ public class CommandPolicyTests
     [InlineData(" ; ")]
     public void RejectsEmptyCommands(string command)
     {
-        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateShell(command, false).Verdict);
+        Assert.Equal(ToolVerdict.Reject, _policy.EvaluateShell(command, false).Verdict);
     }
 
     [Theory]
@@ -96,39 +98,47 @@ public class CommandPolicyTests
     [InlineData("git diff --output=patch.txt")]
     public void RejectsFlagsThatWriteFiles(string command)
     {
-        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateShell(command, false).Verdict);
+        Assert.Equal(ToolVerdict.Reject, _policy.EvaluateShell(command, false).Verdict);
     }
 
     [Fact]
     public void RejectsWhenTheRuntimeReportsFileRedirection()
     {
-        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateShell("dotnet build x.slnx --no-restore", hasWriteFileRedirection: true).Verdict);
+        Assert.Equal(ToolVerdict.Reject, _policy.EvaluateShell("dotnet build x.slnx --no-restore", hasWriteFileRedirection: true).Verdict);
     }
 
     [Fact]
     public void RejectsPossiblePathsOutsideTheWorktree()
     {
-        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateShell("cat notes", false, ["/etc/passwd"]).Verdict);
+        Assert.Equal(ToolVerdict.Reject, _policy.EvaluateShell("cat notes", false, ["/etc/passwd"]).Verdict);
     }
 
     [Theory]
-    [InlineData("src/LoanLedger/StatementService.cs", nameof(PolicyVerdict.Approve))]
-    [InlineData("src/LoanLedger/LoanLedger.csproj", nameof(PolicyVerdict.AskOperator))]
-    [InlineData("Directory.Packages.props", nameof(PolicyVerdict.AskOperator))]
-    [InlineData(".editorconfig", nameof(PolicyVerdict.AskOperator))]
-    [InlineData(".git/config", nameof(PolicyVerdict.Reject))]
-    [InlineData("../other-repo/a.cs", nameof(PolicyVerdict.Reject))]
+    [InlineData("src/LoanLedger/StatementService.cs", nameof(ToolVerdict.Approve))]
+    [InlineData("src/LoanLedger/LoanLedger.csproj", nameof(ToolVerdict.Ask))]
+    [InlineData("Directory.Packages.props", nameof(ToolVerdict.Ask))]
+    [InlineData(".editorconfig", nameof(ToolVerdict.Ask))]
+    [InlineData(".git/config", nameof(ToolVerdict.Reject))]
+    [InlineData("../other-repo/a.cs", nameof(ToolVerdict.Reject))]
     public void WritesAreApprovedOnlyForSourceFilesInTheWorktree(string relativePath, string expected)
     {
-        Assert.Equal(Enum.Parse<PolicyVerdict>(expected), _policy.EvaluateWrite(Path.Combine(Worktree, relativePath)).Verdict);
+        Assert.Equal(Enum.Parse<ToolVerdict>(expected), _policy.EvaluateWrite(Path.Combine(Worktree, relativePath)).Verdict);
+    }
+
+    [Fact]
+    public async Task TheOperatorIsToldWhyAnEditNeedsThem()
+    {
+        var decision = await _policy.EvaluateAsync(new FileWriteRequest(Path.Combine(Worktree, "src", "App", "App.csproj")), CancellationToken.None);
+
+        Assert.Equal((ToolVerdict.Ask, "edit to a non-source file: src/App/App.csproj"), (decision.Verdict, decision.Reason));
     }
 
     [Fact]
     public void ReadsAreLimitedToTheWorktreeAndPackageFolder()
     {
-        Assert.Equal(PolicyVerdict.Approve, _policy.EvaluateRead(Path.Combine(Worktree, "src", "a.cs")).Verdict);
-        Assert.Equal(PolicyVerdict.Approve, _policy.EvaluateRead(Path.Combine(Packages, "fixture.lib", "2.0.0", "MIGRATION.md")).Verdict);
-        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateRead(Path.Combine(Path.GetTempPath(), "ua-policy", "wt-sibling", "a.cs")).Verdict);
+        Assert.Equal(ToolVerdict.Approve, _policy.EvaluateRead(Path.Combine(Worktree, "src", "a.cs")).Verdict);
+        Assert.Equal(ToolVerdict.Approve, _policy.EvaluateRead(Path.Combine(Packages, "fixture.lib", "2.0.0", "MIGRATION.md")).Verdict);
+        Assert.Equal(ToolVerdict.Reject, _policy.EvaluateRead(Path.Combine(Path.GetTempPath(), "ua-policy", "wt-sibling", "a.cs")).Verdict);
     }
 
     [Theory]
@@ -141,8 +151,8 @@ public class CommandPolicyTests
     {
         var path = Path.Combine(Worktree, relativePath);
 
-        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateRead(path).Verdict);
-        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateWrite(path).Verdict);
+        Assert.Equal(ToolVerdict.Reject, _policy.EvaluateRead(path).Verdict);
+        Assert.Equal(ToolVerdict.Reject, _policy.EvaluateWrite(path).Verdict);
         Assert.Contains("credentials", _policy.EvaluateRead(path).Reason, StringComparison.Ordinal);
     }
 
@@ -153,12 +163,12 @@ public class CommandPolicyTests
     [InlineData("head -5 src/.env")]
     public void ShellCommandsNamingCredentialFilesAreRefused(string command)
     {
-        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateShell(command, false).Verdict);
+        Assert.Equal(ToolVerdict.Reject, _policy.EvaluateShell(command, false).Verdict);
     }
 
     [Fact]
     public void PossiblePathsNamingCredentialFilesAreRefused()
     {
-        Assert.Equal(PolicyVerdict.Reject, _policy.EvaluateShell("cat x", false, [Path.Combine(Worktree, "nuget.config")]).Verdict);
+        Assert.Equal(ToolVerdict.Reject, _policy.EvaluateShell("cat x", false, [Path.Combine(Worktree, "nuget.config")]).Verdict);
     }
 }

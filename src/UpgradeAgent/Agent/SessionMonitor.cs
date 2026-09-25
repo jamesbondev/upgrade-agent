@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+using AgentHarness;
 using UpgradeAgent.Agent.Activities;
 using UpgradeAgent.Build;
 using UpgradeAgent.Infrastructure;
@@ -6,12 +6,20 @@ using UpgradeAgent.Infrastructure;
 namespace UpgradeAgent.Agent;
 
 /// <summary>
-/// Watches a session's events: meters them, turns them into activity (with repository-relative paths),
-/// and reads the agent's own build results so a session that stops making progress is stopped.
+/// Turns a session's harness events into the app's activity (with repository-relative paths), reads the
+/// agent's own build and test results from their output, and notices when the migration notes are read.
+/// The activity events are what recordings store, so their wording is kept stable.
 /// </summary>
-internal sealed class SessionMonitor(string worktree, IActivitySink activity, AgentSessionMeter meter, RequiredReading reading, string? requestedModel)
+internal sealed class SessionMonitor(string worktree, IActivitySink activity, RequiredReading reading) : IAgentObserver
 {
-    private readonly ConcurrentDictionary<string, ToolCallStarted> _running = new(StringComparer.Ordinal);
+    private volatile bool _summaryMode;
+
+    /// <summary>Set while the app asks for the structured summary: the JSON reply is not agent chatter.</summary>
+    public bool SummaryMode
+    {
+        get => _summaryMode;
+        set => _summaryMode = value;
+    }
 
     public void OnEvent(AgentEvent agentEvent)
     {
@@ -20,17 +28,14 @@ internal sealed class SessionMonitor(string worktree, IActivitySink activity, Ag
             case ToolCallStarted started:
                 reading.MarkRead(started.Detail);
                 reading.MarkRead(started.RawArguments);
-                meter.RecordToolCall();
-                AgentTelemetry.ToolCalls.Add(1, new KeyValuePair<string, object?>("gen_ai.tool.name", started.Tool));
-                _running[started.CallId] = started;
                 activity.Write(new ToolStarted(started.Kind, started.Tool, RepoPath.RelativeInText(worktree, started.Detail)));
                 break;
 
-            case ToolCallCompleted completed when _running.TryRemove(completed.CallId, out var started):
+            case ToolCallCompleted { Call: { } started } completed:
                 OnCompleted(started, completed);
                 break;
 
-            case AssistantMessage message when !meter.SummaryMode:
+            case AssistantMessage message when !SummaryMode:
                 if (message.Text.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0) is { } firstLine)
                 {
                     activity.Write(new AgentMessage(firstLine));
@@ -39,15 +44,18 @@ internal sealed class SessionMonitor(string worktree, IActivitySink activity, Ag
                 activity.Write(new Transcript("AGENT", message.Text));
                 break;
 
-            case ModelUsage usage:
-                AgentTelemetry.RecordUsage(usage);
-                if (meter.RecordUsage(usage))
-                {
-                    activity.Write(new Note(requestedModel is not null && !usage.Model!.StartsWith(requestedModel, StringComparison.OrdinalIgnoreCase)
-                        ? $"warning: requested model {requestedModel} but the provider is serving {usage.Model} (not available on this plan?)"
-                        : $"model: {usage.Model}"));
-                }
+            case ModelServed served:
+                activity.Write(new Note(served.IsFallback
+                    ? $"warning: requested model {served.Requested} but the provider is serving {served.Model} (not available on this plan?)"
+                    : $"model: {served.Model}"));
+                break;
 
+            case ToolRefused refused:
+                activity.Write(new ActionRefused(RepoPath.RelativeInText(worktree, refused.Action), refused.Reason));
+                break;
+
+            case SessionStopped stopped:
+                activity.Write(new Note(stopped.Reason));
                 break;
         }
     }
@@ -67,7 +75,6 @@ internal sealed class SessionMonitor(string worktree, IActivitySink activity, Ag
 
         if (ShellCommands.IsBuild(started.Detail))
         {
-            meter.RecordBuild(output);
             if (BuildOutputParser.CountErrors(output) is { } errors)
             {
                 activity.Write(new BuildChecked(errors, BuildOutputParser.TopCodes(BuildOutputParser.ParseDiagnostics(output).Errors, 4)));

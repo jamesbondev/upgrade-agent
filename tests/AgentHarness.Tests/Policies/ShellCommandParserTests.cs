@@ -1,6 +1,6 @@
-using UpgradeAgent.Agent;
+using AgentHarness.Policies;
 
-namespace UpgradeAgent.Tests.Agent;
+namespace AgentHarness.Tests.Policies;
 
 public class ShellCommandParserTests
 {

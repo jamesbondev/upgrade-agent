@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Self-contained on purpose: copy this folder into any .NET 10 solution and add a ProjectReference.
+    Nothing here depends on the solution around it; the settings below are repeated from
+    Directory.Build.props so the folder builds the same way on its own.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AgentHarness</RootNamespace>
+    <Description>A small harness for agentic tool calling over GitHub Copilot: sessions, budgets, a permission pipeline, custom tools and structured replies.</Description>
+    <!-- GHCP001: the Copilot SDK marks its permission-decision API as evaluation-only. The harness depends on
+         it deliberately (it is how tool approval works); pinning the package version contains the risk. -->
+    <NoWarn>$(NoWarn);GHCP001</NoWarn>
+  </PropertyGroup>
+
+  <!--
+    Builds with or without central package management, with no edits: without CPM it uses the version below;
+    with CPM it uses your Directory.Packages.props entry if you have one, and this version otherwise.
+    The first build of an executable that references this downloads the Copilot CLI (~180 MB) from npm into obj/.
+    Behind a proxy or offline, see the package's CopilotNpmRegistryUrl, CopilotCliBinaryPath and CopilotSkipCliDownload properties.
+  -->
+  <PropertyGroup>
+    <CopilotAgentVersion>1.22.0</CopilotAgentVersion>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(ManagePackageVersionsCentrally)' == 'true'">
+    <PackageReference Include="Microsoft.Agents.AI.GitHub.Copilot" Condition="'@(PackageVersion->WithMetadataValue('Identity', 'Microsoft.Agents.AI.GitHub.Copilot'))' != ''" />
+    <PackageReference Include="Microsoft.Agents.AI.GitHub.Copilot" VersionOverride="$(CopilotAgentVersion)" Condition="'@(PackageVersion->WithMetadataValue('Identity', 'Microsoft.Agents.AI.GitHub.Copilot'))' == ''" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ManagePackageVersionsCentrally)' != 'true'">
+    <PackageReference Include="Microsoft.Agents.AI.GitHub.Copilot" Version="$(CopilotAgentVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentHarness.Tests" />
+  </ItemGroup>
+
+</Project>

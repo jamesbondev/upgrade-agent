@@ -103,9 +103,12 @@ internal static class FixPrompts
         return new FixTaskPrompt(builder.ToString(), requiredReads);
     }
 
-    public static string SummaryRequest() => $"""
-        Now reply with ONLY a JSON object describing this group, with no prose and no code fence. Do not call any tools.
-        It must match this JSON schema: {GroupSummaryParser.Schema}
+    /// <summary>
+    /// The question for the summary turn. The harness appends the JSON-only instruction and the schema
+    /// (<see cref="AgentHarness.StructuredOutput.PromptFor{T}"/>), so this only says what to describe.
+    /// </summary>
+    public static string SummaryRequest() => """
+        Now describe this group: for each package, its breaking changes, what you changed and why, and anything left unresolved.
         Use repository-relative paths in "file".
         """;
 

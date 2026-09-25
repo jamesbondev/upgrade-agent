@@ -1,7 +1,6 @@
 using System.Collections;
-using UpgradeAgent.Agent;
 
-namespace UpgradeAgent.Tests.Agent;
+namespace AgentHarness.Tests;
 
 public class AgentEnvironmentTests
 {

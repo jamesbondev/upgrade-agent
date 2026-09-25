@@ -1,9 +1,14 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/AgentHarness/AgentHarness.csproj" />
     <Project Path="src/UpgradeAgent/UpgradeAgent.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/AgentHarness.Tests/AgentHarness.Tests.csproj" />
     <Project Path="tests/UpgradeAgent.IntegrationTests/UpgradeAgent.IntegrationTests.csproj" />
     <Project Path="tests/UpgradeAgent.Tests/UpgradeAgent.Tests.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/HelloAgent/HelloAgent.csproj" />
   </Folder>
 </Solution>

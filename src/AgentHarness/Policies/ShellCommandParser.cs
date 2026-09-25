@@ -2,10 +2,10 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace UpgradeAgent.Agent;
+namespace AgentHarness.Policies;
 
 /// <summary>A command line split into simple commands (by <c>&amp;&amp;</c>, <c>||</c>, <c>;</c> and <c>|</c>).</summary>
-internal sealed record ParsedCommand(IReadOnlyList<IReadOnlyList<string>> Segments);
+public sealed record ParsedCommand(IReadOnlyList<IReadOnlyList<string>> Segments);
 
 /// <summary>
 /// A deliberately small POSIX/PowerShell-ish tokenizer. Anything it can't reason about is refused rather
@@ -13,7 +13,7 @@ internal sealed record ParsedCommand(IReadOnlyList<IReadOnlyList<string>> Segmen
 /// <c>(…)</c> and <c>@(…)</c>), redirection, background jobs, script blocks and multi-line input. Single
 /// quotes keep everything literal.
 /// </summary>
-internal static partial class ShellCommandParser
+public static partial class ShellCommandParser
 {
     public static bool TryParse(string commandLine, [NotNullWhen(true)] out ParsedCommand? parsed, [NotNullWhen(false)] out string? error)
     {

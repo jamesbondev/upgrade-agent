@@ -1,3 +1,4 @@
+using AgentHarness;
 using UpgradeAgent.Agent;
 
 namespace UpgradeAgent.Tests.Agent;
@@ -11,7 +12,7 @@ public class ProgressMonitorTests
     [Fact]
     public void KeepsGoingWhileErrorsDrop()
     {
-        var monitor = new ProgressMonitor(5, 3, initialErrors: 20);
+        var monitor = new ProgressMonitor(3, initialErrors: 20);
 
         Assert.Null(monitor.RecordBuild(Failed12));
         Assert.Null(monitor.RecordBuild(Failed9));
@@ -22,19 +23,19 @@ public class ProgressMonitorTests
     [Fact]
     public void StopsAfterThreeBuildsThatDontBeatTheLowestCount()
     {
-        var monitor = new ProgressMonitor(5, 3, initialErrors: 12);
+        var monitor = new ProgressMonitor(3, initialErrors: 12);
 
         Assert.Null(monitor.RecordBuild(Failed12));
         Assert.Null(monitor.RecordBuild(Failed12));
         var reason = monitor.RecordBuild(Failed12);
 
-        Assert.Contains("3 builds without reducing the errors below 12", reason, StringComparison.Ordinal);
+        Assert.Equal("agent stopped: 3 builds without reducing the errors below 12", reason);
     }
 
     [Fact]
     public void AGreenBuildResetsTheCount()
     {
-        var monitor = new ProgressMonitor(5, 3, initialErrors: 9);
+        var monitor = new ProgressMonitor(3, initialErrors: 9);
 
         Assert.Null(monitor.RecordBuild(Failed12));
         Assert.Null(monitor.RecordBuild(Failed12));
@@ -48,30 +49,36 @@ public class ProgressMonitorTests
     [Fact]
     public void UnrecognisedOutputIsIgnored()
     {
-        var monitor = new ProgressMonitor(5, 1, initialErrors: 9);
+        var monitor = new ProgressMonitor(1, initialErrors: 9);
 
         Assert.Null(monitor.RecordBuild("  src/A.cs(3,5): error CS0117: truncated by head"));
     }
 
     [Fact]
-    public void StopsOnceRefusalsExceedTheLimit()
+    public void ZeroDisablesTheCheck()
     {
-        var monitor = new ProgressMonitor(maxRefusals: 2, 3, 0);
-
-        Assert.Null(monitor.RecordRefusal());
-        Assert.Null(monitor.RecordRefusal());
-        Assert.Contains("more than 2 refused actions", monitor.RecordRefusal(), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void ZeroDisablesBothChecks()
-    {
-        var monitor = new ProgressMonitor(0, 0, initialErrors: 1);
+        var monitor = new ProgressMonitor(0, initialErrors: 1);
 
         for (var i = 0; i < 10; i++)
         {
-            Assert.Null(monitor.RecordRefusal());
             Assert.Null(monitor.RecordBuild(Failed12));
         }
     }
+
+    [Fact]
+    public void AsAStopRuleItReadsOnlySuccessfulDotnetBuilds()
+    {
+        var monitor = new ProgressMonitor(1, initialErrors: 9);
+
+        Assert.Null(monitor.Check(Completed(ToolKind.Shell, "dotnet test x.slnx --no-build", Failed12)));
+        Assert.Null(monitor.Check(Completed(ToolKind.Read, "dotnet build notes.md", Failed12)));
+        Assert.Null(monitor.Check(Completed(ToolKind.Shell, "dotnet build x.slnx --no-restore", Failed12) with { Success = false }));
+        Assert.Null(monitor.Check(new ToolCallCompleted("unpaired", true, Failed12, null)));
+        Assert.Equal(
+            "agent stopped: 1 builds without reducing the errors below 9",
+            monitor.Check(Completed(ToolKind.Shell, "dotnet build x.slnx --no-restore 2>&1 | tail -5", Failed12)));
+    }
+
+    private static ToolCallCompleted Completed(ToolKind kind, string detail, string output) =>
+        new("call-1", true, output, null) { Call = new ToolCallStarted("call-1", kind, "bash", detail) };
 }

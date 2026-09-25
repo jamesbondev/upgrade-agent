@@ -1,4 +1,4 @@
-using UpgradeAgent.Ui;
+using AgentHarness.Policies;
 
 namespace UpgradeAgent.Publishing;
 

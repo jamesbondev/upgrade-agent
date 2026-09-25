@@ -1,7 +1,7 @@
+using AgentHarness.Policies;
 using UpgradeAgent.Publishing;
 using UpgradeAgent.Run;
 using UpgradeAgent.Tests.TestSupport;
-using UpgradeAgent.Ui;
 
 namespace UpgradeAgent.Tests.Publishing;
 
@@ -21,7 +21,7 @@ public sealed class DirectPushPublisherTests : IAsyncLifetime
     [Fact]
     public async Task DeclinedMeansNotPushed()
     {
-        var result = await new DirectPushPublisher(new DeclineAllPrompter()).PublishAsync(_tool, CancellationToken.None);
+        var result = await new DirectPushPublisher(ApprovalPrompter.DeclineAll).PublishAsync(_tool, CancellationToken.None);
 
         Assert.Equal(PushOutcome.Declined, result.Outcome);
         Assert.Null(_tool.Result);
@@ -30,7 +30,7 @@ public sealed class DirectPushPublisherTests : IAsyncLifetime
     [Fact]
     public async Task ApprovedRunsPushBranch()
     {
-        var result = await new DirectPushPublisher(new ApproveAll()).PublishAsync(_tool, CancellationToken.None);
+        var result = await new DirectPushPublisher(ApprovalPrompter.From((_, _) => true)).PublishAsync(_tool, CancellationToken.None);
 
         Assert.Equal(PushOutcome.DryRun, result.Outcome);
         Assert.Same(result, _tool.Result);
@@ -40,10 +40,5 @@ public sealed class DirectPushPublisherTests : IAsyncLifetime
     {
         _repo.Dispose();
         return Task.CompletedTask;
-    }
-
-    private sealed class ApproveAll : IApprovalPrompter
-    {
-        public Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken) => Task.FromResult(true);
     }
 }

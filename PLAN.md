@@ -96,13 +96,15 @@ UpgradeAgent/
     Bumping/       # version edits planned in memory, then written preserving encoding
     MsBuild/       # MSBuild file kinds and the version-entry scanner
     Run/           # orchestrator, group pipeline, commits, progress events
-    Agent/         # provider-neutral fixer: prompts, permission gate, session monitor, meter, telemetry
+    Agent/         # the fixer on AgentHarness: prompts, command policy, notes-first rule, build stop rule, event mapping, push publisher
       Activities/  # typed agent activity events and their sinks (console, log file, recorder)
-      Copilot/     # the GitHub Copilot backend: SDK mapping, hardened sessions, push publisher
     Guardrails/    # one class per check, reviewer notes, TRX parsing, baseline
     Publishing/    # PR description, push_branch tool, Azure DevOps, git auth
     Replay/        # record/replay of agent sessions
     Ui/            # append-only Spectre renderers + approval prompter
+  src/AgentHarness/             # standalone, copyable harness: sessions, limits, policies, custom tools, Copilot + scripted backends (see its README)
+  samples/HelloAgent/           # the harness in ~90 lines; --scripted runs offline
+  tests/AgentHarness.Tests/     # the harness's own tests
   tests/UpgradeAgent.Tests/                # one test class per class under test; TestSupport/ has temp repos and data builders
   fixtures/SampleRepo/                     # LoanLedger source; .feed/ holds the committed Fixture.Lib nupkgs
   fixtures/Fixture.Lib/                    # one source tree, packed as 1.0.0 / 1.1.0 / 2.0.0 via -p:FixtureApi
@@ -630,6 +632,7 @@ The goal: a codebase to show other engineers how to build on an LLM from C#. Wha
 - **Composition.** `AppServices` is the one composition root (ServiceCollection, validated `IOptions`, no Generic Host). Commands are classes; option conflicts are refused while parsing. The orchestrator receives its collaborators, reports through `IRunProgress`, and one reject path owns reverting.
 - **Correctness fixes found by the audit.** `--only` now applies to `--plan` and `--replay`; a family moves only if every member's major can; the diff parser no longer misreads SQL comments as headers; `$VAR`, `$(…)` and PowerShell subexpressions are refused; secret filtering covers any `*TOKEN*`/`*_KEY*`/`*CREDENTIAL*`; an update is never half-applied; a failed push is no longer shown as a dry run; the worktree is created only after the config-leak check; agent text in the PR is escaped and marked unverified.
 - **Domain types.** Versions and frameworks are `NuGetVersion`/`NuGetFramework` end to end (plan.json unchanged); the planner is steps → `UpdatePolicy` rules → compatibility → `UpdateGrouper`; guardrails are one `IGuardrail` class per check over a context gathered once.
+- **AgentHarness (M8.1).** The Copilot backend, sessions, limits, permission pipeline, custom tools and structured replies moved into `src/AgentHarness`, which has no dependency on UpgradeAgent and builds unchanged in another solution (with or without central package management). UpgradeAgent consumes it: `CommandPolicy` configures `WorkspacePolicy`, the notes-first rule wraps it, `ProgressMonitor` is an `IStopRule`, `SessionMonitor` an `IAgentObserver`, and publishing is a harness session with one approval-required tool. Telemetry moved to the `AgentHarness` source. Fixed on the way: "read-only" commands whose options write files or run programs (`sort -o`, `sed w/e`, `rg --pre`, `git grep -O`, `--ext-diff`) and paths hidden in `--opt=value` or `rev:path` words are now refused.
 - **Hygiene.** Analyzers at `latest-recommended` with warnings as errors, a root `.editorconfig`, a pinned SDK, `internal` by default, shared helpers instead of copies. Tests are organised one class per class under test, with shared temp-repo and test-data builders.
 
 ## Acceptance criteria

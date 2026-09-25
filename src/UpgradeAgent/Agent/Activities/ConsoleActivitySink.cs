@@ -1,3 +1,4 @@
+using AgentHarness;
 using Spectre.Console;
 using UpgradeAgent.Infrastructure;
 using UpgradeAgent.Ui;

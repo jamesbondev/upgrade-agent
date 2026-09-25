@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.Extensions.AI;
+using AgentHarness;
 
 namespace UpgradeAgent.Agent;
 
@@ -87,46 +87,23 @@ internal sealed record AppliedFix
 }
 
 /// <summary>
-/// The contract for the summary turn. The JSON schema sent to the model is generated from the C# types above,
-/// so the prompt and the parser can't drift apart.
+/// The contract for the summary turn. The JSON schema sent to the model is generated from the C# types above
+/// (by the harness's <see cref="StructuredOutput"/>), so the prompt and the parser can't drift apart.
 /// </summary>
 internal static class GroupSummaryParser
 {
-    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
-    {
-        AllowTrailingCommas = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
-    };
-
-    public static string Schema { get; } = AIJsonUtilities.CreateJsonSchema(typeof(GroupSummary), serializerOptions: Options).GetRawText();
+    public static string Schema { get; } = StructuredOutput.SchemaFor<GroupSummary>();
 
     /// <summary>
     /// Accepts bare JSON or JSON inside a Markdown code fence. Returns null rather than throwing when the reply
     /// isn't a valid summary (missing required fields included): a summary is useful, never essential.
     /// </summary>
-    public static GroupSummary? TryParse(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return null;
-        }
+    public static GroupSummary? TryParse(string? text) => Validate(StructuredOutput.Parse<GroupSummary>(text).Value);
 
-        var start = text.IndexOf('{', StringComparison.Ordinal);
-        var end = text.LastIndexOf('}');
-        if (start < 0 || end <= start)
-        {
-            return null;
-        }
-
-        try
-        {
-            var summary = JsonSerializer.Deserialize<GroupSummary>(text[start..(end + 1)], Options);
-            return summary?.Packages is { } packages && packages.All(p => p is { Id.Length: > 0, From.Length: > 0, To.Length: > 0 }) ? summary : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
+    /// <summary>
+    /// Null unless every package names itself and its versions: models send empty strings for required fields,
+    /// which JSON accepts but the report can't use.
+    /// </summary>
+    public static GroupSummary? Validate(GroupSummary? summary) =>
+        summary?.Packages is { } packages && packages.All(p => p is { Id.Length: > 0, From.Length: > 0, To.Length: > 0 }) ? summary : null;
 }

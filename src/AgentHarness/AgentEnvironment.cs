@@ -1,13 +1,13 @@
 using System.Collections;
 
-namespace UpgradeAgent.Agent;
+namespace AgentHarness;
 
 /// <summary>
 /// The environment for the agent's runtime (and so every command it runs). The Copilot runtime uses
 /// exactly this dictionary (verified: it replaces the inherited environment), so dropping a name here
 /// really hides it.
 /// </summary>
-internal static class AgentEnvironment
+public static class AgentEnvironment
 {
     private static readonly string[] SecretNames =
     [

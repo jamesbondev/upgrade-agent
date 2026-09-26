@@ -205,7 +205,7 @@ internal static partial class ReadmeSignals
         }
     }
 
-    private static string LanguageOf(CodeBlock block) => block is FencedCodeBlock fenced ? fenced.Info ?? "" : "";
+    private static string LanguageOf(CodeBlock block) => block is FencedCodeBlock fenced ? (fenced.Info ?? "").Split(' ', 2)[0] : "";
 
     private static IEnumerable<Signal> Versions(string text, RepoFacts facts)
     {

@@ -112,6 +112,15 @@ public class ReadmeSignalsTests
     }
 
     [Fact]
+    public void AFenceLanguageIsItsFirstWordEvenWhenMarkdigDecodesASpaceIntoIt()
+    {
+        var facts = FactsBuilder.Readme("```bash&#32;title\n./gone.sh\n```\n\n```text&#32;x\nIGoneService\n```\n");
+
+        Assert.Equal([(SignalKind.MissingCommandTarget, "./gone.sh")], FactsBuilder.Signals(facts).Select(s => (s.Kind, s.Text)));
+        Assert.Contains(ReadmeSignals.IdentifierMentions(facts.Readme!.Text), m => m.Identifier == "IGoneService");
+    }
+
+    [Fact]
     public void CodeBlocksInOtherLanguagesAreSkipped()
     {
         var facts = FactsBuilder.Readme("""

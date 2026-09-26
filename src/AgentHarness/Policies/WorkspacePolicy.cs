@@ -50,7 +50,7 @@ public sealed class WorkspacePolicyOptions
 
     public string NetworkRefusal { get; set; } = "No network access in this session. Work from the files in the workspace.";
 
-    public string GitRefusal { get; set; } = "Only read-only git commands (status, diff, log, show) are allowed; the app owns commits and branches.";
+    public string GitRefusal { get; set; } = "Only read-only git commands (status, diff, log, show, ls-files, grep, blame) are allowed; the app owns commits and branches.";
 
     public Func<string, string> SensitiveRefusal { get; set; } = name => $"'{name}' can hold credentials and isn't needed for this task.";
 

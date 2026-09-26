@@ -24,7 +24,7 @@ internal static class CommandPolicy
         {
             AutoApprovedEditExtensions = { ".cs", ".fs", ".vb", ".razor", ".cshtml" },
             NetworkRefusal = NoNetwork,
-            GitRefusal = "Only read-only git commands (status, diff, log, show) are allowed; UpgradeAgent owns commits and branches.",
+            GitRefusal = "Only read-only git commands (status, diff, log, show, ls-files, grep, blame) are allowed; UpgradeAgent owns commits and branches.",
             EditAskReason = path => $"edit to a non-source file: {path}",
             SensitiveRefusal = name => $"'{name}' can hold credentials (such as NuGet feed passwords) and isn't needed to fix code.",
             UnknownCommandRefusal = command =>

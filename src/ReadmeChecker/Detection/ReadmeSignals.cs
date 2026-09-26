@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using Markdig;
 using Markdig.Syntax;
@@ -589,7 +590,7 @@ internal static partial class ReadmeSignals
         private static List<string> Tokenize(string text)
         {
             var tokens = new List<string>();
-            var current = new System.Text.StringBuilder();
+            var current = new StringBuilder();
             char? quote = null;
             foreach (var c in text)
             {

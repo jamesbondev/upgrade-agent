@@ -102,7 +102,7 @@ internal static partial class ReadmeSignals
 
         foreach (var (url, line) in targets)
         {
-            if (MissingLinkTarget(url, readme.Directory, facts) is { } missing)
+            if (ResolveLink(url, readme.Directory) is { } missing && !facts.Exists(missing))
             {
                 yield return new Signal(SignalKind.BrokenLink, line + 1, url, $"'{missing}' is not in the repository", missing);
             }
@@ -112,10 +112,7 @@ internal static partial class ReadmeSignals
     private static IEnumerable<(string Url, int Line)> HtmlTargets(string html, int line) =>
         HtmlTarget().Matches(html).Select(m => (m.Groups["url"].Value, line));
 
-    internal static string? MissingLinkTarget(string url, string readmeDirectory, RepoFacts facts) =>
-        ResolveLink(url, readmeDirectory) is { } resolved && !facts.Exists(resolved) ? resolved : null;
-
-    internal static string? ResolveLink(string url, string readmeDirectory)
+    private static string? ResolveLink(string url, string readmeDirectory)
     {
         var target = url.Trim();
         if (target.Length == 0 || target.StartsWith('#') || target.StartsWith("//", StringComparison.Ordinal) || UrlScheme().IsMatch(target))

@@ -64,14 +64,14 @@ public sealed partial class WorkspacePolicy : IToolPolicy
 
     private static readonly HashSet<string> FindWriteActions = new(StringComparer.Ordinal) { "-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls" };
 
-    private readonly IReadOnlyList<string> _readOnlyRoots;
+    private readonly IReadOnlyList<string> _readableRoots;
     private readonly WorkspacePolicyOptions _options;
 
     public WorkspacePolicy(string root, WorkspacePolicyOptions? options = null)
     {
         _options = options ?? new WorkspacePolicyOptions();
         Root = Normalize(root);
-        _readOnlyRoots = _options.ReadOnlyRoots.Select(Normalize).ToList();
+        _readableRoots = [Root, .. _options.ReadOnlyRoots.Select(Normalize)];
     }
 
     public WorkspacePolicy(string root, Action<WorkspacePolicyOptions> configure)
@@ -111,7 +111,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
                 return Sensitive(path);
             }
 
-            if (!IsInside(Resolve(path, Root), [Root, .. _readOnlyRoots]))
+            if (!IsInside(Resolve(path, Root), _readableRoots))
             {
                 return ToolDecision.Reject($"'{path}' is outside the working copy.");
             }
@@ -166,7 +166,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
 
     public ToolDecision EvaluateRead(string path) =>
         IsSensitive(path) ? Sensitive(path)
-        : IsInside(Resolve(path, Root), [Root, .. _readOnlyRoots])
+        : IsInside(Resolve(path, Root), _readableRoots)
             ? ToolDecision.Approve("read inside the allowed folders")
             : ToolDecision.Reject($"'{path}' is outside the working copy and the folders it may read.");
 
@@ -189,7 +189,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
 
         foreach (var argument in paths.Where(LooksLikeEscapingPath))
         {
-            if (!IsInside(Resolve(argument, cwd), [Root, .. _readOnlyRoots]))
+            if (!IsInside(Resolve(argument, cwd), _readableRoots))
             {
                 return ToolDecision.Reject($"'{argument}' is outside the working copy.");
             }

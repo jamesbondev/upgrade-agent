@@ -172,7 +172,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
 
     public bool IsSensitive(string path)
     {
-        var name = Path.GetFileName(path.TrimEnd('/', '\\'));
+        var name = FileNameOf(path);
         return _options.SensitiveFileNames.Contains(name) || _options.SensitiveExtensions.Contains(Path.GetExtension(name));
     }
 
@@ -260,7 +260,9 @@ public sealed partial class WorkspacePolicy : IToolPolicy
 
     private static ToolDecision OutsideWorkingCopy(string path) => ToolDecision.Reject($"'{path}' is outside the working copy.");
 
-    private ToolDecision Sensitive(string path) => ToolDecision.Reject(_options.SensitiveRefusal(Path.GetFileName(path.TrimEnd('/', '\\'))));
+    private ToolDecision Sensitive(string path) => ToolDecision.Reject(_options.SensitiveRefusal(FileNameOf(path)));
+
+    private static string FileNameOf(string path) => Path.GetFileName(path.TrimEnd('/', '\\'));
 
     private static WorkspacePolicyOptions Configure(Action<WorkspacePolicyOptions> configure)
     {

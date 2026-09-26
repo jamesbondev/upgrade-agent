@@ -64,14 +64,13 @@ public sealed partial class WorkspacePolicy : IToolPolicy
 
     private static readonly HashSet<string> FindWriteActions = new(StringComparer.Ordinal) { "-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls" };
 
-    private readonly string _root;
     private readonly IReadOnlyList<string> _readOnlyRoots;
     private readonly WorkspacePolicyOptions _options;
 
     public WorkspacePolicy(string root, WorkspacePolicyOptions? options = null)
     {
         _options = options ?? new WorkspacePolicyOptions();
-        _root = Normalize(root);
+        Root = Normalize(root);
         _readOnlyRoots = _options.ReadOnlyRoots.Select(Normalize).ToList();
     }
 
@@ -80,7 +79,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
     {
     }
 
-    public string Root => _root;
+    public string Root { get; }
 
     public ValueTask<ToolDecision> EvaluateAsync(ToolRequest request, CancellationToken cancellationToken) => ValueTask.FromResult(request switch
     {
@@ -112,7 +111,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
                 return Sensitive(path);
             }
 
-            if (!IsInside(Resolve(path, _root), [_root, .. _readOnlyRoots]))
+            if (!IsInside(Resolve(path, Root), [Root, .. _readOnlyRoots]))
             {
                 return ToolDecision.Reject($"'{path}' is outside the working copy.");
             }
@@ -123,7 +122,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
             return ToolDecision.Reject("Empty command.");
         }
 
-        var cwd = _root;
+        var cwd = Root;
         var decisions = new List<ToolDecision>();
         foreach (var segment in parsed.Segments)
         {
@@ -147,13 +146,13 @@ public sealed partial class WorkspacePolicy : IToolPolicy
             return Sensitive(path);
         }
 
-        var full = Resolve(path, _root);
-        if (!IsInside(full, [_root]))
+        var full = Resolve(path, Root);
+        if (!IsInside(full, [Root]))
         {
             return ToolDecision.Reject($"'{path}' is outside the working copy; only files in the workspace may be edited.");
         }
 
-        var relative = Path.GetRelativePath(_root, full).Replace('\\', '/');
+        var relative = Path.GetRelativePath(Root, full).Replace('\\', '/');
         if (relative == ".git" || relative.StartsWith(".git/", StringComparison.Ordinal))
         {
             return ToolDecision.Reject("The .git folder must not be edited.");
@@ -167,7 +166,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
 
     public ToolDecision EvaluateRead(string path) =>
         IsSensitive(path) ? Sensitive(path)
-        : IsInside(Resolve(path, _root), [_root, .. _readOnlyRoots])
+        : IsInside(Resolve(path, Root), [Root, .. _readOnlyRoots])
             ? ToolDecision.Approve("read inside the allowed folders")
             : ToolDecision.Reject($"'{path}' is outside the working copy and the folders it may read.");
 
@@ -190,7 +189,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
 
         foreach (var argument in paths.Where(LooksLikeEscapingPath))
         {
-            if (!IsInside(Resolve(argument, cwd), [_root, .. _readOnlyRoots]))
+            if (!IsInside(Resolve(argument, cwd), [Root, .. _readOnlyRoots]))
             {
                 return ToolDecision.Reject($"'{argument}' is outside the working copy.");
             }
@@ -210,7 +209,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
                 }
 
                 var target = Resolve(arguments[0], cwd);
-                if (!IsInside(target, [_root]))
+                if (!IsInside(target, [Root]))
                 {
                     return ToolDecision.Reject($"'{arguments[0]}' is outside the working copy.");
                 }

@@ -11,7 +11,8 @@ public static partial class ShellCommandParser
     public static bool TryParse(string commandLine, [NotNullWhen(true)] out ParsedCommand? parsed, [NotNullWhen(false)] out string? error)
     {
         parsed = null;
-        error = Tokenize(commandLine, out var segments);
+        var segments = new List<IReadOnlyList<string>>();
+        error = Tokenize(commandLine, segments);
         if (error is not null)
         {
             return false;
@@ -21,11 +22,10 @@ public static partial class ShellCommandParser
         return true;
     }
 
-    private static string? Tokenize(string commandLine, out List<IReadOnlyList<string>> segments)
+    private static string? Tokenize(string commandLine, List<IReadOnlyList<string>> segments)
     {
         commandLine = StderrToStdout().Replace(commandLine, " ");
-        segments = [];
-        var tokens = new List<string>();
+        List<string> tokens = [];
         var token = new StringBuilder();
         var hasToken = false;
         char? quote = null;
@@ -40,13 +40,13 @@ public static partial class ShellCommandParser
             }
         }
 
-        void EndSegment(List<IReadOnlyList<string>> into)
+        void EndSegment()
         {
             EndToken();
             if (tokens.Count > 0)
             {
-                into.Add(tokens.ToList());
-                tokens.Clear();
+                segments.Add(tokens);
+                tokens = [];
             }
         }
 
@@ -120,20 +120,20 @@ public static partial class ShellCommandParser
                 case '{' or '}':
                     return "script blocks are not allowed";
                 case ';':
-                    EndSegment(segments);
+                    EndSegment();
                     break;
                 case '&' when next == '&':
-                    EndSegment(segments);
+                    EndSegment();
                     i++;
                     break;
                 case '&':
                     return "background jobs are not allowed";
                 case '|' when next == '|':
-                    EndSegment(segments);
+                    EndSegment();
                     i++;
                     break;
                 case '|':
-                    EndSegment(segments);
+                    EndSegment();
                     break;
                 default:
                     token.Append(c);
@@ -147,7 +147,7 @@ public static partial class ShellCommandParser
             return "unbalanced quotes";
         }
 
-        EndSegment(segments);
+        EndSegment();
         return null;
     }
 

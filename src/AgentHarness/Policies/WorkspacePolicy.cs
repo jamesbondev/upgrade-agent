@@ -50,7 +50,7 @@ public sealed class WorkspacePolicyOptions
 
     public string NetworkRefusal { get; set; } = "No network access in this session. Work from the files in the workspace.";
 
-    public string GitRefusal { get; set; } = "Only read-only git commands (status, diff, log, show) are allowed; the app owns commits and branches.";
+    public string GitRefusal { get; set; } = "Only read-only git commands (status, diff, log, show, ls-files, grep, blame) are allowed; the app owns commits and branches.";
 
     public Func<string, string> SensitiveRefusal { get; set; } = name => $"'{name}' can hold credentials and isn't needed for this task.";
 
@@ -64,15 +64,14 @@ public sealed partial class WorkspacePolicy : IToolPolicy
 
     private static readonly HashSet<string> FindWriteActions = new(StringComparer.Ordinal) { "-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls" };
 
-    private readonly string _root;
-    private readonly IReadOnlyList<string> _readOnlyRoots;
+    private readonly IReadOnlyList<string> _readableRoots;
     private readonly WorkspacePolicyOptions _options;
 
     public WorkspacePolicy(string root, WorkspacePolicyOptions? options = null)
     {
         _options = options ?? new WorkspacePolicyOptions();
-        _root = Normalize(root);
-        _readOnlyRoots = _options.ReadOnlyRoots.Select(Normalize).ToList();
+        Root = Normalize(root);
+        _readableRoots = [Root, .. _options.ReadOnlyRoots.Select(Normalize)];
     }
 
     public WorkspacePolicy(string root, Action<WorkspacePolicyOptions> configure)
@@ -80,7 +79,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
     {
     }
 
-    public string Root => _root;
+    public string Root { get; }
 
     public ValueTask<ToolDecision> EvaluateAsync(ToolRequest request, CancellationToken cancellationToken) => ValueTask.FromResult(request switch
     {
@@ -112,9 +111,9 @@ public sealed partial class WorkspacePolicy : IToolPolicy
                 return Sensitive(path);
             }
 
-            if (!IsInside(Resolve(path, _root), [_root, .. _readOnlyRoots]))
+            if (!IsInside(Resolve(path, Root), _readableRoots))
             {
-                return ToolDecision.Reject($"'{path}' is outside the working copy.");
+                return OutsideWorkingCopy(path);
             }
         }
 
@@ -123,7 +122,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
             return ToolDecision.Reject("Empty command.");
         }
 
-        var cwd = _root;
+        var cwd = Root;
         var decisions = new List<ToolDecision>();
         foreach (var segment in parsed.Segments)
         {
@@ -147,33 +146,33 @@ public sealed partial class WorkspacePolicy : IToolPolicy
             return Sensitive(path);
         }
 
-        var full = Resolve(path, _root);
-        if (!IsInside(full, [_root]))
+        var full = Resolve(path, Root);
+        if (!IsInside(full, [Root]))
         {
             return ToolDecision.Reject($"'{path}' is outside the working copy; only files in the workspace may be edited.");
         }
 
-        var relative = Path.GetRelativePath(_root, full).Replace('\\', '/');
+        var relative = Path.GetRelativePath(Root, full).Replace('\\', '/');
         if (relative == ".git" || relative.StartsWith(".git/", StringComparison.Ordinal))
         {
             return ToolDecision.Reject("The .git folder must not be edited.");
         }
 
         var extension = Path.GetExtension(full);
-        return _options.AutoApprovedEditExtensions.Contains(extension) || (extension.Length > 1 && _options.AutoApprovedEditExtensions.Contains(extension[1..]))
+        return IsAutoApprovedExtension(extension)
             ? ToolDecision.Approve($"source edit: {relative}")
             : ToolDecision.Ask(_options.EditAskReason(relative));
     }
 
     public ToolDecision EvaluateRead(string path) =>
         IsSensitive(path) ? Sensitive(path)
-        : IsInside(Resolve(path, _root), [_root, .. _readOnlyRoots])
+        : IsInside(Resolve(path, Root), _readableRoots)
             ? ToolDecision.Approve("read inside the allowed folders")
             : ToolDecision.Reject($"'{path}' is outside the working copy and the folders it may read.");
 
     public bool IsSensitive(string path)
     {
-        var name = Path.GetFileName(path.TrimEnd('/', '\\'));
+        var name = FileNameOf(path);
         return _options.SensitiveFileNames.Contains(name) || _options.SensitiveExtensions.Contains(Path.GetExtension(name));
     }
 
@@ -190,9 +189,9 @@ public sealed partial class WorkspacePolicy : IToolPolicy
 
         foreach (var argument in paths.Where(LooksLikeEscapingPath))
         {
-            if (!IsInside(Resolve(argument, cwd), [_root, .. _readOnlyRoots]))
+            if (!IsInside(Resolve(argument, cwd), _readableRoots))
             {
-                return ToolDecision.Reject($"'{argument}' is outside the working copy.");
+                return OutsideWorkingCopy(argument);
             }
         }
 
@@ -210,26 +209,16 @@ public sealed partial class WorkspacePolicy : IToolPolicy
                 }
 
                 var target = Resolve(arguments[0], cwd);
-                if (!IsInside(target, [_root]))
+                if (!IsInside(target, [Root]))
                 {
-                    return ToolDecision.Reject($"'{arguments[0]}' is outside the working copy.");
+                    return OutsideWorkingCopy(arguments[0]);
                 }
 
                 cwd = target;
                 return ToolDecision.Approve("cd inside the working copy");
 
             case "git":
-                if (arguments.Count == 0 || !_options.ReadOnlyGitCommands.Contains(arguments[0]))
-                {
-                    return ToolDecision.Reject(_options.GitRefusal);
-                }
-
-                return arguments.Any(a => a.StartsWith("--output", StringComparison.Ordinal))
-                    ? ToolDecision.Reject("git --output writes a file; read the output directly.")
-                    : arguments.Any(a => GitRunsPrograms.Any(f => a.StartsWith(f, StringComparison.Ordinal))
-                        || (arguments[0] == "grep" && a.StartsWith('-') && !a.StartsWith("--", StringComparison.Ordinal) && a.Contains('O', StringComparison.Ordinal)))
-                        ? ToolDecision.Reject("Options that run other programs (external diff, textconv, pager) are not allowed; use plain git diff/show/grep.")
-                        : ToolDecision.Approve($"read-only git {arguments[0]}");
+                return EvaluateGit(arguments);
 
             case "find":
                 return arguments.Any(FindWriteActions.Contains)
@@ -237,11 +226,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
                     : ToolDecision.Approve("read-only find");
 
             case "sed":
-                return arguments.Any(a => a.StartsWith("-i", StringComparison.Ordinal) || a.StartsWith("--in-place", StringComparison.Ordinal))
-                    ? ToolDecision.Reject("Edit files with the edit tool, not sed -i.")
-                    : IsPrintOnlySed(arguments)
-                        ? ToolDecision.Approve("read-only sed")
-                        : ToolDecision.Reject("Only printing sed scripts are allowed (such as sed -n '1,40p' file or s/a/b/g). Edit files with the edit tool.");
+                return EvaluateSed(arguments);
 
             case "sort" when arguments.Any(a => a.StartsWith("-o", StringComparison.Ordinal) || a.StartsWith("--output", StringComparison.Ordinal)):
             case "tree" when arguments.Any(a => a == "-o" || a.StartsWith("--output", StringComparison.Ordinal)):
@@ -259,7 +244,50 @@ public sealed partial class WorkspacePolicy : IToolPolicy
         }
     }
 
-    private ToolDecision Sensitive(string path) => ToolDecision.Reject(_options.SensitiveRefusal(Path.GetFileName(path.TrimEnd('/', '\\'))));
+    private ToolDecision EvaluateGit(IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count == 0 || !_options.ReadOnlyGitCommands.Contains(arguments[0]))
+        {
+            return ToolDecision.Reject(_options.GitRefusal);
+        }
+
+        if (arguments.Any(a => a.StartsWith("--output", StringComparison.Ordinal)))
+        {
+            return ToolDecision.Reject("git --output writes a file; read the output directly.");
+        }
+
+        if (RunsAnotherProgram(arguments))
+        {
+            return ToolDecision.Reject("Options that run other programs (external diff, textconv, pager) are not allowed; use plain git diff/show/grep.");
+        }
+
+        return ToolDecision.Approve($"read-only git {arguments[0]}");
+    }
+
+    private static bool RunsAnotherProgram(IReadOnlyList<string> gitArguments) =>
+        gitArguments.Any(a => GitRunsPrograms.Any(f => a.StartsWith(f, StringComparison.Ordinal))
+            || (gitArguments[0] == "grep" && a.StartsWith('-') && !a.StartsWith("--", StringComparison.Ordinal) && a.Contains('O', StringComparison.Ordinal)));
+
+    private static ToolDecision EvaluateSed(IReadOnlyList<string> arguments)
+    {
+        if (arguments.Any(a => a.StartsWith("-i", StringComparison.Ordinal) || a.StartsWith("--in-place", StringComparison.Ordinal)))
+        {
+            return ToolDecision.Reject("Edit files with the edit tool, not sed -i.");
+        }
+
+        return IsPrintOnlySed(arguments)
+            ? ToolDecision.Approve("read-only sed")
+            : ToolDecision.Reject("Only printing sed scripts are allowed (such as sed -n '1,40p' file or s/a/b/g). Edit files with the edit tool.");
+    }
+
+    private static ToolDecision OutsideWorkingCopy(string path) => ToolDecision.Reject($"'{path}' is outside the working copy.");
+
+    private bool IsAutoApprovedExtension(string extension) =>
+        _options.AutoApprovedEditExtensions.Contains(extension) || (extension.Length > 1 && _options.AutoApprovedEditExtensions.Contains(extension[1..]));
+
+    private ToolDecision Sensitive(string path) => ToolDecision.Reject(_options.SensitiveRefusal(FileNameOf(path)));
+
+    private static string FileNameOf(string path) => Path.GetFileName(path.TrimEnd('/', '\\'));
 
     private static WorkspacePolicyOptions Configure(Action<WorkspacePolicyOptions> configure)
     {
@@ -318,7 +346,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
         var expanded = path.StartsWith('~')
             ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + path[1..]
             : path;
-        return Normalize(Path.GetFullPath(expanded, cwd));
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(expanded, cwd));
     }
 
     private static string Normalize(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));

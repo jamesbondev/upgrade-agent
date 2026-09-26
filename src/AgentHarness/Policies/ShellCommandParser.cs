@@ -8,10 +8,15 @@ public sealed record ParsedCommand(IReadOnlyList<IReadOnlyList<string>> Segments
 
 public static partial class ShellCommandParser
 {
+    private const string BackslashEscapesRefusal = "backslash escapes are not allowed; use single quotes for literal text";
+
+    private const string ExpansionRefusal = "variable expansion and command substitution are not allowed; write paths out in full";
+
     public static bool TryParse(string commandLine, [NotNullWhen(true)] out ParsedCommand? parsed, [NotNullWhen(false)] out string? error)
     {
         parsed = null;
-        error = Tokenize(commandLine, out var segments);
+        var segments = new List<IReadOnlyList<string>>();
+        error = Tokenize(commandLine, segments);
         if (error is not null)
         {
             return false;
@@ -21,11 +26,10 @@ public static partial class ShellCommandParser
         return true;
     }
 
-    private static string? Tokenize(string commandLine, out List<IReadOnlyList<string>> segments)
+    private static string? Tokenize(string commandLine, List<IReadOnlyList<string>> segments)
     {
         commandLine = StderrToStdout().Replace(commandLine, " ");
-        segments = [];
-        var tokens = new List<string>();
+        List<string> tokens = [];
         var token = new StringBuilder();
         var hasToken = false;
         char? quote = null;
@@ -40,13 +44,13 @@ public static partial class ShellCommandParser
             }
         }
 
-        void EndSegment(List<IReadOnlyList<string>> into)
+        void EndSegment()
         {
             EndToken();
             if (tokens.Count > 0)
             {
-                into.Add(tokens.ToList());
-                tokens.Clear();
+                segments.Add(tokens);
+                tokens = [];
             }
         }
 
@@ -84,12 +88,12 @@ public static partial class ShellCommandParser
 
                 if (c == '\\' && next is '"' or '$' or '`' or '\\')
                 {
-                    return "backslash escapes are not allowed; use single quotes for literal text";
+                    return BackslashEscapesRefusal;
                 }
 
                 if (c == '$' && IsExpansionStart(next))
                 {
-                    return "variable expansion and command substitution are not allowed; write paths out in full";
+                    return ExpansionRefusal;
                 }
 
                 token.Append(c);
@@ -110,9 +114,9 @@ public static partial class ShellCommandParser
                 case '`':
                     return "backticks are not allowed";
                 case '\\' when IsEscapable(next):
-                    return "backslash escapes are not allowed; use single quotes for literal text";
+                    return BackslashEscapesRefusal;
                 case '$' when IsExpansionStart(next):
-                    return "variable expansion and command substitution are not allowed; write paths out in full";
+                    return ExpansionRefusal;
                 case '(' or ')':
                     return "subshells and PowerShell subexpressions are not allowed";
                 case '>' or '<':
@@ -120,20 +124,20 @@ public static partial class ShellCommandParser
                 case '{' or '}':
                     return "script blocks are not allowed";
                 case ';':
-                    EndSegment(segments);
+                    EndSegment();
                     break;
                 case '&' when next == '&':
-                    EndSegment(segments);
+                    EndSegment();
                     i++;
                     break;
                 case '&':
                     return "background jobs are not allowed";
                 case '|' when next == '|':
-                    EndSegment(segments);
+                    EndSegment();
                     i++;
                     break;
                 case '|':
-                    EndSegment(segments);
+                    EndSegment();
                     break;
                 default:
                     token.Append(c);
@@ -147,7 +151,7 @@ public static partial class ShellCommandParser
             return "unbalanced quotes";
         }
 
-        EndSegment(segments);
+        EndSegment();
         return null;
     }
 

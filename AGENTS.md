@@ -50,6 +50,8 @@ and every test project passes.
   ask a model, use a read-only session and `AskAsync<T>`. Verify every agent change with plain code (build, tests,
   diff guardrails) before committing. The agent's summary is a claim, never a result.
 - **Tests never call a model.** Use `ScriptedBackend` for sessions, and `--record`/`--replay` for app runs.
+  Replay writes the recorded events back verbatim and never evaluates a policy, so changing a policy or its refusal
+  texts doesn't invalidate a recording.
 - **One `CopilotBackend` per directory in use at the same time.** A backend restarts its runtime when a session
   starts in another directory, which breaks sessions still running in the old one.
 - **Treat every cloned repo as untrusted.** Clone through `RepoWorkspace`, which turns symlinks into plain files

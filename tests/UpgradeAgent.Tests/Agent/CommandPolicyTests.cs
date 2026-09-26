@@ -8,7 +8,7 @@ public class CommandPolicyTests
 {
     private static readonly string Worktree = Path.Combine(Path.GetTempPath(), "ua-policy", "wt");
     private static readonly string Packages = Path.Combine(Path.GetTempPath(), "ua-policy", "nuget");
-    private readonly CommandPolicy _policy = new(Worktree, [Packages]);
+    private readonly WorkspacePolicy _policy = CommandPolicy.Create(Worktree, [Packages]);
 
     [Theory]
     [InlineData("dotnet build LoanLedger.slnx --no-restore")]

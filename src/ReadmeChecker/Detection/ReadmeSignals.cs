@@ -33,6 +33,11 @@ internal sealed record SignalScan(IReadOnlyList<Signal> Signals, int Dropped)
 
 internal static partial class ReadmeSignals
 {
+    private const int MinListedFiles = 3;
+    private const int NearbyLinkLines = 15;
+    private const int OrLaterLookahead = 24;
+    private const int MinProjectsInGroup = 3;
+
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().UsePipeTables().Build();
 
     private static readonly HashSet<string> ShellLanguages = new(StringComparer.OrdinalIgnoreCase)
@@ -162,7 +167,7 @@ internal static partial class ReadmeSignals
         foreach (var group in linked.GroupBy(l => FolderOf(l.Path)))
         {
             var listed = group.Select(l => l.Path).ToHashSet(StringComparer.Ordinal);
-            if (listed.Count < 3)
+            if (listed.Count < MinListedFiles)
             {
                 continue;
             }
@@ -179,7 +184,7 @@ internal static partial class ReadmeSignals
                 continue;
             }
 
-            var line = group.Select(l => l.Line).OrderByDescending(l => group.Count(o => Math.Abs(o.Line - l) <= 15)).First();
+            var line = group.Select(l => l.Line).OrderByDescending(l => group.Count(o => Math.Abs(o.Line - l) <= NearbyLinkLines)).First();
             var folder = group.Key.Length == 0 ? "the repository root" : $"{group.Key}/";
             foreach (var file in unlisted)
             {
@@ -248,7 +253,7 @@ internal static partial class ReadmeSignals
 
             foreach (Match match in DotnetMention().Matches(text))
             {
-                if (OrLater().IsMatch(text.AsSpan(match.Index + match.Length, Math.Min(24, text.Length - match.Index - match.Length))))
+                if (OrLater().IsMatch(text.AsSpan(match.Index + match.Length, Math.Min(OrLaterLookahead, text.Length - match.Index - match.Length))))
                 {
                     continue;
                 }
@@ -286,7 +291,7 @@ internal static partial class ReadmeSignals
         foreach (var group in projects.GroupBy(p => p[scope.Length..].Split('/')[0]))
         {
             var mentioned = group.Where(p => Mentions(readme.Text, p)).ToList();
-            var enumerated = group.Count() >= 3 && mentioned.Count >= group.Count() / 2.0;
+            var enumerated = group.Count() >= MinProjectsInGroup && mentioned.Count >= group.Count() / 2.0;
             var listsTests = mentioned.Any(IsTestProject);
             foreach (var project in group.Except(mentioned))
             {

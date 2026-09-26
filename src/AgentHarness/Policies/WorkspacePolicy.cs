@@ -218,17 +218,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
                 return ToolDecision.Approve("cd inside the working copy");
 
             case "git":
-                if (arguments.Count == 0 || !_options.ReadOnlyGitCommands.Contains(arguments[0]))
-                {
-                    return ToolDecision.Reject(_options.GitRefusal);
-                }
-
-                return arguments.Any(a => a.StartsWith("--output", StringComparison.Ordinal))
-                    ? ToolDecision.Reject("git --output writes a file; read the output directly.")
-                    : arguments.Any(a => GitRunsPrograms.Any(f => a.StartsWith(f, StringComparison.Ordinal))
-                        || (arguments[0] == "grep" && a.StartsWith('-') && !a.StartsWith("--", StringComparison.Ordinal) && a.Contains('O', StringComparison.Ordinal)))
-                        ? ToolDecision.Reject("Options that run other programs (external diff, textconv, pager) are not allowed; use plain git diff/show/grep.")
-                        : ToolDecision.Approve($"read-only git {arguments[0]}");
+                return EvaluateGit(arguments);
 
             case "find":
                 return arguments.Any(FindWriteActions.Contains)
@@ -236,11 +226,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
                     : ToolDecision.Approve("read-only find");
 
             case "sed":
-                return arguments.Any(a => a.StartsWith("-i", StringComparison.Ordinal) || a.StartsWith("--in-place", StringComparison.Ordinal))
-                    ? ToolDecision.Reject("Edit files with the edit tool, not sed -i.")
-                    : IsPrintOnlySed(arguments)
-                        ? ToolDecision.Approve("read-only sed")
-                        : ToolDecision.Reject("Only printing sed scripts are allowed (such as sed -n '1,40p' file or s/a/b/g). Edit files with the edit tool.");
+                return EvaluateSed(arguments);
 
             case "sort" when arguments.Any(a => a.StartsWith("-o", StringComparison.Ordinal) || a.StartsWith("--output", StringComparison.Ordinal)):
             case "tree" when arguments.Any(a => a == "-o" || a.StartsWith("--output", StringComparison.Ordinal)):
@@ -256,6 +242,42 @@ public sealed partial class WorkspacePolicy : IToolPolicy
                     : _options.NetworkCommands.Contains(command) ? ToolDecision.Reject(_options.NetworkRefusal)
                     : ToolDecision.Reject(_options.UnknownCommandRefusal(command));
         }
+    }
+
+    private ToolDecision EvaluateGit(IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count == 0 || !_options.ReadOnlyGitCommands.Contains(arguments[0]))
+        {
+            return ToolDecision.Reject(_options.GitRefusal);
+        }
+
+        if (arguments.Any(a => a.StartsWith("--output", StringComparison.Ordinal)))
+        {
+            return ToolDecision.Reject("git --output writes a file; read the output directly.");
+        }
+
+        if (RunsAnotherProgram(arguments))
+        {
+            return ToolDecision.Reject("Options that run other programs (external diff, textconv, pager) are not allowed; use plain git diff/show/grep.");
+        }
+
+        return ToolDecision.Approve($"read-only git {arguments[0]}");
+    }
+
+    private static bool RunsAnotherProgram(IReadOnlyList<string> gitArguments) =>
+        gitArguments.Any(a => GitRunsPrograms.Any(f => a.StartsWith(f, StringComparison.Ordinal))
+            || (gitArguments[0] == "grep" && a.StartsWith('-') && !a.StartsWith("--", StringComparison.Ordinal) && a.Contains('O', StringComparison.Ordinal)));
+
+    private static ToolDecision EvaluateSed(IReadOnlyList<string> arguments)
+    {
+        if (arguments.Any(a => a.StartsWith("-i", StringComparison.Ordinal) || a.StartsWith("--in-place", StringComparison.Ordinal)))
+        {
+            return ToolDecision.Reject("Edit files with the edit tool, not sed -i.");
+        }
+
+        return IsPrintOnlySed(arguments)
+            ? ToolDecision.Approve("read-only sed")
+            : ToolDecision.Reject("Only printing sed scripts are allowed (such as sed -n '1,40p' file or s/a/b/g). Edit files with the edit tool.");
     }
 
     private static ToolDecision OutsideWorkingCopy(string path) => ToolDecision.Reject($"'{path}' is outside the working copy.");

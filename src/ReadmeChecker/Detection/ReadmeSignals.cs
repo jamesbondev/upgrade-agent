@@ -135,7 +135,7 @@ internal static partial class ReadmeSignals
             return null;
         }
 
-        return target.StartsWith('/') ? Normalize(target.TrimStart('/')) : Normalize(Join(readmeDirectory, target));
+        return target.StartsWith('/') ? RepoPaths.Normalize(target.TrimStart('/')) : RepoPaths.Normalize(RepoPaths.Join(readmeDirectory, target));
     }
 
     public static IReadOnlyList<(string Identifier, int Line)> IdentifierMentions(string text)
@@ -161,7 +161,7 @@ internal static partial class ReadmeSignals
             .Select(l => (Path: l.Path!, l.Line))
             .ToList();
 
-        foreach (var group in linked.GroupBy(l => FolderOf(l.Path)))
+        foreach (var group in linked.GroupBy(l => RepoPaths.FolderOf(l.Path)))
         {
             var listed = group.Select(l => l.Path).ToHashSet(StringComparer.Ordinal);
             if (listed.Count < MinListedFiles)
@@ -171,7 +171,7 @@ internal static partial class ReadmeSignals
 
             var extension = listed.GroupBy(Path.GetExtension).OrderByDescending(g => g.Count()).First().Key;
             var siblings = facts.Files
-                .Where(f => FolderOf(f) == group.Key && Path.GetExtension(f) == extension && !IsIndexLike(f))
+                .Where(f => RepoPaths.FolderOf(f) == group.Key && Path.GetExtension(f) == extension && !IsIndexLike(f))
                 .ToList();
             var unlisted = siblings
                 .Where(f => !listed.Contains(f) && !readme.Text.Contains(Path.GetFileName(f), StringComparison.OrdinalIgnoreCase))
@@ -190,8 +190,6 @@ internal static partial class ReadmeSignals
             }
         }
     }
-
-    private static string FolderOf(string path) => path.Contains('/', StringComparison.Ordinal) ? path[..path.LastIndexOf('/')] : "";
 
     private static bool IsIndexLike(string path)
     {
@@ -328,34 +326,6 @@ internal static partial class ReadmeSignals
     }
 
     private static int LineOf(string text, int index) => text.AsSpan(0, index).Count('\n') + 1;
-
-    internal static string? Normalize(string path)
-    {
-        var parts = new List<string>();
-        foreach (var segment in path.Replace('\\', '/').Split('/'))
-        {
-            switch (segment)
-            {
-                case "" or ".":
-                    continue;
-                case "..":
-                    if (parts.Count == 0)
-                    {
-                        return null;
-                    }
-
-                    parts.RemoveAt(parts.Count - 1);
-                    break;
-                default:
-                    parts.Add(segment);
-                    break;
-            }
-        }
-
-        return string.Join('/', parts);
-    }
-
-    private static string Join(string folder, string path) => folder.Length == 0 ? path : $"{folder}/{path}";
 
     [GeneratedRegex("""(?:src|href)\s*=\s*["'](?<url>[^"']+)["']""", RegexOptions.IgnoreCase)]
     private static partial Regex HtmlTarget();
@@ -553,11 +523,11 @@ internal static partial class ReadmeSignals
 
         private string? MissingIfNotFound(string path)
         {
-            var candidates = new[] { Normalize(Join(_cwd, path)), Normalize(Join(readme.Directory, path)), Normalize(path) };
+            var candidates = new[] { RepoPaths.Normalize(RepoPaths.Join(_cwd, path)), RepoPaths.Normalize(RepoPaths.Join(readme.Directory, path)), RepoPaths.Normalize(path) };
             return candidates.Any(c => c is not null && facts.Exists(c)) ? null : candidates.FirstOrDefault(c => c is not null) ?? path;
         }
 
-        private string? Resolve(string path) => Normalize(Join(_cwd, path));
+        private string? Resolve(string path) => RepoPaths.Normalize(RepoPaths.Join(_cwd, path));
 
         private bool IsCreated(string path) =>
             _created.Any(c => path.Equals(c, StringComparison.OrdinalIgnoreCase) || path.StartsWith(c + "/", StringComparison.OrdinalIgnoreCase));

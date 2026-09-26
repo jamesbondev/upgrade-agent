@@ -117,7 +117,7 @@ internal static partial class AssessmentValidator
         var trimmed = LineSuffix().Replace(path.Trim().Trim('`', '"', '\''), "").Replace('\\', '/');
         return trimmed.Length == 0 || trimmed.StartsWith('/') || trimmed.Contains(':', StringComparison.Ordinal)
             ? null
-            : ReadmeSignals.Normalize(trimmed);
+            : RepoPaths.Normalize(trimmed);
     }
 
     [GeneratedRegex(@"\s+")]

@@ -146,7 +146,10 @@ For each repo, one at a time:
      `dotnet run/test/build --project`, `./script` and `pwsh script.ps1`. `cd` is followed, and folders the block
      creates (`dotnet new -o`, `mkdir`) don't count. URLs, placeholders, globs, absolute paths, gitignored and
      build-output paths are skipped, and so are bare file names in prose (`secrets.json` usually means a kind of file,
-     not one in this repo).
+     not one in this repo). What each command means lives in `Detection/CommandRules.cs`: a rule reads a command's
+     tokens and says which are targets, which folders it creates or moves into, and whether it leaves the repo.
+     `CommandScanner` acts on that and checks the paths. To teach it a new command, add a rule and a
+     `CommandRulesTests` case.
    - Type names (`IReviewEngine`, `ReviewJobHandler`) that no code or config file contains. Names inside
      language-tagged code examples are skipped, since those are often other libraries' APIs.
    - `.NET 6`, `net6.0` and SDK versions that the projects and `global.json` don't use ("or later" is fine).

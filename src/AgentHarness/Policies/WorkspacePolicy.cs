@@ -159,7 +159,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
         }
 
         var extension = Path.GetExtension(full);
-        return _options.AutoApprovedEditExtensions.Contains(extension) || (extension.Length > 1 && _options.AutoApprovedEditExtensions.Contains(extension[1..]))
+        return IsAutoApprovedExtension(extension)
             ? ToolDecision.Approve($"source edit: {relative}")
             : ToolDecision.Ask(_options.EditAskReason(relative));
     }
@@ -281,6 +281,9 @@ public sealed partial class WorkspacePolicy : IToolPolicy
     }
 
     private static ToolDecision OutsideWorkingCopy(string path) => ToolDecision.Reject($"'{path}' is outside the working copy.");
+
+    private bool IsAutoApprovedExtension(string extension) =>
+        _options.AutoApprovedEditExtensions.Contains(extension) || (extension.Length > 1 && _options.AutoApprovedEditExtensions.Contains(extension[1..]));
 
     private ToolDecision Sensitive(string path) => ToolDecision.Reject(_options.SensitiveRefusal(FileNameOf(path)));
 

@@ -13,20 +13,20 @@ internal sealed record CommandReading
 {
     public static CommandReading Unknown { get; } = new();
 
-    public IReadOnlyList<int> CommandWords { get; init; } = [];
+    public IReadOnlyList<int> Consumed { get; init; } = [];
 
     public IReadOnlyList<CommandTarget> Targets { get; init; } = [];
 
-    public int? ChangesDirectory { get; init; }
+    public int? ChangesDirectoryTo { get; init; }
 
-    public IReadOnlyList<string> Creates { get; init; } = [];
+    public IReadOnlyList<int> Creates { get; init; } = [];
 
     public bool LeavesRepository { get; init; }
 
     public bool ChecksOtherTokens { get; init; } = true;
 
-    public bool Accounts(int index) =>
-        CommandWords.Contains(index) || index == ChangesDirectory || Targets.Any(t => t.Index == index);
+    public bool Consumes(int index) =>
+        Consumed.Contains(index) || Creates.Contains(index) || index == ChangesDirectoryTo || Targets.Any(t => t.Index == index);
 }
 
 internal static class CommandRules
@@ -41,7 +41,6 @@ internal static class CommandRules
         ChangeDirectory,
         MakeDirectory,
         GitClone,
-        DotnetNew,
         Dotnet,
         RunScript,
     ];
@@ -51,30 +50,28 @@ internal static class CommandRules
 
     private static CommandReading? ChangeDirectory(IReadOnlyList<string> tokens) =>
         tokens is ["cd" or "pushd" or "Set-Location" or "sl", _, ..]
-            ? new CommandReading { CommandWords = [0], ChangesDirectory = 1 }
+            ? new CommandReading { Consumed = [0], ChangesDirectoryTo = 1 }
             : null;
 
     private static CommandReading? MakeDirectory(IReadOnlyList<string> tokens) =>
         tokens is ["mkdir" or "md" or "New-Item", ..]
-            ? new CommandReading { Creates = tokens.Skip(1).Where(t => !t.StartsWith('-')).ToList(), ChecksOtherTokens = false }
+            ? new CommandReading { Consumed = [0], Creates = Enumerable.Range(1, tokens.Count - 1).Where(i => !tokens[i].StartsWith('-')).ToList(), ChecksOtherTokens = false }
             : null;
 
     private static CommandReading? GitClone(IReadOnlyList<string> tokens) =>
         tokens is ["git", "clone", _, ..] ? new CommandReading { LeavesRepository = true } : null;
 
-    private static CommandReading? DotnetNew(IReadOnlyList<string> tokens) =>
-        tokens is ["dotnet", "new", ..]
-            ? new CommandReading { Creates = OptionValues(tokens, "-o", "--output", "-n", "--name"), ChecksOtherTokens = false }
-            : null;
-
-    private static CommandReading? Dotnet(IReadOnlyList<string> tokens) =>
-        tokens is ["dotnet", var verb, ..]
-            ? DotnetProjectVerbs.Contains(verb) ? ProjectCommand(tokens) : new CommandReading { CommandWords = [0, 1] }
-            : null;
+    private static CommandReading? Dotnet(IReadOnlyList<string> tokens) => tokens switch
+    {
+        ["dotnet", "new", ..] => new CommandReading { Consumed = [0, 1], Creates = OptionValues(tokens, "-o", "--output", "-n", "--name"), ChecksOtherTokens = false },
+        ["dotnet", var verb, ..] when DotnetProjectVerbs.Contains(verb) => ProjectCommand(tokens),
+        ["dotnet", _, ..] => new CommandReading { Consumed = [0, 1] },
+        _ => null,
+    };
 
     private static CommandReading? RunScript(IReadOnlyList<string> tokens) =>
         ScriptIndex(tokens) is { } script
-            ? new CommandReading { CommandWords = [0], Targets = [new CommandTarget(script, PathRole.Script)] }
+            ? new CommandReading { Consumed = [0], Targets = [new CommandTarget(script, PathRole.Script)] }
             : null;
 
     private static CommandReading ProjectCommand(IReadOnlyList<string> tokens)
@@ -94,22 +91,11 @@ internal static class CommandRules
             }
         }
 
-        return new CommandReading { CommandWords = words, Targets = targets };
+        return new CommandReading { Consumed = words, Targets = targets };
     }
 
-    private static List<string> OptionValues(IReadOnlyList<string> tokens, params string[] options)
-    {
-        var values = new List<string>();
-        for (var i = 2; i < tokens.Count - 1; i++)
-        {
-            if (options.Contains(tokens[i]))
-            {
-                values.Add(tokens[i + 1]);
-            }
-        }
-
-        return values;
-    }
+    private static List<int> OptionValues(IReadOnlyList<string> tokens, params string[] options) =>
+        Enumerable.Range(2, Math.Max(0, tokens.Count - 3)).Where(i => options.Contains(tokens[i])).Select(i => i + 1).ToList();
 
     private static int? ScriptIndex(IReadOnlyList<string> tokens)
     {

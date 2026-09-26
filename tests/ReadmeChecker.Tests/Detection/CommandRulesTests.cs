@@ -9,25 +9,30 @@ public class CommandRulesTests
     {
         var reading = CommandRules.Read(["cd", "src/App"]);
 
-        Assert.Equal(1, reading.ChangesDirectory);
-        Assert.Equal([0], reading.CommandWords);
+        Assert.Equal(1, reading.ChangesDirectoryTo);
+        Assert.True(reading.ChecksOtherTokens);
     }
 
     [Fact]
     public void MkdirCreatesItsArgumentsAndChecksNothingElse()
     {
-        var reading = CommandRules.Read(["mkdir", "-p", "out/logs", "tmp"]);
+        string[] tokens = ["mkdir", "-p", "out/logs", "tmp"];
 
-        Assert.Equal(["out/logs", "tmp"], reading.Creates);
+        var reading = CommandRules.Read(tokens);
+
+        Assert.Equal(["out/logs", "tmp"], reading.Creates.Select(i => tokens[i]));
         Assert.False(reading.ChecksOtherTokens);
     }
 
     [Fact]
-    public void DotnetNewCreatesItsOutputAndName()
+    public void DotnetNewCreatesItsOutputAndNameAndHasNoProjectTarget()
     {
-        var reading = CommandRules.Read(["dotnet", "new", "console", "-o", "src/NewApp", "--name", "NewApp"]);
+        string[] tokens = ["dotnet", "new", "console", "-o", "src/NewApp", "--name", "NewApp"];
 
-        Assert.Equal(["src/NewApp", "NewApp"], reading.Creates);
+        var reading = CommandRules.Read(tokens);
+
+        Assert.Equal(["src/NewApp", "NewApp"], reading.Creates.Select(i => tokens[i]));
+        Assert.Empty(reading.Targets);
         Assert.False(reading.ChecksOtherTokens);
     }
 
@@ -50,15 +55,21 @@ public class CommandRulesTests
         Assert.True(CommandRules.Read(["git", "clone", "https://example.com/x.git"]).LeavesRepository);
 
     [Fact]
-    public void AnUnknownCommandChecksEveryToken() =>
-        Assert.Same(CommandReading.Unknown, CommandRules.Read(["cat", "src/a.json"]));
+    public void AnUnknownCommandConsumesNothingAndChecksEveryToken()
+    {
+        var reading = CommandRules.Read(["cat", "src/a.json"]);
+
+        Assert.False(reading.Consumes(0) || reading.Consumes(1));
+        Assert.True(reading.ChecksOtherTokens);
+        Assert.False(reading.LeavesRepository);
+    }
 
     [Fact]
-    public void TheFirstMatchingRuleWins()
+    public void AnyOtherDotnetVerbIsNotAPath()
     {
         var reading = CommandRules.Read(["dotnet", "./tools/app.dll"]);
 
-        Assert.Equal([0, 1], reading.CommandWords);
+        Assert.True(reading.Consumes(1));
         Assert.Empty(reading.Targets);
     }
 }

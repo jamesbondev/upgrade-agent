@@ -51,9 +51,9 @@ internal sealed partial class CommandScanner(ReadmeFile readme, RepoFacts facts)
             yield break;
         }
 
-        _created.UnionWith(reading.Creates.Select(Clean));
+        _created.UnionWith(reading.Creates.Select(i => Clean(tokens[i])));
 
-        if (reading.ChangesDirectory is { } folder && ChangeDirectory(tokens[folder], line) is { } missingFolder)
+        if (reading.ChangesDirectoryTo is { } folder && ChangeDirectory(tokens[folder], line) is { } missingFolder)
         {
             yield return missingFolder;
         }
@@ -78,7 +78,7 @@ internal sealed partial class CommandScanner(ReadmeFile readme, RepoFacts facts)
 
         for (var i = 0; i < tokens.Count; i++)
         {
-            if (!reading.Accounts(i) && Missing(SignalKind.MissingPath, line, tokens[i], PathRole.Mention) is { } signal)
+            if (!reading.Consumes(i) && Missing(SignalKind.MissingPath, line, tokens[i], PathRole.Mention) is { } signal)
             {
                 yield return signal;
             }

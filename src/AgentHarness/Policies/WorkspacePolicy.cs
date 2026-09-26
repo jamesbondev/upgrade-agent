@@ -113,7 +113,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
 
             if (!IsInside(Resolve(path, Root), _readableRoots))
             {
-                return ToolDecision.Reject($"'{path}' is outside the working copy.");
+                return OutsideWorkingCopy(path);
             }
         }
 
@@ -191,7 +191,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
         {
             if (!IsInside(Resolve(argument, cwd), _readableRoots))
             {
-                return ToolDecision.Reject($"'{argument}' is outside the working copy.");
+                return OutsideWorkingCopy(argument);
             }
         }
 
@@ -211,7 +211,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
                 var target = Resolve(arguments[0], cwd);
                 if (!IsInside(target, [Root]))
                 {
-                    return ToolDecision.Reject($"'{arguments[0]}' is outside the working copy.");
+                    return OutsideWorkingCopy(arguments[0]);
                 }
 
                 cwd = target;
@@ -257,6 +257,8 @@ public sealed partial class WorkspacePolicy : IToolPolicy
                     : ToolDecision.Reject(_options.UnknownCommandRefusal(command));
         }
     }
+
+    private static ToolDecision OutsideWorkingCopy(string path) => ToolDecision.Reject($"'{path}' is outside the working copy.");
 
     private ToolDecision Sensitive(string path) => ToolDecision.Reject(_options.SensitiveRefusal(Path.GetFileName(path.TrimEnd('/', '\\'))));
 

@@ -200,15 +200,16 @@ var policy = ToolPolicy.From(request => request switch
 Or start from `WorkspacePolicy`, the default for a coding agent confined to one folder:
 
 - Reads inside the folder and `ReadOnlyRoots` run.
-- Edits run for `AutoApprovedEditExtensions` (with the dot: `".cs"`), ask for other files in the folder, and are
-  refused outside it and in `.git`.
+- Edits run for `AutoApprovedEditExtensions` (`".cs"`; the dot is optional), ask for other files in the folder, and
+  are refused outside it and in `.git`.
 - Shell commands are parsed (`ShellCommandParser`). Each part (split on `&&`, `||`, `;`, `|`) must be a
-  `ReadOnlyCommands` program, a read-only git command, `cd` inside the folder, or a program with a rule in
-  `Commands`. Substitution, variables, redirection, subshells and background jobs are refused.
-- Network programs, `rm`/`mv`/`cp`, and unknown programs are refused with feedback.
+  `ReadOnlyCommands` program, a `ReadOnlyGitCommands` git command, `cd` inside the folder, or a program with a rule
+  in `Commands`. Substitution, variables, backslash escapes, redirection, subshells, script blocks, multi-line
+  commands and background jobs are refused.
+- `NetworkCommands` programs, `rm`/`mv`/`cp`, and unknown programs are refused with feedback.
 - Credential files (`SensitiveFileNames`, `SensitiveExtensions`, e.g. `nuget.config`, `.env`, `*.pfx`) are refused
   for every tool.
-- Web fetches and approval-required custom tools ask.
+- Web fetches, approval-required custom tools and MCP tools ask.
 
 ```csharp
 var workspace = new WorkspacePolicy(repo, o =>
@@ -660,9 +661,10 @@ What it does not do:
 
 - Isolate the process. An approved command runs as your user, with your file system and network.
 - Understand every program. `WorkspacePolicy` judges commands by name and known flags. It refuses the options it
-  knows write files or run programs (`sort -o`, a second file for `uniq`, `tree -o`, `rg --pre`, `sed` scripts other
-  than printing and substitution, `git grep -O`, `--ext-diff`, `--textconv`), but a program you add to
-  `ReadOnlyCommands` is trusted with every argument. Add only what you understand, and narrow it with a `Commands`
+  knows write files or run programs (`sort -o`, a second file for `uniq`, `tree -o`, `rg --pre`, `sed -i` and `sed`
+  scripts other than printing and substitution, `find` actions such as `-exec` and `-delete`, `git --output`,
+  `git grep -O`, `--ext-diff`, `--textconv`, `--open-files-in-pager`), but a program you add to `ReadOnlyCommands`
+  is trusted with every argument. Add only what you understand, and narrow it with a `Commands`
   rule when in doubt.
 - Follow symbolic links. Path checks compare paths as text, so a link inside the folder that points outside it
   passes them. When the folder is an untrusted checkout, clone with `-c core.symlinks=false` so links arrive as
@@ -739,7 +741,7 @@ them like any failed step. `AskAsync` does not throw for these; it returns them 
 | `AgentSession.cs` | `AgentSession`: turns, the permission pipeline, limits, event publishing. |
 | `AgentSessionOptions.cs` | `AgentSessionOptions`, `AgentLimits`, `IAgentObserver`, `IStopRule`, `AgentObserver`, `AgentReply`, `AgentStats`. |
 | `AgentEvents.cs` | `AgentEvent` and every event record; `ToolKind`. |
-| `ToolRequests.cs` | `ToolRequest` and its kinds: shell, file read/write, web fetch, custom tool, other. |
+| `ToolRequests.cs` | `ToolRequest` and its kinds: shell, file read/write, web fetch, custom tool, MCP tool, other. |
 | `AgentTool.cs` | `AgentTool`: your functions as tools. |
 | `StructuredOutput.cs` | `StructuredOutput`, `StructuredReply<T>`: schema, prompt and lenient parsing. |
 | `ConsoleAgentObserver.cs` | One line per event to the console or any `TextWriter`. |

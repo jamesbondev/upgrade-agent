@@ -49,6 +49,10 @@ repo failed, 4 when Copilot isn't ready, 130 when cancelled.
 
 ## Deep mode: check every claim
 
+**Status: experimental.** The one real benchmark so far ran on a fallback model (claude-haiku-4.5) and ran out of
+Copilot quota part-way: it found one real problem with proof and no false positives, at about 15 AI credits per part.
+Check which model Copilot actually serves (the report notes fallbacks) before relying on it.
+
 The default check confirms the script's signals and looks for obvious gaps. It catches broken references well, but not
 a README that names the wrong model, the wrong queue names or a feature that was removed. `--deep` (or
 `Readme:Depth: Deep`, or `"Depth": "Deep"` on one repo) checks the README claim by claim:

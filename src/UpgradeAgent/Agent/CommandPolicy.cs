@@ -1,9 +1,8 @@
-using AgentHarness;
 using AgentHarness.Policies;
 
 namespace UpgradeAgent.Agent;
 
-internal sealed class CommandPolicy : IToolPolicy
+internal static class CommandPolicy
 {
     private const string NoNetwork =
         "No network access. The migration notes are in the task and the NuGet packages folder. "
@@ -19,9 +18,7 @@ internal sealed class CommandPolicy : IToolPolicy
         "-v", "--verbosity", "-c", "--configuration", "-f", "--framework", "--filter", "--logger", "--blame-hang-timeout", "--results-directory",
     };
 
-    private readonly WorkspacePolicy _workspace;
-
-    public CommandPolicy(string worktree, IReadOnlyList<string> readOnlyRoots)
+    public static WorkspacePolicy Create(string worktree, IReadOnlyList<string> readOnlyRoots)
     {
         var options = new WorkspacePolicyOptions
         {
@@ -39,17 +36,8 @@ internal sealed class CommandPolicy : IToolPolicy
             options.ReadOnlyRoots.Add(root);
         }
 
-        _workspace = new WorkspacePolicy(worktree, options);
+        return new WorkspacePolicy(worktree, options);
     }
-
-    public ValueTask<ToolDecision> EvaluateAsync(ToolRequest request, CancellationToken cancellationToken) => _workspace.EvaluateAsync(request, cancellationToken);
-
-    public ToolDecision EvaluateShell(string commandLine, bool hasWriteFileRedirection, IReadOnlyList<string>? possiblePaths = null) =>
-        _workspace.EvaluateShell(commandLine, hasWriteFileRedirection, possiblePaths);
-
-    public ToolDecision EvaluateWrite(string path) => _workspace.EvaluateWrite(path);
-
-    public ToolDecision EvaluateRead(string path) => _workspace.EvaluateRead(path);
 
     private static ToolDecision EvaluateDotnet(IReadOnlyList<string> arguments)
     {

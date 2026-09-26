@@ -36,7 +36,7 @@ internal sealed class AgentFixRunner(
             Name = context.Group.Name,
             WorkingDirectory = worktree,
             Instructions = systemPrompt,
-            Policy = reading.Guard(new CommandPolicy(worktree, globalPackages is null ? [] : [globalPackages])),
+            Policy = reading.Guard(CommandPolicy.Create(worktree, globalPackages is null ? [] : [globalPackages])),
             AllowWebFetch = options.AllowWebFetch,
             Limits = new AgentLimits
             {

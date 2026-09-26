@@ -276,7 +276,7 @@ internal static partial class ReadmeSignals
     private static IEnumerable<Signal> UnmentionedProjects(ReadmeFile readme, RepoFacts facts)
     {
         var scope = readme.Directory is { Length: > 0 } directory ? directory + "/" : "";
-        var projects = facts.Files.Where(f => IsProjectFile(f) && f.StartsWith(scope, StringComparison.Ordinal)).ToList();
+        var projects = facts.Projects.Where(f => IsProjectFile(f) && f.StartsWith(scope, StringComparison.Ordinal)).ToList();
         var added = (facts.Age?.AddedProjects ?? []).ToHashSet(StringComparer.Ordinal);
 
         foreach (var group in projects.GroupBy(p => p[scope.Length..].Split('/')[0]))

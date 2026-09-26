@@ -21,6 +21,9 @@ internal enum SignalKind
 internal sealed record Signal(SignalKind Kind, int Line, string Text, string Detail, string? Target = null)
 {
     public bool Definitive => Kind == SignalKind.BrokenLink;
+
+    public static Signal NotInRepository(SignalKind kind, int line, string text, string missing) =>
+        new(kind, line, text, $"'{missing}' is not in the repository", missing);
 }
 
 internal sealed record SignalScan(IReadOnlyList<Signal> Signals, int Dropped)
@@ -104,7 +107,7 @@ internal static partial class ReadmeSignals
         {
             if (ResolveLink(url, readme.Directory) is { } missing && !facts.Exists(missing))
             {
-                yield return new Signal(SignalKind.BrokenLink, line + 1, url, $"'{missing}' is not in the repository", missing);
+                yield return Signal.NotInRepository(SignalKind.BrokenLink, line + 1, url, missing);
             }
         }
     }
@@ -491,9 +494,9 @@ internal static partial class ReadmeSignals
 
                         consumed.Add(i);
                         consumed.Add(index);
-                        if (MissingTarget(tokens[index], requireFileShape: false, exact: true) is { } missing)
+                        if (Missing(SignalKind.MissingCommandTarget, line, tokens[index], requireFileShape: false, exact: true) is { } signal)
                         {
-                            yield return new Signal(SignalKind.MissingCommandTarget, line, tokens[index], $"'{missing}' is not in the repository", missing);
+                            yield return signal;
                         }
                     }
                 }
@@ -501,17 +504,17 @@ internal static partial class ReadmeSignals
             else if (IsScript(command))
             {
                 consumed.Add(0);
-                if (MissingTarget(command, requireFileShape: true, exact: true) is { } missing)
+                if (Missing(SignalKind.MissingCommandTarget, line, command, requireFileShape: true, exact: true) is { } signal)
                 {
-                    yield return new Signal(SignalKind.MissingCommandTarget, line, command, $"'{missing}' is not in the repository", missing);
+                    yield return signal;
                 }
             }
             else if (command is "pwsh" or "powershell" or "bash" or "sh" && tokens.Skip(1).FirstOrDefault(t => IsScript(t) || t.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase) || t.EndsWith(".sh", StringComparison.OrdinalIgnoreCase)) is { } script)
             {
                 consumed.UnionWith([0, tokens.ToList().IndexOf(script)]);
-                if (MissingTarget(script, requireFileShape: true, exact: true) is { } missing)
+                if (Missing(SignalKind.MissingCommandTarget, line, script, requireFileShape: true, exact: true) is { } signal)
                 {
-                    yield return new Signal(SignalKind.MissingCommandTarget, line, script, $"'{missing}' is not in the repository", missing);
+                    yield return signal;
                 }
             }
 
@@ -522,14 +525,17 @@ internal static partial class ReadmeSignals
                     continue;
                 }
 
-                if (MissingTarget(tokens[i], requireFileShape: true) is { } missing)
+                if (Missing(SignalKind.MissingPath, line, tokens[i], requireFileShape: true) is { } signal)
                 {
-                    yield return new Signal(SignalKind.MissingPath, line, tokens[i], $"'{missing}' is not in the repository", missing);
+                    yield return signal;
                 }
             }
         }
 
-        private string? MissingTarget(string token, bool requireFileShape, bool exact = false)
+        private Signal? Missing(SignalKind kind, int line, string token, bool requireFileShape, bool exact = false) =>
+            MissingTarget(token, requireFileShape, exact) is { } missing ? Signal.NotInRepository(kind, line, token, missing) : null;
+
+        private string? MissingTarget(string token, bool requireFileShape, bool exact)
         {
             var path = Clean(token);
             if (!LooksLikeRelativePath(path, requireFileShape) || IsCreated(path))

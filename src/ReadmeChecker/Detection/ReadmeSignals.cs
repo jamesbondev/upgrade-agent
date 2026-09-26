@@ -78,7 +78,7 @@ internal static partial class ReadmeSignals
             .Concat(Code(document, readme, facts))
             .Concat(Versions(readme.Text, facts))
             .Concat(UnlistedFiles(document, readme, facts))
-            .Concat(UnmentionedProjects(readme.Text, facts))
+            .Concat(UnmentionedProjects(readme, facts))
             .DistinctBy(s => (s.Kind, s.Text))
             .OrderBy(s => s.Kind)
             .ThenBy(s => s.Line)
@@ -273,15 +273,15 @@ internal static partial class ReadmeSignals
         }
     }
 
-    private static IEnumerable<Signal> UnmentionedProjects(string text, RepoFacts facts)
+    private static IEnumerable<Signal> UnmentionedProjects(ReadmeFile readme, RepoFacts facts)
     {
-        var scope = facts.Readme?.Directory is { Length: > 0 } directory ? directory + "/" : "";
+        var scope = readme.Directory is { Length: > 0 } directory ? directory + "/" : "";
         var projects = facts.Files.Where(f => IsProjectFile(f) && f.StartsWith(scope, StringComparison.Ordinal)).ToList();
         var added = (facts.Age?.AddedProjects ?? []).ToHashSet(StringComparer.Ordinal);
 
         foreach (var group in projects.GroupBy(p => p[scope.Length..].Split('/')[0]))
         {
-            var mentioned = group.Where(p => Mentions(text, p)).ToList();
+            var mentioned = group.Where(p => Mentions(readme.Text, p)).ToList();
             var enumerated = group.Count() >= 3 && mentioned.Count >= group.Count() / 2.0;
             var listsTests = mentioned.Any(IsTestProject);
             foreach (var project in group.Except(mentioned))

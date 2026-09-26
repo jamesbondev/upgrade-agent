@@ -88,14 +88,7 @@ internal sealed class ReadmeAssessor(IAgentBackendFactory backends, AgentOptions
         Observers = [log.Observer],
     };
 
-    internal static IToolPolicy ReadOnlyPolicy(string root)
-    {
-        var workspace = new WorkspacePolicy(root);
-        return ToolPolicy.From(request => request switch
-        {
-            FileReadRequest read => workspace.EvaluateRead(read.Path),
-            ShellRequest shell => workspace.EvaluateShell(shell.CommandLine, shell.WritesFile, shell.PossiblePaths),
-            _ => ToolDecision.Reject(ReadOnlyRefusal),
-        });
-    }
+    internal static IToolPolicy ReadOnlyPolicy(string root) =>
+        new WorkspacePolicy(root).Wrap((request, decision) =>
+            request is FileReadRequest or ShellRequest ? decision : ToolDecision.Reject(ReadOnlyRefusal));
 }

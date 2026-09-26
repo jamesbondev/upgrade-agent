@@ -69,13 +69,11 @@ internal sealed class ReadmeFixer(IAgentBackendFactory backends, AgentOptions op
 
     internal static IToolPolicy WritePolicy(string root, string readmePath)
     {
-        var workspace = new WorkspacePolicy(root);
         var readme = Path.GetFullPath(Path.Combine(root, readmePath));
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        return ToolPolicy.From(request => request switch
+        return new WorkspacePolicy(root).Wrap((request, decision) => request switch
         {
-            FileReadRequest read => workspace.EvaluateRead(read.Path),
-            ShellRequest shell => workspace.EvaluateShell(shell.CommandLine, shell.WritesFile, shell.PossiblePaths),
+            FileReadRequest or ShellRequest => decision,
             FileWriteRequest write when Path.GetFullPath(write.Path, root).Equals(readme, comparison) => ToolDecision.Approve("the README"),
             FileWriteRequest => ToolDecision.Reject($"Only {readmePath} may be changed in this session. Leave every other file as it is."),
             _ => ToolDecision.Reject(ReadOnlyRefusal),

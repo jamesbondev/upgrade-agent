@@ -428,13 +428,10 @@ Without the OpenTelemetry SDK: `dotnet-counters monitor --counters AgentHarness 
 Reuse `WorkspacePolicy`'s checks for reads and shell commands, and refuse everything else:
 
 ```csharp
-var workspace = new WorkspacePolicy(repo);   // no Commands rules: only read-only programs pass
-var readOnly = ToolPolicy.From(request => request switch
-{
-    FileReadRequest read => workspace.EvaluateRead(read.Path),
-    ShellRequest shell => workspace.EvaluateShell(shell.CommandLine, shell.WritesFile, shell.PossiblePaths),
-    _ => ToolDecision.Reject("This session is read-only. Read the code and answer; don't change anything."),
-});
+var readOnly = new WorkspacePolicy(repo).Wrap((request, decision) =>   // no Commands rules: only read-only programs pass
+    request is FileReadRequest or ShellRequest
+        ? decision
+        : ToolDecision.Reject("This session is read-only. Read the code and answer; don't change anything."));
 
 var result = await new AgentRunner(copilot).RunAsync(new AgentSessionOptions
 {

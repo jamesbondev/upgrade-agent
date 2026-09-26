@@ -8,6 +8,10 @@ public sealed record ParsedCommand(IReadOnlyList<IReadOnlyList<string>> Segments
 
 public static partial class ShellCommandParser
 {
+    private const string BackslashEscapesRefusal = "backslash escapes are not allowed; use single quotes for literal text";
+
+    private const string ExpansionRefusal = "variable expansion and command substitution are not allowed; write paths out in full";
+
     public static bool TryParse(string commandLine, [NotNullWhen(true)] out ParsedCommand? parsed, [NotNullWhen(false)] out string? error)
     {
         parsed = null;
@@ -84,12 +88,12 @@ public static partial class ShellCommandParser
 
                 if (c == '\\' && next is '"' or '$' or '`' or '\\')
                 {
-                    return "backslash escapes are not allowed; use single quotes for literal text";
+                    return BackslashEscapesRefusal;
                 }
 
                 if (c == '$' && IsExpansionStart(next))
                 {
-                    return "variable expansion and command substitution are not allowed; write paths out in full";
+                    return ExpansionRefusal;
                 }
 
                 token.Append(c);
@@ -110,9 +114,9 @@ public static partial class ShellCommandParser
                 case '`':
                     return "backticks are not allowed";
                 case '\\' when IsEscapable(next):
-                    return "backslash escapes are not allowed; use single quotes for literal text";
+                    return BackslashEscapesRefusal;
                 case '$' when IsExpansionStart(next):
-                    return "variable expansion and command substitution are not allowed; write paths out in full";
+                    return ExpansionRefusal;
                 case '(' or ')':
                     return "subshells and PowerShell subexpressions are not allowed";
                 case '>' or '<':

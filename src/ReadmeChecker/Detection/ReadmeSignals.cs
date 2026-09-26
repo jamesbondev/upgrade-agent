@@ -236,12 +236,13 @@ internal static partial class ReadmeSignals
     {
         if (facts.TargetFrameworks.Count > 0)
         {
+            var targets = $"the projects target {string.Join(", ", facts.TargetFrameworks.Order(StringComparer.OrdinalIgnoreCase))}";
             foreach (Match match in TargetFrameworkMention().Matches(text))
             {
                 var mentioned = match.Groups["tfm"].Value;
                 if (!facts.TargetFrameworks.Any(t => t.StartsWith(mentioned, StringComparison.OrdinalIgnoreCase)))
                 {
-                    yield return new Signal(SignalKind.VersionMismatch, LineOf(text, match.Index), match.Value, $"the projects target {Frameworks(facts)}");
+                    yield return Mismatch(match, targets);
                 }
             }
 
@@ -256,21 +257,24 @@ internal static partial class ReadmeSignals
                 var prefix = major >= 5 ? $"net{major}." : $"netcoreapp{major}.";
                 if (!facts.TargetFrameworks.Any(t => t.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
                 {
-                    yield return new Signal(SignalKind.VersionMismatch, LineOf(text, match.Index), match.Value, $"the projects target {Frameworks(facts)}");
+                    yield return Mismatch(match, targets);
                 }
             }
         }
 
-        if (facts.SdkVersion is { } sdk && sdk.Split('.')[0] is var sdkMajor)
+        if (facts.SdkVersion is { } sdk)
         {
+            var sdkMajor = sdk.Split('.')[0];
             foreach (Match match in SdkMention().Matches(text))
             {
                 if (match.Groups["major"].Value != sdkMajor)
                 {
-                    yield return new Signal(SignalKind.VersionMismatch, LineOf(text, match.Index), match.Value, $"global.json pins SDK {sdk}");
+                    yield return Mismatch(match, $"global.json pins SDK {sdk}");
                 }
             }
         }
+
+        Signal Mismatch(Match match, string detail) => new(SignalKind.VersionMismatch, LineOf(text, match.Index), match.Value, detail);
     }
 
     private static IEnumerable<Signal> UnmentionedProjects(ReadmeFile readme, RepoFacts facts)
@@ -320,8 +324,6 @@ internal static partial class ReadmeSignals
             || name.EndsWith("Benchmarks", StringComparison.OrdinalIgnoreCase)
             || path.Split('/').Any(s => s.Equals("tests", StringComparison.OrdinalIgnoreCase) || s.Equals("test", StringComparison.OrdinalIgnoreCase));
     }
-
-    private static string Frameworks(RepoFacts facts) => string.Join(", ", facts.TargetFrameworks.Order(StringComparer.OrdinalIgnoreCase));
 
     private static int LineOf(string text, int index) => text.AsSpan(0, index).Count('\n') + 1;
 

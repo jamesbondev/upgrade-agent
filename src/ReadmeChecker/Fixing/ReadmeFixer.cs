@@ -62,6 +62,7 @@ internal sealed class ReadmeFixer(IAgentBackendFactory backends, AgentOptions op
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
+            AgentSessions.ThrowIfQuotaExceeded(new SessionResult<string>(null, null, null, ex.GetBaseException().Message));
             return new FixAttempt(null, null, $"the agent failed: {ex.GetBaseException().Message}");
         }
     }

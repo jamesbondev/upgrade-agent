@@ -52,6 +52,7 @@ internal sealed class ReadmeAssessor(IAgentBackendFactory backends, AgentOptions
         var result = await AgentSessions.ExploreThenAskAsync<ReadmeAssessment>(
             backend, SessionOptions($"readme {repoName}", root, AssessmentPrompts.System, options, log),
             AssessmentPrompts.Task(repoName, facts, scan), AssessmentPrompts.Question, askAfterStop: false, time, cancellationToken);
+        AgentSessions.ThrowIfQuotaExceeded(result);
 
         if (result.Failure is { } failure)
         {

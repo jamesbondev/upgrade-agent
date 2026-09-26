@@ -100,6 +100,17 @@ public sealed class DeepReadmeAssessorTests : IAsyncLifetime, IDisposable
         Assert.Equal(AssessedVerdict.Unsure, outcome.Verdict);
     }
 
+    [Fact]
+    public async Task AUsedUpQuotaStopsTheRunInsteadOfFailingEachPart()
+    {
+        var backend = new ScriptedBackend()
+            .Turn(t => t.Step((_, _) => throw new InvalidOperationException("Session error: You have exceeded your monthly quota")));
+
+        var error = await Assert.ThrowsAsync<AgentUnavailableException>(() => Assess(backend));
+
+        Assert.Contains("quota", error.Message, StringComparison.Ordinal);
+    }
+
     private Task<AssessmentOutcome> Assess(ScriptedBackend backend, AgentOptions? options = null, double? budget = null) =>
         new DeepReadmeAssessor(new ReadmeAssessorTests.ScriptedFactory(backend), options ?? new AgentOptions(), _repo.Git, TimeProvider.System)
             .AssessAsync("demo", _repo.Path, _facts, SignalScan.Empty, _out.Combine("agent.log"), budget, CancellationToken.None);

@@ -115,6 +115,27 @@ public sealed class CheckOrchestratorTests : IAsyncLifetime, IDisposable
         Assert.Equal(Enum.Parse<ReadmeDepth>(expected), inspector.DepthFor(target, flag));
     }
 
+    [Theory]
+    [InlineData("claude-sonnet-5", "claude-haiku-4.5", "asked for claude-sonnet-5, but Copilot served claude-haiku-4.5")]
+    [InlineData("claude-sonnet-5", "claude-sonnet-5", null)]
+    [InlineData(null, "claude-haiku-4.5", null)]
+    public void AModelFallbackIsNotedOnTheRepo(string? requested, string served, string? note)
+    {
+        var options = new ReadmeCheckerOptions { Agent = new AgentOptions { Model = requested } };
+        var git = new GitCli(new ProcessRunner());
+        var factory = new ReadmeAssessorTests.ScriptedFactory(new ScriptedBackend());
+        var inspector = new RepoInspector(
+            new ResolvedConfig(options, [], _out.Path, _work.Path), git,
+            new AzureDevOpsCredentialProvider(new AzureDevOpsAuthOptions { UseAzureIdentity = false }, _ => null),
+            new ReadmeAssessor(factory, options.Agent, git, TimeProvider.System), new DeepReadmeAssessor(factory, options.Agent, git, TimeProvider.System), TimeProvider.System);
+        var report = RepoReport.For(new RepoTarget("r", null, "/r", null), RepoVerdict.Current) with
+        {
+            Stats = new AgentHarness.AgentStats(served, 1, 1, 1, 1, 1, 0, 0, null, TimeSpan.Zero),
+        };
+
+        Assert.Equal(note, inspector.FallbackNote(report).Note);
+    }
+
     [Fact]
     public async Task WithoutTheAgentBrokenLinksStillMakeItStale()
     {

@@ -38,6 +38,19 @@ internal static class AgentSessions
         }
     }
 
+    public static void ThrowIfQuotaExceeded<T>(SessionResult<T> result)
+        where T : class
+    {
+        foreach (var text in new[] { result.Failure, result.Structured?.Error, result.Reply?.StopReason })
+        {
+            if (text is not null && (text.Contains("exceeded your monthly quota", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("quota exceeded", StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new AgentUnavailableException($"Copilot's usage quota is used up, so the run stopped: {text}");
+            }
+        }
+    }
+
     public static AgentStats? Sum(IReadOnlyList<AgentStats> all)
     {
         if (all.Count == 0)

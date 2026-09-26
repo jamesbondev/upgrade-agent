@@ -44,6 +44,7 @@ internal sealed class DeepReadmeAssessor(IAgentBackendFactory backends, AgentOpt
                 time,
                 cancellationToken);
 
+            AgentSessions.ThrowIfQuotaExceeded(result);
             var credits = result.Stats?.AiCredits ?? 0;
             if (result.Stats is { } sessionStats)
             {

@@ -160,8 +160,15 @@ internal sealed class RepoInspector(
         var logPath = Path.Combine(outputDirectory, ReportWriter.FolderName(target.Name), "agent.log");
         var assessor = depth == ReadmeDepth.Deep ? deepAssessor : quickAssessor;
         var outcome = await assessor.AssessAsync(target.Name, workspace.Path, facts, scan, logPath, creditBudget, cancellationToken);
-        return (Combine(report, scan, outcome), facts, scan);
+        var combined = Combine(report, scan, outcome);
+        return (FallbackNote(combined), facts, scan);
     }
+
+    internal RepoReport FallbackNote(RepoReport report) =>
+        Options.Agent.Model is { Length: > 0 } requested && report.Stats?.Model is { } served
+            && !served.Split(", ").Contains(requested, StringComparer.OrdinalIgnoreCase)
+            ? report with { Note = $"{(report.Note is null ? "" : report.Note + "; ")}asked for {requested}, but Copilot served {served}" }
+            : report;
 
     internal static RepoReport Combine(RepoReport report, SignalScan scan, AssessmentOutcome outcome)
     {

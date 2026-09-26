@@ -317,7 +317,7 @@ public sealed partial class WorkspacePolicy : IToolPolicy
         var expanded = path.StartsWith('~')
             ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + path[1..]
             : path;
-        return Normalize(Path.GetFullPath(expanded, cwd));
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(expanded, cwd));
     }
 
     private static string Normalize(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));

@@ -148,8 +148,10 @@ For each repo, one at a time:
      build-output paths are skipped, and so are bare file names in prose (`secrets.json` usually means a kind of file,
      not one in this repo). What each command means lives in `Detection/CommandRules.cs`: a rule reads a command's
      tokens and says which are targets, which folders it creates or moves into, and whether it leaves the repo.
-     `CommandScanner` acts on that and checks the paths. To teach it a new command, add a rule and a
-     `CommandRulesTests` case.
+     `CommandScanner` acts on that and checks the paths. A target is a `Project` (a folder, a project file or a
+     bare name) or a `Script` (must look like a file); the scanner checks a command's other tokens as `Mention`s,
+     which skip bare names. The first rule that matches reads the command, so keep rules from overlapping. To teach
+     it a new command, add a rule and a `CommandRulesTests` case.
    - Type names (`IReviewEngine`, `ReviewJobHandler`) that no code or config file contains. Names inside
      language-tagged code examples are skipped, since those are often other libraries' APIs.
    - `.NET 6`, `net6.0` and SDK versions that the projects and `global.json` don't use ("or later" is fine).

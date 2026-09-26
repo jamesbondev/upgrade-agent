@@ -88,7 +88,7 @@ internal sealed partial class CommandScanner(ReadmeFile readme, RepoFacts facts)
     private Signal? ChangeDirectory(string token, int line)
     {
         var target = Clean(token);
-        if (!LooksLikeRelativePath(target, PathRole.Project))
+        if (!LooksLikeRelativePath(target))
         {
             _lost = true;
             return null;
@@ -112,7 +112,7 @@ internal sealed partial class CommandScanner(ReadmeFile readme, RepoFacts facts)
     private string? MissingTarget(string token, PathRole role)
     {
         var path = Clean(token);
-        if (!LooksLikeRelativePath(path, role) || IsCreated(path))
+        if (!LooksLikeRelativePath(path) || (role != PathRole.Project && !HasFileShape(path)) || IsCreated(path))
         {
             return null;
         }
@@ -149,17 +149,13 @@ internal sealed partial class CommandScanner(ReadmeFile readme, RepoFacts facts)
 
     private static bool HasFileExtension(string path) => FileExtensions.Contains(Path.GetExtension(path));
 
-    private static bool LooksLikeRelativePath(string path, PathRole role)
-    {
-        if (path.Length == 0 || path.StartsWith('-') || path.StartsWith('~') || path.StartsWith('/') || path is "." or ".."
-            || Path.GetFileNameWithoutExtension(path.TrimEnd('/')).Length == 0
-            || path.Contains("://", StringComparison.Ordinal) || NotAPath().IsMatch(path))
-        {
-            return false;
-        }
+    private static bool LooksLikeRelativePath(string path) =>
+        path.Length > 0 && !path.StartsWith('-') && !path.StartsWith('~') && !path.StartsWith('/') && path is not ("." or "..")
+        && Path.GetFileNameWithoutExtension(path.TrimEnd('/')).Length > 0
+        && !path.Contains("://", StringComparison.Ordinal) && !NotAPath().IsMatch(path);
 
-        return role == PathRole.Project || path.Contains('/', StringComparison.Ordinal) || HasFileExtension(path) || BareFileNames.Contains(path);
-    }
+    private static bool HasFileShape(string path) =>
+        path.Contains('/', StringComparison.Ordinal) || HasFileExtension(path) || BareFileNames.Contains(path);
 
     private static string Clean(string token)
     {

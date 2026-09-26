@@ -373,7 +373,7 @@ internal static partial class ReadmeSignals
     private sealed partial class CommandScanner(ReadmeFile readme, RepoFacts facts)
     {
         private readonly HashSet<string> _created = new(StringComparer.OrdinalIgnoreCase);
-        private string? _cwd = "";
+        private string _cwd = "";
         private bool _lost;
 
         public IEnumerable<Signal> Scan(string line, int lineNumber)
@@ -550,11 +550,11 @@ internal static partial class ReadmeSignals
 
         private string? MissingIfNotFound(string path)
         {
-            var candidates = new[] { _cwd is null ? null : Normalize(Join(_cwd, path)), Normalize(Join(readme.Directory, path)), Normalize(path) };
+            var candidates = new[] { Normalize(Join(_cwd, path)), Normalize(Join(readme.Directory, path)), Normalize(path) };
             return candidates.Any(c => c is not null && facts.Exists(c)) ? null : candidates.FirstOrDefault(c => c is not null) ?? path;
         }
 
-        private string? Resolve(string path) => Normalize(Join(_cwd ?? readme.Directory, path));
+        private string? Resolve(string path) => Normalize(Join(_cwd, path));
 
         private bool IsCreated(string path) =>
             _created.Any(c => path.Equals(c, StringComparison.OrdinalIgnoreCase) || path.StartsWith(c + "/", StringComparison.OrdinalIgnoreCase));

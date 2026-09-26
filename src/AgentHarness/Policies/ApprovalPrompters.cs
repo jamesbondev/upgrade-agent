@@ -27,9 +27,9 @@ public sealed class ConsoleApprovalPrompter : IApprovalPrompter
 
     public async Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken)
     {
-        if (System.Console.IsInputRedirected)
+        if (Console.IsInputRedirected)
         {
-            System.Console.WriteLine($"  approval needed: {action} — declined (no interactive console)");
+            Console.WriteLine($"  approval needed: {action} — declined (no interactive console)");
             return false;
         }
 
@@ -44,13 +44,13 @@ public sealed class ConsoleApprovalPrompter : IApprovalPrompter
 
         try
         {
-            System.Console.WriteLine();
-            System.Console.WriteLine($"  approval needed: {action}");
-            System.Console.WriteLine($"  ({reason})");
-            System.Console.Write("  Allow this? [y/N] ");
-            var answer = await System.Console.In.ReadLineAsync(cancellationToken);
+            Console.WriteLine();
+            Console.WriteLine($"  approval needed: {action}");
+            Console.WriteLine($"  ({reason})");
+            Console.Write("  Allow this? [y/N] ");
+            var answer = await Console.In.ReadLineAsync(cancellationToken);
             var approved = answer?.Trim() is "y" or "Y" or "yes" or "Yes";
-            System.Console.WriteLine(approved ? "  approved" : "  declined");
+            Console.WriteLine(approved ? "  approved" : "  declined");
             return approved;
         }
         catch (OperationCanceledException)

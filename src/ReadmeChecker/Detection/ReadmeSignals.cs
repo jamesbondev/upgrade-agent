@@ -501,18 +501,10 @@ internal static partial class ReadmeSignals
                     }
                 }
             }
-            else if (IsScript(command))
+            else if (ScriptIndex(tokens) is { } script)
             {
-                consumed.Add(0);
-                if (Missing(SignalKind.MissingCommandTarget, line, command, requireFileShape: true, exact: true) is { } signal)
-                {
-                    yield return signal;
-                }
-            }
-            else if (command is "pwsh" or "powershell" or "bash" or "sh" && tokens.Skip(1).FirstOrDefault(t => IsScript(t) || t.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase) || t.EndsWith(".sh", StringComparison.OrdinalIgnoreCase)) is { } script)
-            {
-                consumed.UnionWith([0, tokens.ToList().IndexOf(script)]);
-                if (Missing(SignalKind.MissingCommandTarget, line, script, requireFileShape: true, exact: true) is { } signal)
+                consumed.UnionWith([0, script]);
+                if (Missing(SignalKind.MissingCommandTarget, line, tokens[script], requireFileShape: true, exact: true) is { } signal)
                 {
                     yield return signal;
                 }
@@ -572,6 +564,29 @@ internal static partial class ReadmeSignals
 
         private bool IsCreated(string path) =>
             _created.Any(c => path.Equals(c, StringComparison.OrdinalIgnoreCase) || path.StartsWith(c + "/", StringComparison.OrdinalIgnoreCase));
+
+        private static int? ScriptIndex(IReadOnlyList<string> tokens)
+        {
+            if (IsScript(tokens[0]))
+            {
+                return 0;
+            }
+
+            if (tokens[0] is not ("pwsh" or "powershell" or "bash" or "sh"))
+            {
+                return null;
+            }
+
+            for (var i = 1; i < tokens.Count; i++)
+            {
+                if (IsScript(tokens[i]) || tokens[i].EndsWith(".ps1", StringComparison.OrdinalIgnoreCase) || tokens[i].EndsWith(".sh", StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+
+            return null;
+        }
 
         private static bool IsScript(string token) =>
             token.StartsWith("./", StringComparison.Ordinal) || token.StartsWith(".\\", StringComparison.Ordinal);

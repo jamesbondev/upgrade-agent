@@ -283,10 +283,10 @@ internal static partial class ReadmeSignals
         {
             var mentioned = group.Where(p => Mentions(text, p)).ToList();
             var enumerated = group.Count() >= 3 && mentioned.Count >= group.Count() / 2.0;
-            var listsTests = mentioned.Any(p => IsTestProject(p, Path.GetFileNameWithoutExtension(p)));
+            var listsTests = mentioned.Any(IsTestProject);
             foreach (var project in group.Except(mentioned))
             {
-                var isTest = IsTestProject(project, Path.GetFileNameWithoutExtension(project));
+                var isTest = IsTestProject(project);
                 if (enumerated && (!isTest || listsTests))
                 {
                     yield return new Signal(
@@ -312,11 +312,14 @@ internal static partial class ReadmeSignals
             || (folder.Length > 0 && text.Contains(folder, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool IsTestProject(string path, string name) =>
-        name.EndsWith("Tests", StringComparison.OrdinalIgnoreCase)
-        || name.EndsWith(".Test", StringComparison.OrdinalIgnoreCase)
-        || name.EndsWith("Benchmarks", StringComparison.OrdinalIgnoreCase)
-        || path.Split('/').Any(s => s.Equals("tests", StringComparison.OrdinalIgnoreCase) || s.Equals("test", StringComparison.OrdinalIgnoreCase));
+    private static bool IsTestProject(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path);
+        return name.EndsWith("Tests", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(".Test", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith("Benchmarks", StringComparison.OrdinalIgnoreCase)
+            || path.Split('/').Any(s => s.Equals("tests", StringComparison.OrdinalIgnoreCase) || s.Equals("test", StringComparison.OrdinalIgnoreCase));
+    }
 
     private static string Frameworks(RepoFacts facts) => string.Join(", ", facts.TargetFrameworks.Order(StringComparer.OrdinalIgnoreCase));
 

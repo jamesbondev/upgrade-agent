@@ -30,6 +30,9 @@ internal sealed record SignalScan(IReadOnlyList<Signal> Signals, int Dropped)
 {
     public static SignalScan Empty { get; } = new([], 0);
 
+    public static SignalScan Of(IEnumerable<Signal> signals) =>
+        new(signals.DistinctBy(s => (s.Kind, s.Text)).OrderBy(s => s.Kind).ThenBy(s => s.Line).ToList(), 0);
+
     public SignalScan Capped(int max) =>
         Signals.Count <= max ? this : new SignalScan(Signals.Take(max).ToList(), Dropped + Signals.Count - max);
 }
@@ -82,17 +85,11 @@ internal static partial class ReadmeSignals
         }
 
         var document = Markdown.Parse(readme.Text, Pipeline);
-        var all = Links(document, readme, facts)
+        return SignalScan.Of(Links(document, readme, facts)
             .Concat(Code(document, readme, facts))
             .Concat(Versions(readme.Text, facts))
             .Concat(UnlistedFiles(document, readme, facts))
-            .Concat(UnmentionedProjects(readme, facts))
-            .DistinctBy(s => (s.Kind, s.Text))
-            .OrderBy(s => s.Kind)
-            .ThenBy(s => s.Line)
-            .ToList();
-
-        return new SignalScan(all, 0);
+            .Concat(UnmentionedProjects(readme, facts)));
     }
 
     private static IEnumerable<Signal> Links(MarkdownDocument document, ReadmeFile readme, RepoFacts facts)

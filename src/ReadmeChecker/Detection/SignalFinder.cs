@@ -12,14 +12,7 @@ internal static class SignalFinder
     {
         var scan = await IgnoredPaths.DropIgnoredAsync(ReadmeSignals.Find(facts), root, git, cancellationToken);
         var identifiers = await MissingIdentifiersAsync(facts, root, git, cancellationToken);
-        return scan with
-        {
-            Signals = scan.Signals.Concat(identifiers)
-                .DistinctBy(s => (s.Kind, s.Text))
-                .OrderBy(s => s.Kind)
-                .ThenBy(s => s.Line)
-                .ToList(),
-        };
+        return scan with { Signals = SignalScan.Of(scan.Signals.Concat(identifiers)).Signals };
     }
 
     internal static async Task<IReadOnlyList<Signal>> MissingIdentifiersAsync(RepoFacts facts, string root, GitCli git, CancellationToken cancellationToken)

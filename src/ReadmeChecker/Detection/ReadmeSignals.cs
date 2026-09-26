@@ -139,7 +139,7 @@ internal static partial class ReadmeSignals
     public static IReadOnlyList<(string Identifier, int Line)> IdentifierMentions(string text)
     {
         var examples = Markdown.Parse(text, Pipeline).Descendants<FencedCodeBlock>()
-            .Where(b => !ProseLikeLanguages.Contains((b.Info ?? "").Split(' ', 2)[0]))
+            .Where(b => !ProseLikeLanguages.Contains(LanguageOf(b)))
             .Select(b => (First: b.Line + 1, Last: b.Line + 1 + b.Lines.Count + 1))
             .ToList();
 
@@ -214,8 +214,7 @@ internal static partial class ReadmeSignals
 
         foreach (var block in document.Descendants<CodeBlock>())
         {
-            var language = block is FencedCodeBlock fenced ? (fenced.Info ?? "").Split(' ', 2)[0] : "";
-            if (!ShellLanguages.Contains(language))
+            if (!ShellLanguages.Contains(LanguageOf(block)))
             {
                 continue;
             }
@@ -230,6 +229,8 @@ internal static partial class ReadmeSignals
             }
         }
     }
+
+    private static string LanguageOf(CodeBlock block) => block is FencedCodeBlock fenced ? fenced.Info ?? "" : "";
 
     private static IEnumerable<Signal> Versions(string text, RepoFacts facts)
     {

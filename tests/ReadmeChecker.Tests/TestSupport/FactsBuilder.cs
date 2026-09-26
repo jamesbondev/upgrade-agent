@@ -5,6 +5,8 @@ namespace ReadmeChecker.Tests.TestSupport;
 
 internal static class FactsBuilder
 {
+    private static readonly string[] ProjectExtensions = [".csproj", ".fsproj", ".vbproj", ".sln", ".slnx"];
+
     public static RepoFacts Readme(
         string text,
         IEnumerable<string>? files = null,
@@ -18,7 +20,7 @@ internal static class FactsBuilder
         return new RepoFacts(
             fileList,
             new ReadmeFile(readmePath, text, IsSymlink: false),
-            fileList.Where(f => f.EndsWith("proj", StringComparison.Ordinal)).ToList(),
+            fileList.Where(f => ProjectExtensions.Any(e => f.EndsWith(e, StringComparison.OrdinalIgnoreCase))).ToList(),
             new HashSet<string>(frameworks ?? [], StringComparer.OrdinalIgnoreCase),
             sdk,
             age);

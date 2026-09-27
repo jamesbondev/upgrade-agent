@@ -126,7 +126,14 @@ await using var copilot = new CopilotBackend(new CopilotOptions
 ```
 
 Every Copilot session is hardened. The working folder cannot change the agent's config, hooks, skills or
-instructions (`AGENTS.md`, `.github/copilot-instructions.md` are ignored). Host git operations are off. Sub-agent,
+instructions (`AGENTS.md`, `.github/copilot-instructions.md` are ignored).
+
+Each `AgentSession` is one Copilot SDK session, created once with that hardened config and used for every turn.
+The backend deliberately doesn't use Agent Framework's `GitHubCopilotAgent` to run turns. Up to at least
+Microsoft.Agents.AI.GitHub.Copilot 1.22.0, that agent resumes the session on every turn after the first, with a
+resume config that drops `OnEvent` and the hardening settings. So later turns reported no events (no usage, tool
+calls or stop rules) and ran without the hardening. Approval-required custom tools get a pre-tool-use hook that
+routes them to your policy, as the agent's constructor would add. Host git operations are off. Sub-agent,
 skill and SQL tools are not offered (`CopilotOptions.ExcludedTools`). The runtime's environment, which every
 command the agent runs inherits, has no secrets: `AgentEnvironment` drops anything named like a token, key,
 password or credential, plus `AZURE_*`, `ARM_*`, `AWS_*` and your `HiddenEnvironmentVariables`.
@@ -751,7 +758,7 @@ them like any failed step. `AskAsync` does not throw for these; it returns them 
 | `IAgentBackend.cs` | `IAgentBackend`, `IAgentBackendSession`, `AgentBackendSettings`, `ToolApproval`: the provider contract. |
 | `AgentEnvironment.cs` | Builds the agent's environment without secrets. |
 | `Internal.cs` | `AgentTelemetry` (public), plus the pausable time budget and path helpers. |
-| `Copilot/CopilotBackend.cs` | `CopilotBackend`, `CopilotStatus`: GitHub Copilot through Agent Framework, hardened. |
+| `Copilot/CopilotBackend.cs` | `CopilotBackend`, `CopilotStatus`: GitHub Copilot through its SDK, one hardened session per `AgentSession`. |
 | `Copilot/CopilotOptions.cs` | Model, token, environment, excluded tools, `ConfigureSession`. |
 | `Copilot/CopilotToolNames.cs` | Built-in Copilot tool names, and the ones excluded by default. |
 | `Copilot/CopilotQuota.cs` | `IsExceeded`: whether an error or stop reason means the Copilot quota is used up. |

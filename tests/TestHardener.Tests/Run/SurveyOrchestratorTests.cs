@@ -55,6 +55,40 @@ public sealed class SurveyOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_FromAnEarlierFromRun_StillFindsTheSources()
+    {
+        using var repo = await DemoRepoAsync();
+        var first = await Orchestrator(repo, new FakeStryker(SurvivorReport)).RunAsync(new SurveyArguments([], null), CancellationToken.None);
+        _time.Advance(TimeSpan.FromMinutes(1));
+        var noStryker = new FakeStryker(_ => throw new InvalidOperationException("Stryker must not run"));
+        var second = await Orchestrator(repo, noStryker).RunAsync(new SurveyArguments([], first.OutputDirectory), CancellationToken.None);
+        _time.Advance(TimeSpan.FromMinutes(1));
+
+        var third = await Orchestrator(repo, noStryker).RunAsync(new SurveyArguments([], second.OutputDirectory), CancellationToken.None);
+
+        var target = Assert.Single(Assert.Single(third.Repos).Targets);
+        Assert.Null(target.Failure);
+        Assert.Equal("Calculator.Add(int, int)", Assert.Single(target.Groups).Member.Name);
+        Assert.Equal(first.Repos[0].CloneRoot, target.ReportRoot);
+    }
+
+    [Fact]
+    public async Task RunAsync_ReportPathsThatDoNotMatchTheClone_FailTheTarget()
+    {
+        using var repo = await DemoRepoAsync();
+        var first = await Orchestrator(repo, new FakeStryker(SurvivorReport)).RunAsync(new SurveyArguments([], null), CancellationToken.None);
+        var surveyPath = Path.Combine(first.OutputDirectory, "demo", SurveyReportWriter.RepoFileName);
+        var json = await File.ReadAllTextAsync(surveyPath);
+        await File.WriteAllTextAsync(surveyPath, json.Replace(first.Repos[0].CloneRoot!, "/somewhere/else", StringComparison.Ordinal));
+        _time.Advance(TimeSpan.FromMinutes(1));
+
+        var second = await Orchestrator(repo, new FakeStryker(_ => null)).RunAsync(new SurveyArguments([], first.OutputDirectory), CancellationToken.None);
+
+        var target = Assert.Single(Assert.Single(second.Repos).Targets);
+        Assert.Contains("paths don't match", target.Failure, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunAsync_OneTargetFails_TheOthersStillRun()
     {
         using var repo = await DemoRepoAsync();

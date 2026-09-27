@@ -195,8 +195,8 @@ internal sealed class RepoSurveyor(
         var survey = new TargetSurvey { Name = target.Name, Project = target.Project, TestProjects = target.TestProjects };
         try
         {
-            var result = earlier is null
-                ? await stryker.RunAsync(new StrykerRequest(repoRoot, target, runner, target.Mutate, target.TestFilter), outputDirectory, run.Environment, cancellationToken)
+            var (result, reportRoot) = earlier is null
+                ? (await stryker.RunAsync(new StrykerRequest(repoRoot, target, runner, target.Mutate, target.TestFilter), outputDirectory, run.Environment, cancellationToken), repoRoot)
                 : await ReuseAsync(earlier, run.From!, target, outputDirectory, cancellationToken);
             if (result.Report is not { } report)
             {
@@ -204,8 +204,14 @@ internal sealed class RepoSurveyor(
             }
 
             var analysis = SurvivorAnalysis.Analyze(report, target, file => ReadSource(repoRoot, file), fixCommits);
+            if (SourcesMissing(report, analysis) is { } mismatch)
+            {
+                return survey with { Failure = mismatch, Duration = time.GetElapsedTime(started) };
+            }
+
             return survey with
             {
+                ReportRoot = reportRoot,
                 ReportPath = Path.GetRelativePath(repoOutput, Path.Combine(outputDirectory, StrykerRunner.ReportRelativePath)).Replace('\\', '/'),
                 StatusCounts = report.StatusCounts,
                 Score = report.Score,
@@ -224,25 +230,35 @@ internal sealed class RepoSurveyor(
         }
     }
 
-    private async Task<StrykerRun> ReuseAsync(RepoSurvey earlier, string from, TargetConfig target, string outputDirectory, CancellationToken cancellationToken)
+    internal static string? SourcesMissing(MutationReport report, TargetAnalysis analysis)
+    {
+        var missing = analysis.Skipped.GetValueOrDefault(SkipReason.SourceMissing);
+        return missing > 0 && analysis.Groups.Count == 0
+            ? $"none of the {missing} survivors' source files were found in this clone, so the report's paths don't match it (the report names files like {report.Mutants[0].File})"
+            : null;
+    }
+
+    private async Task<(StrykerRun Run, string? ReportRoot)> ReuseAsync(
+        RepoSurvey earlier, string from, TargetConfig target, string outputDirectory, CancellationToken cancellationToken)
     {
         var started = time.GetTimestamp();
         var previous = earlier.Targets.FirstOrDefault(t => t.Name.Equals(target.Name, StringComparison.OrdinalIgnoreCase));
         if (previous?.ReportPath is not { } relative)
         {
-            return new StrykerRun(null, outputDirectory, TimeSpan.Zero, "the earlier run has no report for this target");
+            return (new StrykerRun(null, outputDirectory, TimeSpan.Zero, "the earlier run has no report for this target"), null);
         }
 
         var source = Path.GetFullPath(Path.Combine(from, SurveyReportWriter.FolderName(earlier.Name), relative));
         if (!File.Exists(source))
         {
-            return new StrykerRun(null, outputDirectory, TimeSpan.Zero, $"the earlier report is missing: {source}");
+            return (new StrykerRun(null, outputDirectory, TimeSpan.Zero, $"the earlier report is missing: {source}"), null);
         }
 
         var destination = Path.Combine(outputDirectory, StrykerRunner.ReportRelativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         File.Copy(source, destination, overwrite: true);
-        return await StrykerRunner.ReadAsync(0, outputDirectory, earlier.CloneRoot!, time.GetElapsedTime(started), cancellationToken);
+        var reportRoot = previous.ReportRoot ?? earlier.CloneRoot!;
+        return (await StrykerRunner.ReadAsync(0, outputDirectory, reportRoot, time.GetElapsedTime(started), cancellationToken), reportRoot);
     }
 
     private async Task<string?> RestoreAsync(string repoRoot, string solution, IReadOnlyDictionary<string, string?> environment, CancellationToken cancellationToken)

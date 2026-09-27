@@ -72,16 +72,21 @@ and every test project passes.
   `.git/config`, where the agent could read them. Hide credential env vars from the agent's environment.
 - **Known duplication:** `src/UpgradeAgent/Infrastructure` and parts of `Publishing` are copies of what RepoKit now
   holds. UpgradeAgent moves onto RepoKit in a later milestone; until then, fix a bug in both places.
-  `TestHardener/Infrastructure/LoggingProcessRunner.cs` copies ReadmeChecker's, `TestRunnerDetector.cs` copies
-  UpgradeAgent's, `TestHardener/Hardening/AgentBackends.cs`, `Publishing/PullRequestHost.cs` and the Spectre
-  approval prompter copy ReadmeChecker's, and
-  `TestHardener/Hardening/DotnetCli.cs` and `HardeningPolicy.cs` follow UpgradeAgent's `DotnetCli` and dotnet command
-  rule. Shared plumbing goes in a library instead: `FileAgentLog` and `Copilot/CopilotQuota` in AgentHarness,
+  TestHardener copies small pieces from the other apps:
+  - from ReadmeChecker: `Infrastructure/LoggingProcessRunner.cs`, `Hardening/AgentBackends.cs` (with
+    `AgentUnavailableException`), `Publishing/PullRequestHost.cs`, and `Ui/ConsoleUi.cs` (`ConsoleFactory`,
+    `SpectreApprovalPrompter`);
+  - from UpgradeAgent: `Infrastructure/TestRunnerDetector.cs`, and `Hardening/DotnetCli.cs` and `HardeningPolicy.cs`,
+    which follow its `DotnetCli` and dotnet command rule.
+
+  `LoggingProcessRunner` can't move into RepoKit, because it needs Microsoft.Extensions.Logging and RepoKit has no
+  packages. Shared plumbing goes in a library instead: `FileAgentLog` and `Copilot/CopilotQuota` in AgentHarness,
   `PullRequestMarkdown.Escape` in RepoKit.AzureDevOps (UpgradeAgent's `Markdown.EscapeInline` is still its own).
 - **Processes that build or test a cloned repo get no secrets.** `ProcessRunner` passes on the full environment
   unless told otherwise, so pass an environment that removes every `AgentEnvironment.IsSecret` variable and the
   credential variables (see `TestHardener/Infrastructure/SafeEnvironment.cs`). Test code, possibly agent-written,
-  runs in those processes.
+  runs in those processes, so an agent may run code it wrote only after the plain-code checks on it pass (see
+  `TestHardener/Hardening/HardeningPolicy.cs`).
 
 ## Plans
 

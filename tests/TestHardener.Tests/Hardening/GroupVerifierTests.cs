@@ -83,6 +83,32 @@ public class GroupVerifierTests
     }
 
     [Fact]
+    public void ParseTrx_NotExecutedIsSkippedNotFailed()
+    {
+        const string trx = """
+            <TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Results>
+            <UnitTestResult testName="A.T.One" outcome="Passed" />
+            <UnitTestResult testName="A.T.Skipped" outcome="NotExecuted" />
+            </Results></TestRun>
+            """;
+
+        var outcome = DotnetCli.ParseTrx([trx]);
+
+        Assert.True(outcome.Succeeded);
+        Assert.Equal(1, outcome.Skipped);
+        Assert.Empty(outcome.Failures);
+    }
+
+    [Fact]
+    public void OriginalFailure_TheoryRowsCountAsRunning() =>
+        Assert.Null(GroupVerifier.OriginalFailure(
+            new TestOutcome(true, 2, 0, 0, ["A.T.Rows(x: 1)", "A.T.Rows(x: 2)"], [], ""), 1, [new NewTest("A.T.Rows", "Rows", true)]));
+
+    [Fact]
+    public void OriginalFailure_TimeoutSaysItHangs() =>
+        Assert.Contains("hangs", GroupVerifier.OriginalFailure(new TestOutcome(false, 0, 0, 0, [], [], "", TimedOut: true), 1, []), StringComparison.Ordinal);
+
+    [Fact]
     public void ParseTrx_NoResults_IsNotASuccess() =>
         Assert.False(DotnetCli.ParseTrx(["<TestRun xmlns=\"http://microsoft.com/schemas/VisualStudio/TeamTest/2010\" />"]).Succeeded);
 

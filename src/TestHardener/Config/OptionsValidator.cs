@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 
 namespace TestHardener.Config;
@@ -68,6 +69,7 @@ internal sealed class OptionsValidator : IValidateOptions<TestHardenerOptions>
 
         RequirePositive(options.Hardening.MaxRounds, "Hardening:MaxRounds");
         RequirePositive(options.Hardening.OriginalRuns, "Hardening:OriginalRuns");
+        RequirePositive(options.Hardening.TestTimeoutMinutes, "Hardening:TestTimeoutMinutes");
         RequirePositive(options.Agent.MaxMinutes, "Agent:MaxMinutes");
         RequirePositive(options.Agent.MaxToolCalls, "Agent:MaxToolCalls");
         RequirePositive(options.Agent.MaxRefusals, "Agent:MaxRefusals");
@@ -143,7 +145,7 @@ internal sealed class OptionsValidator : IValidateOptions<TestHardenerOptions>
     {
         try
         {
-            _ = new System.Text.RegularExpressions.Regex(pattern, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+            _ = new Regex(pattern, RegexOptions.None, TimeSpan.FromSeconds(1));
             return true;
         }
         catch (ArgumentException)

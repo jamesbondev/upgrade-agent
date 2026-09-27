@@ -1,5 +1,7 @@
 using System.Globalization;
 using RepoKit;
+using RepoKit.AzureDevOps;
+using TestHardener.Analysis;
 using TestHardener.Config;
 using TestHardener.Hardening;
 using TestHardener.Infrastructure;
@@ -26,17 +28,20 @@ internal sealed class HardenOrchestrator(
         var run = await surveyor.PrepareAsync(arguments.Only, arguments.From, cancellationToken);
         var repos = new List<RepoHardenReport>();
         var credits = 0.0;
+        AgentUnavailableException? stop = null;
         try
         {
-            for (var i = 0; i < run.Targets.Count; i++)
+            for (var i = 0; i < run.Targets.Count && stop is null; i++)
             {
                 var target = run.Targets[i];
                 progress.RepoStarted(target, i + 1, run.Targets.Count);
                 var started = time.GetTimestamp();
-                var report = await HardenRepoAsync(target, run, arguments, credits, cancellationToken) with { Duration = time.GetElapsedTime(started) };
+                var outcome = await HardenRepoAsync(target, run, arguments, credits, cancellationToken);
+                var report = outcome.Report with { Duration = time.GetElapsedTime(started) };
+                stop = outcome.Stop;
                 credits += report.AiCredits;
                 repos.Add(report);
-                await HardenReportWriter.WriteRepoAsync(report, run.RepoOutput(target.Name), cancellationToken);
+                await TryWriteAsync(() => HardenReportWriter.WriteRepoAsync(report, run.RepoOutput(target.Name), cancellationToken));
                 progress.RepoFinished(report);
             }
         }
@@ -48,54 +53,60 @@ internal sealed class HardenOrchestrator(
         var hardenReport = new HardenReport(run.RunId, run.StartedUtc, time.GetElapsedTime(run.StartedTimestamp), run.OutputDirectory, arguments.DryRun, credits, repos);
         var reportPath = await HardenReportWriter.WriteAsync(hardenReport, cancellationToken);
         progress.RunFinished(hardenReport, reportPath);
-        return hardenReport;
+        return stop is null ? hardenReport : throw stop;
     }
 
     internal static IReadOnlyList<PlannedGroup> Plan(RepoTarget target, RepoSurvey survey, int maxGroups) =>
-        survey.Targets
-            .Where(t => t.Failure is null)
-            .SelectMany(t => t.Groups.Select(g => new PlannedGroup(target.Targets.First(c => c.Name == t.Name), g)))
-            .OrderByDescending(p => p.Group.LogicSurvivors)
-            .ThenByDescending(p => p.Group.Survivors.Count)
-            .ThenByDescending(p => p.Group.FixCommits)
-            .ThenBy(p => p.Group.File, StringComparer.Ordinal)
-            .ThenBy(p => p.Group.Member.StartLine)
+        GroupRanking.Order(
+                survey.Targets
+                    .Where(t => t.Failure is null)
+                    .SelectMany(t => t.Groups.Select(g => new PlannedGroup(target.Targets.First(c => c.Name == t.Name), g))),
+                p => p.Group)
             .Take(maxGroups)
             .ToList();
 
-    private async Task<RepoHardenReport> HardenRepoAsync(
+    private async Task<(RepoHardenReport Report, AgentUnavailableException? Stop)> HardenRepoAsync(
         RepoTarget target, RunContext run, HardenArguments arguments, double creditsSoFar, CancellationToken cancellationToken)
     {
         var report = new RepoHardenReport { Name = target.Name, Location = target.Location, Status = HardenStatus.Failed };
         var host = hosts.For(target, run.Credential);
         try
         {
-            if (host is not null && await PreviousPullRequestAsync(host, cancellationToken) is { } previous)
+            var previous = host is null ? [] : await host.ListAsync(Publish.BranchPrefix, cancellationToken);
+            if (host is not null && PreviousPullRequest(previous) is { } skip)
             {
-                return report with { Status = HardenStatus.Skipped, Note = previous };
+                return (report with { Status = HardenStatus.Skipped, Note = skip }, null);
             }
 
             await using var surveyed = await surveyor.SurveyAsync(target, run, cancellationToken);
             report = report with { Sha = surveyed.Survey.Sha };
             if (surveyed.Workspace is not { } workspace || surveyed.Survey.Status == SurveyStatus.Failed)
             {
-                return report with { Note = surveyed.Survey.Note ?? "the survey failed" };
+                return (report with { Note = surveyed.Survey.Note ?? "the survey failed" }, null);
+            }
+
+            if (TestRunnerDetector.Detect(workspace.Path) == TestRunnerMode.TestingPlatform)
+            {
+                return (report with
+                {
+                    Note = "this repo uses Microsoft.Testing.Platform, where Stryker ignores test filters, so kills can't be checked per test",
+                }, null);
             }
 
             if (host is not null)
             {
-                report = report with { LeftoverBranches = await LeftoverBranchesAsync(host, workspace, cancellationToken) };
+                report = report with { LeftoverBranches = await LeftoverBranchesAsync(previous, workspace, cancellationToken) };
             }
 
             return await HardenWorkspaceAsync(target, run, arguments, surveyed.Survey, workspace, host, report, creditsSoFar, cancellationToken);
         }
-        catch (Exception ex) when (ex is not (AgentUnavailableException or OperationCanceledException))
+        catch (Exception ex) when (ex is not AgentUnavailableException && (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested))
         {
-            return report with { Status = HardenStatus.Failed, Note = ex.GetBaseException().Message };
+            return (report with { Status = HardenStatus.Failed, Note = ex.GetBaseException().Message }, null);
         }
     }
 
-    private async Task<RepoHardenReport> HardenWorkspaceAsync(
+    private async Task<(RepoHardenReport Report, AgentUnavailableException? Stop)> HardenWorkspaceAsync(
         RepoTarget target,
         RunContext run,
         HardenArguments arguments,
@@ -109,50 +120,48 @@ internal sealed class HardenOrchestrator(
         var planned = Plan(target, survey, config.Options.Hardening.MaxGroupsPerRun);
         if (planned.Count == 0)
         {
-            return report with { Status = HardenStatus.NothingToDo, Note = "no surviving mutants worth a test" };
+            return (report with { Status = HardenStatus.NothingToDo, Note = "no surviving mutants worth a test" }, null);
         }
 
         var branch = Publish.BranchPrefix + run.RunId;
         await workspace.Git.CreateBranchAsync(workspace.Path, branch, cancellationToken);
         report = report with { Branch = branch };
 
-        var (results, kept, credits) = await HardenGroupsAsync(target, run, workspace, planned, creditsSoFar, cancellationToken);
-        report = report with { Groups = results, AiCredits = credits, ChangedFiles = [.. kept.Keys.Order(StringComparer.Ordinal)] };
-        if (kept.Count == 0)
+        var groups = await HardenGroupsAsync(target, run, workspace, planned, creditsSoFar, cancellationToken);
+        report = report with { Groups = groups.Results, AiCredits = groups.Credits, ChangedFiles = [.. groups.Kept.Keys.Order(StringComparer.Ordinal)] };
+        var stopNote = groups.Stop is null ? "" : $"; Copilot stopped the run after {groups.Results.Count} groups: {groups.Stop.Message}";
+        if (groups.Kept.Count == 0)
         {
-            return report with { Status = HardenStatus.Rejected, Note = "no group passed the checks" };
+            return (report with { Status = HardenStatus.Rejected, Note = "no group passed the checks" + stopNote }, groups.Stop);
         }
 
         var repoOutput = run.RepoOutput(target.Name);
-        report = report with { PatchPath = await WritePatchAsync(workspace, kept.Keys, repoOutput, cancellationToken) };
+        report = report with { PatchPath = await WritePatchAsync(workspace, groups.Kept.Keys, repoOutput, cancellationToken) };
         if (await FinalCheckAsync(target, workspace.Path, run, repoOutput, cancellationToken) is { } failure)
         {
-            return report with { Status = HardenStatus.Rejected, Note = failure };
+            return (report with { Status = HardenStatus.Rejected, Note = failure + stopNote }, groups.Stop);
         }
 
         if (arguments.DryRun || host is null)
         {
-            return report with
-            {
-                Status = HardenStatus.Ready,
-                Note = arguments.DryRun ? "dry run: the tests are saved as a patch, nothing was pushed" : "local repo: the tests are saved as a patch, not pushed",
-            };
+            var why = arguments.DryRun ? "dry run: the tests are saved as a patch, nothing was pushed" : "local repo: the tests are saved as a patch, not pushed";
+            return (report with { Status = HardenStatus.Ready, Note = why + stopNote }, groups.Stop);
         }
 
-        var verified = results.Where(r => r.Outcome == GroupOutcome.Verified).ToList();
+        var verified = groups.Results.Where(r => r.Outcome == GroupOutcome.Verified).ToList();
         var approved = await arguments.Prompter.ConfirmAsync(
             $"push {branch} to {target.Name} and open a draft pull request",
             $"{report.TestsAdded} tests passed every check and catch {report.Killed} surviving mutants",
             cancellationToken);
         if (!approved)
         {
-            return report with { Status = HardenStatus.Declined, Note = "not approved; the tests are saved as a patch" };
+            return (report with { Status = HardenStatus.Declined, Note = "not approved; the tests are saved as a patch" + stopNote }, groups.Stop);
         }
 
-        return await PublishAsync(target, run, workspace, host, verified, report, cancellationToken);
+        return (await PublishAsync(target, run, workspace, host, verified, report, cancellationToken), groups.Stop);
     }
 
-    private async Task<(List<GroupResult> Results, Dictionary<string, string> Kept, double Credits)> HardenGroupsAsync(
+    private async Task<(List<GroupResult> Results, Dictionary<string, string> Kept, double Credits, AgentUnavailableException? Stop)> HardenGroupsAsync(
         RepoTarget target, RunContext run, RepoWorkspace workspace, IReadOnlyList<PlannedGroup> planned, double creditsSoFar, CancellationToken cancellationToken)
     {
         await using var backend = backends.Create();
@@ -183,7 +192,20 @@ internal sealed class HardenOrchestrator(
             var job = new GroupJob(
                 i + 1, target.Name, workspace.Path, workspace.Git, targetConfig, runner, group, tracked, kept,
                 target.ConventionFiles, target.TestNamePattern, groupOutput, run.Environment);
-            var result = await hardener.HardenAsync(job, backend, cancellationToken);
+            GroupResult result;
+            try
+            {
+                result = await hardener.HardenAsync(job, backend, cancellationToken);
+            }
+            catch (AgentUnavailableException ex)
+            {
+                return (results, kept, credits, ex);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                result = new GroupResult { Number = i + 1, Target = targetConfig.Name, Group = group, Outcome = GroupOutcome.Failed, Reason = ex.GetBaseException().Message };
+            }
+
             credits += result.Stats?.AiCredits ?? 0;
             if (result.Outcome == GroupOutcome.Verified && result.Owned is { } owned)
             {
@@ -191,11 +213,11 @@ internal sealed class HardenOrchestrator(
             }
 
             results.Add(result);
-            await HardenReportWriter.WriteGroupAsync(result, groupOutput, cancellationToken);
+            await TryWriteAsync(() => HardenReportWriter.WriteGroupAsync(result, groupOutput, cancellationToken));
             progress.GroupFinished(result);
         }
 
-        return (results, kept, credits);
+        return (results, kept, credits, null);
     }
 
     private async Task<RepoHardenReport> PublishAsync(
@@ -210,19 +232,18 @@ internal sealed class HardenOrchestrator(
         try
         {
             var scores = FileScore.From(await ReportsAsync(run, target, cancellationToken), verified);
-            var pullRequest = await host.CreateDraftAsync(
-                report.Branch!, targetBranch, PullRequestText.Title(verified), PullRequestText.Description(report.Sha ?? "", verified, scores), cancellationToken);
+            var description = PullRequestText.Description(report.Sha ?? "", verified, scores, config.Options.Hardening.OriginalRuns);
+            var pullRequest = await host.CreateDraftAsync(report.Branch!, targetBranch, PullRequestText.Title(verified), description, cancellationToken);
             return report with { Status = HardenStatus.Opened, PullRequestUrl = pullRequest.WebUrl };
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             return report with { Status = HardenStatus.Failed, Note = $"pushed {report.Branch}, but the pull request couldn't be opened: {ex.Message}" };
         }
     }
 
-    private async Task<string?> PreviousPullRequestAsync(IPullRequestHost host, CancellationToken cancellationToken)
+    private string? PreviousPullRequest(IReadOnlyList<AzureDevOpsPullRequest> previous)
     {
-        var previous = await host.ListAsync(Publish.BranchPrefix, cancellationToken);
         if (previous.FirstOrDefault(p => p.Status.Equals("active", StringComparison.OrdinalIgnoreCase)) is { } open)
         {
             return $"a pull request is already open: {open.WebUrl}";
@@ -234,7 +255,8 @@ internal sealed class HardenOrchestrator(
             : null;
     }
 
-    private async Task<IReadOnlyList<string>> LeftoverBranchesAsync(IPullRequestHost host, RepoWorkspace workspace, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<string>> LeftoverBranchesAsync(
+        IReadOnlyList<AzureDevOpsPullRequest> previous, RepoWorkspace workspace, CancellationToken cancellationToken)
     {
         var remote = await workspace.Git.TryRunAsync(workspace.Path, ["ls-remote", "--heads", "origin", $"refs/heads/{Publish.BranchPrefix}*"], cancellationToken);
         if (!remote.Succeeded)
@@ -242,9 +264,7 @@ internal sealed class HardenOrchestrator(
             return [];
         }
 
-        var withPullRequests = (await host.ListAsync(Publish.BranchPrefix, cancellationToken))
-            .Select(p => p.SourceBranch.Replace("refs/heads/", "", StringComparison.Ordinal))
-            .ToHashSet(StringComparer.Ordinal);
+        var withPullRequests = previous.Select(p => p.SourceBranch.Replace("refs/heads/", "", StringComparison.Ordinal)).ToHashSet(StringComparer.Ordinal);
         return remote.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(line => line.Split('\t').Last().Replace("refs/heads/", "", StringComparison.Ordinal))
             .Where(branch => !withPullRequests.Contains(branch))
@@ -284,10 +304,11 @@ internal sealed class HardenOrchestrator(
             }
 
             var results = Path.Combine(repoOutput, "final", Path.GetFileNameWithoutExtension(project));
-            var outcome = await dotnet.TestAsync(root, project, null, results, run.Environment, cancellationToken);
+            var timeout = TimeSpan.FromMinutes(config.Options.Hardening.TestTimeoutMinutes * 3);
+            var outcome = await dotnet.TestAsync(root, project, null, results, run.Environment, timeout, cancellationToken);
             if (!outcome.Succeeded)
             {
-                var failures = outcome.Failures.Count == 0 ? "no tests ran" : string.Join("; ", outcome.Failures.Take(5).Select(f => f.Test));
+                var failures = outcome.Failures.Count == 0 ? "no tests passed" : string.Join("; ", outcome.Failures.Take(5).Select(f => f.Test));
                 return $"{project} fails with the new tests: {failures}";
             }
         }
@@ -304,5 +325,19 @@ internal sealed class HardenOrchestrator(
         var patchPath = Path.Combine(repoOutput, "hardening.patch");
         await File.WriteAllTextAsync(patchPath, diff, cancellationToken);
         return patchPath;
+    }
+
+    private static async Task TryWriteAsync(Func<Task> write)
+    {
+        try
+        {
+            await write();
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 }

@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using RepoKit;
 using TestHardener.Analysis;
 using TestHardener.Config;
 using TestHardener.Infrastructure;
@@ -14,6 +13,8 @@ internal sealed record SurvivorOutcome(string Id, string Mutator, int Line, stri
 
 internal sealed record Verification
 {
+    public const string KilledStatus = "Killed";
+
     public required string OwnedPath { get; init; }
 
     public required bool Passed { get; init; }
@@ -29,23 +30,9 @@ internal sealed record Verification
     public IReadOnlyDictionary<string, int> KillsPerTest { get; init; } = new Dictionary<string, int>();
 
     public int Killed => Survivors.Count(s => s.Status == KilledStatus);
-
-    public const string KilledStatus = "Killed";
 }
 
-internal sealed record VerifyRequest(
-    string RepoRoot,
-    GitCli Git,
-    TargetConfig Target,
-    TestRunnerMode Runner,
-    SurvivorGroup Group,
-    IReadOnlyList<Survivor> Survivors,
-    OwnedFile Owned,
-    string? Snapshot,
-    IReadOnlyDictionary<string, string> Kept,
-    string? TestNamePattern,
-    string OutputDirectory,
-    IReadOnlyDictionary<string, string?> Environment);
+internal sealed record VerifyRequest(GroupJob Job, IReadOnlyList<Survivor> Survivors, OwnedFile Owned, string Snapshot, string OutputDirectory);
 
 internal interface IGroupVerifier
 {
@@ -54,53 +41,69 @@ internal interface IGroupVerifier
 
 internal sealed class GroupVerifier(DotnetCli dotnet, IStrykerRunner stryker, HardeningOptions options) : IGroupVerifier
 {
+    public const string OnlyOwnedStep = "only the owned file changed";
+
     public async Task<Verification> VerifyAsync(VerifyRequest request, CancellationToken cancellationToken)
     {
+        var job = request.Job;
         var steps = new List<CheckStep>();
         Verification Fail(string step, string feedback, IReadOnlyList<NewTest>? tests = null) =>
             new() { OwnedPath = request.Owned.Path, Passed = false, Steps = [.. steps, new CheckStep(step, false, feedback)], Feedback = feedback, NewTests = tests ?? [] };
 
-        DeleteTestResults(request);
+        DeleteTestResults(job);
         if (await GuardDiffAsync(request, cancellationToken) is { } stray)
         {
-            return Fail("only the owned file changed", stray);
+            return Fail(OnlyOwnedStep, $"Only {request.Owned.Path} may change. These other changes were undone: {stray}.");
         }
 
-        steps.Add(new CheckStep("only the owned file changed", true));
-        var path = Path.Combine(request.RepoRoot, request.Owned.Path);
+        steps.Add(new CheckStep(OnlyOwnedStep, true));
+        var path = Path.Combine(job.RepoRoot, request.Owned.Path);
         if (!File.Exists(path))
         {
             return Fail("static checks", $"{request.Owned.Path} doesn't exist any more. Recreate it with your tests.");
         }
 
-        var check = TestFileChecker.Check(request.Snapshot, await File.ReadAllTextAsync(path, cancellationToken), request.TestNamePattern);
+        var check = TestFileChecker.Check(request.Snapshot, await File.ReadAllTextAsync(path, cancellationToken), job.TestNamePattern);
         if (!check.Passed)
         {
             return Fail("static checks", string.Join(Environment.NewLine, check.Problems.Select(p => $"- {p}")), check.NewTests);
         }
 
         steps.Add(new CheckStep("static checks", true, $"{check.NewTests.Count} new tests or rows"));
-        var build = await dotnet.BuildAsync(request.RepoRoot, request.Owned.TestProject, request.Environment, cancellationToken);
+        var build = await dotnet.BuildAsync(job.RepoRoot, request.Owned.TestProject, job.Environment, cancellationToken);
         if (!build.Succeeded)
         {
-            var errors = build.Errors.Count > 0 ? string.Join(Environment.NewLine, build.Errors) : Tail(build.Output);
+            var errors = build.Errors.Count > 0 ? string.Join(Environment.NewLine, build.Errors) : TextFormat.Tail(build.Output);
             return Fail("build", $"The test project doesn't build:{Environment.NewLine}{errors}", check.NewTests);
         }
 
         steps.Add(new CheckStep("build", true));
         var filter = Filter(check.NewTests);
+        var originalStep = $"passes on the original code ({options.OriginalRuns} runs)";
         for (var run = 1; run <= options.OriginalRuns; run++)
         {
             var outcome = await dotnet.TestAsync(
-                request.RepoRoot, request.Owned.TestProject, filter, Path.Combine(request.OutputDirectory, $"original-{run}"), request.Environment, cancellationToken);
-            if (!outcome.Succeeded)
+                job.RepoRoot, request.Owned.TestProject, filter, Path.Combine(request.OutputDirectory, $"original-{run}"), job.Environment,
+                TimeSpan.FromMinutes(options.TestTimeoutMinutes), cancellationToken);
+            if (OriginalFailure(outcome, run, check.NewTests) is { } failure)
             {
-                return Fail($"passes on the original code ({options.OriginalRuns} runs)", OriginalFailure(outcome, run), check.NewTests);
+                return Fail(originalStep, failure, check.NewTests);
             }
         }
 
-        steps.Add(new CheckStep($"passes on the original code ({options.OriginalRuns} runs)", true));
-        return await KillCheckAsync(request, check.NewTests, filter, steps, cancellationToken);
+        steps.Add(new CheckStep(originalStep, true));
+        var result = await KillCheckAsync(request, check.NewTests, filter, steps, cancellationToken);
+        if (await GuardDiffAsync(request, cancellationToken) is { } written)
+        {
+            return result with
+            {
+                Passed = false,
+                Steps = [.. result.Steps, new CheckStep(OnlyOwnedStep, false, written)],
+                Feedback = $"Running your tests changed other files, which were undone: {written}. Tests must not write files.",
+            };
+        }
+
+        return result;
     }
 
     internal static string Filter(IReadOnlyList<NewTest> tests) =>
@@ -152,27 +155,55 @@ internal sealed class GroupVerifier(DotnetCli dotnet, IStrykerRunner stryker, Ha
         return (outcomes, kills);
     }
 
+    internal static IReadOnlyList<string> ParseStatus(string porcelainZ) =>
+        porcelainZ.Split('\0', StringSplitOptions.RemoveEmptyEntries).Where(r => r.Length > 3).Select(r => r[3..]).ToList();
+
+    internal static string? OriginalFailure(TestOutcome outcome, int run, IReadOnlyList<NewTest> newTests)
+    {
+        if (outcome.TimedOut)
+        {
+            return $"The new tests didn't finish within the time limit on run {run}. Something in them hangs; remove loops and waits.";
+        }
+
+        if (outcome.Failed > 0)
+        {
+            var failures = string.Join(Environment.NewLine, outcome.Failures.Take(10).Select(f => $"- {f.Test}: {f.Message}"));
+            return run == 1
+                ? $"These tests fail on the current code, which is correct by definition here. Fix the expectation or the setup:{Environment.NewLine}{failures}"
+                : $"These tests passed at first but failed on run {run}, so they're flaky. Remove whatever depends on timing, order or shared state:{Environment.NewLine}{failures}";
+        }
+
+        var missing = newTests
+            .Select(t => t.FullyQualifiedName)
+            .Distinct(StringComparer.Ordinal)
+            .Where(name => !outcome.PassedTests.Any(p => p == name || p.StartsWith(name + "(", StringComparison.Ordinal)))
+            .ToList();
+        return missing.Count == 0 && outcome.Passed > 0
+            ? null
+            : $"These new tests didn't run: {string.Join(", ", missing.DefaultIfEmpty("all of them"))}. Tests must be public methods with [Fact] or [Theory] in a public class (nested classes too), and not skipped.";
+    }
+
     private async Task<Verification> KillCheckAsync(
         VerifyRequest request, IReadOnlyList<NewTest> newTests, string filter, List<CheckStep> steps, CancellationToken cancellationToken)
     {
-        var strykerRequest = new StrykerRequest(request.RepoRoot, request.Target, request.Runner, [MutateSpan(request.Group, request.Target)], filter, DisableBail: true);
-        var run = await stryker.RunAsync(strykerRequest, Path.Combine(request.OutputDirectory, "stryker"), request.Environment, cancellationToken);
+        var job = request.Job;
+        var strykerRequest = new StrykerRequest(job.RepoRoot, job.Target, job.Runner, [MutateSpan(job.Group, job.Target)], filter, DisableBail: true);
+        var run = await stryker.RunAsync(strykerRequest, Path.Combine(request.OutputDirectory, "stryker"), job.Environment, cancellationToken);
         if (run.Report is not { } report)
         {
             var feedback = $"Stryker couldn't check the mutants: {run.Failure}";
             return new Verification { OwnedPath = request.Owned.Path, Passed = false, Steps = [.. steps, new CheckStep("kills mutants", false, feedback)], Feedback = feedback, NewTests = newTests };
         }
 
-        var (survivors, kills) = Match(request.Survivors, request.Group.File, report, newTests);
+        var (survivors, kills) = Match(request.Survivors, job.Group.File, report, newTests);
         var killed = survivors.Count(s => s.Status == Verification.KilledStatus);
         var idle = kills.Where(k => k.Value == 0).Select(k => k.Key).ToList();
         var passed = killed > 0 && idle.Count == 0;
-        var detail = $"{killed} of {survivors.Count} targeted mutants killed";
         var result = new Verification
         {
             OwnedPath = request.Owned.Path,
             Passed = passed,
-            Steps = [.. steps, new CheckStep("kills mutants", passed, detail)],
+            Steps = [.. steps, new CheckStep("kills mutants", passed, $"{killed} of {survivors.Count} targeted mutants killed")],
             NewTests = newTests,
             Survivors = survivors,
             KillsPerTest = kills,
@@ -206,43 +237,28 @@ internal sealed class GroupVerifier(DotnetCli dotnet, IStrykerRunner stryker, Ha
                 "Timeout" => "the mutation made your tests hang; that doesn't count",
                 _ => outcome.Status,
             };
-            builder.AppendLine(CultureInfo.InvariantCulture, $"- id {outcome.Id}, line {outcome.Line}, {outcome.Mutator} ({Flat(survivor.Original)} → {Flat(survivor.Replacement ?? "?")}): {meaning}");
+            builder.AppendLine(CultureInfo.InvariantCulture,
+                $"- id {outcome.Id}, line {outcome.Line}, {outcome.Mutator} ({TextFormat.FlatShort(survivor.Original, 80)} → {TextFormat.FlatShort(survivor.Replacement ?? "?", 80)}): {meaning}");
         }
 
         return builder.ToString().TrimEnd();
     }
 
-    private static string OriginalFailure(TestOutcome outcome, int run)
-    {
-        if (outcome.Total == 0)
-        {
-            return "No new test ran. Check that the new tests are public methods with [Fact] or [Theory] in a public class, and that the file is in the test project.";
-        }
-
-        var failures = string.Join(Environment.NewLine, outcome.Failures.Take(10).Select(f => $"- {f.Test}: {f.Message}"));
-        return run == 1
-            ? $"These tests fail on the current code, which is correct by definition here. Fix the expectation or the setup:{Environment.NewLine}{failures}"
-            : $"These tests passed at first but failed on run {run}, so they're flaky. Remove whatever depends on timing, order or shared state:{Environment.NewLine}{failures}";
-    }
-
     private static async Task<string?> GuardDiffAsync(VerifyRequest request, CancellationToken cancellationToken)
     {
+        var job = request.Job;
+        var status = await job.Git.RunAsync(job.RepoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames"], cancellationToken);
+        var tracked = job.TrackedFiles.ToHashSet(StringComparer.Ordinal);
         var stray = new List<string>();
-        foreach (var line in await request.Git.StatusAsync(request.RepoRoot, includeIgnored: false, cancellationToken))
+        foreach (var path in ParseStatus(status))
         {
-            if (line.Length < 4)
-            {
-                continue;
-            }
-
-            var path = line[3..].Trim('"');
             if (path == request.Owned.Path)
             {
                 continue;
             }
 
-            var full = Path.Combine(request.RepoRoot, path);
-            if (request.Kept.TryGetValue(path, out var kept))
+            var full = Path.Combine(job.RepoRoot, path);
+            if (job.Kept.TryGetValue(path, out var kept))
             {
                 if (File.Exists(full) && await File.ReadAllTextAsync(full, cancellationToken) == kept)
                 {
@@ -251,38 +267,29 @@ internal sealed class GroupVerifier(DotnetCli dotnet, IStrykerRunner stryker, Ha
 
                 await File.WriteAllTextAsync(full, kept, cancellationToken);
             }
-            else if (line.StartsWith("??", StringComparison.Ordinal))
+            else if (tracked.Contains(path))
+            {
+                await job.Git.TryRunAsync(job.RepoRoot, ["checkout", "--", path], cancellationToken);
+            }
+            else if (File.Exists(full))
             {
                 File.Delete(full);
-            }
-            else
-            {
-                await request.Git.TryRunAsync(request.RepoRoot, ["checkout", "--", path], cancellationToken);
             }
 
             stray.Add(path);
         }
 
-        return stray.Count == 0
-            ? null
-            : $"Only {request.Owned.Path} may change. These other changes were undone: {string.Join(", ", stray)}.";
+        return stray.Count == 0 ? null : string.Join(", ", stray);
     }
 
-    private static void DeleteTestResults(VerifyRequest request)
+    private static void DeleteTestResults(GroupJob job)
     {
-        foreach (var project in request.Target.TestProjects)
+        foreach (var folder in job.Target.TestProjects
+            .Select(p => Path.Combine(job.RepoRoot, Path.GetDirectoryName(p) ?? "", "TestResults"))
+            .Append(Path.Combine(job.RepoRoot, "TestResults"))
+            .Where(Directory.Exists))
         {
-            var folder = Path.Combine(request.RepoRoot, Path.GetDirectoryName(project) ?? "", "TestResults");
-            if (Directory.Exists(folder))
-            {
-                Directory.Delete(folder, recursive: true);
-            }
-        }
-
-        var root = Path.Combine(request.RepoRoot, "TestResults");
-        if (Directory.Exists(root))
-        {
-            Directory.Delete(root, recursive: true);
+            Directory.Delete(folder, recursive: true);
         }
     }
 
@@ -291,12 +298,4 @@ internal sealed class GroupVerifier(DotnetCli dotnet, IStrykerRunner stryker, Ha
         var parenthesis = name.IndexOf('(', StringComparison.Ordinal);
         return parenthesis > 0 ? name[..parenthesis] : name;
     }
-
-    private static string Flat(string text)
-    {
-        var flat = string.Join(' ', text.ReplaceLineEndings(" ").Split(' ', StringSplitOptions.RemoveEmptyEntries));
-        return flat.Length > 80 ? flat[..80] + "…" : flat;
-    }
-
-    private static string Tail(string output) => output.Length <= 2000 ? output.Trim() : output[^2000..].Trim();
 }

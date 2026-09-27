@@ -68,7 +68,9 @@ internal static class OwnedFileChooser
     }
 
     internal static string? ProjectOf(string file, TargetConfig target) =>
-        target.TestProjects.FirstOrDefault(p => file.StartsWith(ProjectFolder(p) + "/", StringComparison.Ordinal) || ProjectFolder(p).Length == 0);
+        target.TestProjects.FirstOrDefault(p => ProjectFolder(p) is var folder && (folder.Length == 0
+            ? !file.StartsWith(ProjectFolder(target.Project) + "/", StringComparison.Ordinal)
+            : file.StartsWith(folder + "/", StringComparison.Ordinal)));
 
     internal static string MirroredFolder(string sourceFile, TargetConfig target) => FolderOf(sourceFile, target.Project);
 

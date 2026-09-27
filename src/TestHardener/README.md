@@ -48,8 +48,9 @@ dotnet run --project src/TestHardener -- survey --config test-hardener.json --fr
   own) or local (`Path`, relative to the config file). Local repos are cloned too, so only committed files count.
 - **Targets:** one per source project to mutate, each with the **fast** test projects to run against it. Leave out
   slow suites such as Aspire integration tests: Stryker runs the covering tests once per mutant. `TestFilter` is a
-  `dotnet test --filter` expression and works only with the VSTest runner. A repo whose `global.json` selects
-  Microsoft.Testing.Platform is refused, because Stryker would ignore the filter silently.
+  `dotnet test --filter` expression and works only with the VSTest runner. On a repo whose `global.json` selects
+  Microsoft.Testing.Platform, Stryker ignores filters silently: a target with a `TestFilter` fails, and `harden`
+  refuses the repo before calling the agent, because its kill check depends on a filter.
 - **`Mutate`:** Stryker `mutate` globs, with a leading `!` to exclude.
 - **`IgnoreStringMutationsIn`:** globs where string mutants aren't worth a test, such as prompt or message text.
 - **`--from`:** reuses an earlier run's Stryker reports instead of running Stryker again, which can take half an
@@ -81,7 +82,7 @@ For each repo, one at a time:
 6. **Rank** the groups:
    1. the number of survivors that aren't string mutations;
    2. then all survivors;
-   3. then how many `fix:`, `hotfix:` and `Revert` commits touched the file in the last `Hardening:FixHistoryDays`
+   3. then how many `fix:`, `hotfix:`, `bugfix:` and `Revert` commits touched the file in the last `Hardening:FixHistoryDays`
       (180).
 
    Within a group, string mutants come last.
@@ -115,6 +116,11 @@ Restore and Stryker run the repo's build and tests on your machine. They get an 
 
 A private NuGet feed that needs such a variable to restore won't work yet.
 
+These processes, and the agent's own `dotnet build`/`dotnet test`, still run as you, with your file system and
+network: nothing is sandboxed. The static checks keep agent-written tests away from files, the network and the
+environment before anything runs them, but they are checks on source text, not a sandbox. Only point TestHardener
+at repos your team owns.
+
 ## Harden: agent-written tests
 
 ```sh
@@ -133,6 +139,7 @@ dotnet run --project src/TestHardener -- harden --dry-run --config test-hardener
 | `Hardening:MaxSurvivorsPerGroup` | 12 | Survivors given to the agent per group; non-string ones first |
 | `Hardening:MaxRounds` | 3 | Feedback rounds per group |
 | `Hardening:OriginalRuns` | 5 | Times the new tests must pass on the current code |
+| `Hardening:TestTimeoutMinutes` | 10 | Limit for one filtered test run (the final unfiltered run gets three times this) |
 | `Agent:Model` | none | Pins a model; otherwise Copilot chooses |
 | `Agent:MaxMinutes`, `MaxToolCalls`, `MaxRefusals` | 30, 90, 5 | Limits for one group's session, across all its rounds |
 | `Agent:MaxAiCreditsPerRun` | 0 (no cap) | Once reached, the remaining groups are skipped |
@@ -152,8 +159,10 @@ It surveys first (or reuses `--from`), then for each repo takes the top groups a
    folder, plus a `using` for the source namespace) and builds it first.
 2. **Starts one agent session** in the clone. The session:
    - may read anything and run read-only commands;
-   - may run `dotnet build`/`dotnet test`, but only on the target's test projects, with `--no-restore` or
-     `--no-build`, and without `--logger`, `--results-directory` or `-p:`;
+   - may run `dotnet build`/`dotnet test`, but only on the target's test projects inside the clone, with
+     `--no-restore` or `--no-build`, and without `--logger`, `--results-directory` or `-p:`;
+   - may run `dotnet test` only while its test file passes the static checks below, so its own test code never runs
+     before it has been checked;
    - may write only that one file;
    - has no Azure DevOps credential in its environment.
 
@@ -162,17 +171,25 @@ It surveys first (or reuses `--from`), then for each repo takes the top groups a
 3. **Checks the result with code**, in this order. The first failure goes back to the agent, for up to
    `MaxRounds` rounds.
    1. **Nothing else changed.** Any other change is undone. A `TestResults` folder is deleted first.
-   2. **The file only grew.** Checked with Roslyn: existing members, attributes, fields, helpers and usings are
-      unchanged, except that an existing `[Theory]` may gain `[InlineData]` rows.
-   3. **Each new test is sound.** It has an assertion, isn't skipped, adds no comments, and uses no reflection,
-      network, process, file-writing, environment, sleep, clock or randomness APIs. Its name matches
-      `TestNamePattern`.
+   2. **The file only grew.** Checked with Roslyn:
+      - existing members, attributes, fields, helpers and usings are unchanged, except that an existing
+        `[Theory]` may gain `[InlineData]` rows;
+      - no new top-level types (so nothing can shadow `Assert` or a helper), no extension methods, no duplicate
+        members;
+      - no added preprocessor directives, assembly attributes, or `global`, `static` or alias usings.
+   3. **Each new test is sound.**
+      - It has an assertion, isn't skipped, adds no comments, and its name matches `TestNamePattern`.
+      - New code uses none of: reflection, the network, processes, the file system, the environment (except
+        `Environment.NewLine`), sleeps, the real clock or randomness.
    4. **The test project builds.**
    5. **The new tests pass on the current code** `OriginalRuns` times in a row.
+      - Each new test must actually have run.
+      - A run is stopped after `Hardening:TestTimeoutMinutes` (10), and a hang goes back to the agent.
    6. **Stryker confirms the kills.** It re-runs with `mutate` narrowed to the method's character span, only the new
       tests (`test-case-filter`) and `disable-bail`. A survivor counts as killed only when Stryker reports `Killed`
       and a new test is among its killers. Every new test must kill at least one survivor. `NoCoverage` goes back
       as "your tests don't execute this code".
+   7. **The tests changed no other files while they ran.** Anything they wrote is undone and the round fails.
 4. **Keeps the change** if every check passed. Otherwise the file goes back to how it was before this group.
 
 After the groups, `VerifyTestProjects` are built and run once. The kept files are written to `hardening.patch`.

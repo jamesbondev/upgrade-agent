@@ -7,6 +7,8 @@ namespace TestHardener.Tests.Hardening;
 
 public class HardeningPolicyTests
 {
+    private const string Root = "/clone/demo";
+
     private static readonly string[] TestProjects = ["tests/Demo.Tests/Demo.Tests.csproj"];
 
     [Theory]
@@ -15,7 +17,7 @@ public class HardeningPolicyTests
     [InlineData("test Demo.Tests.csproj --no-restore --filter=Name=A -v q")]
     [InlineData("test tests/Demo.Tests --no-build")]
     public void EvaluateDotnet_TestProjectCommands_AreApproved(string command) =>
-        Assert.Equal(ToolVerdict.Approve, HardeningPolicy.EvaluateDotnet(command.Split(' '), TestProjects).Verdict);
+        Assert.Equal(ToolVerdict.Approve, HardeningPolicy.EvaluateDotnet(command.Split(' '), TestProjects, Root).Verdict);
 
     [Theory]
     [InlineData("test --no-build", "Name the test project")]
@@ -28,9 +30,11 @@ public class HardeningPolicyTests
     [InlineData("build Demo.Tests.csproj --no-restore -p:TreatWarningsAsErrors=false", "property overrides")]
     [InlineData("restore", "Only dotnet build and dotnet test")]
     [InlineData("run --project src/App", "Only dotnet build and dotnet test")]
+    [InlineData("test ../elsewhere/Demo.Tests.csproj --no-build", "outside the repository")]
+    [InlineData("test /tmp/other/Demo.Tests.csproj --no-build", "outside the repository")]
     public void EvaluateDotnet_OtherCommands_AreRefused(string command, string feedback)
     {
-        var decision = HardeningPolicy.EvaluateDotnet(command.Split(' '), TestProjects);
+        var decision = HardeningPolicy.EvaluateDotnet(command.Split(' '), TestProjects, Root);
 
         Assert.Equal(ToolVerdict.Reject, decision.Verdict);
         Assert.Contains(feedback, decision.Reason, StringComparison.Ordinal);
@@ -51,6 +55,26 @@ public class HardeningPolicyTests
         Assert.Equal(ToolVerdict.Reject, helper.Verdict);
         Assert.Contains("say so in your summary", helper.Reason, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void EvaluateDotnet_TestRunsOnlyAfterTheFilePassesTheChecks()
+    {
+        string? problems = "- Add at least one new [Fact]";
+
+        var refused = HardeningPolicy.EvaluateDotnet(["test", "Demo.Tests.csproj", "--no-build"], TestProjects, Root, () => problems);
+        var build = HardeningPolicy.EvaluateDotnet(["build", "Demo.Tests.csproj", "--no-restore"], TestProjects, Root, () => problems);
+        problems = null;
+        var allowed = HardeningPolicy.EvaluateDotnet(["test", "Demo.Tests.csproj", "--no-build"], TestProjects, Root, () => problems);
+
+        Assert.Equal(ToolVerdict.Reject, refused.Verdict);
+        Assert.Contains("Add at least one new [Fact]", refused.Reason, StringComparison.Ordinal);
+        Assert.Equal(ToolVerdict.Approve, build.Verdict);
+        Assert.Equal(ToolVerdict.Approve, allowed.Verdict);
+    }
+
+    [Fact]
+    public void EvaluateDotnet_AbsolutePathInsideTheRepo_IsApproved() =>
+        Assert.Equal(ToolVerdict.Approve, HardeningPolicy.EvaluateDotnet(["test", Path.GetFullPath("/clone/demo/tests/Demo.Tests/Demo.Tests.csproj"), "--no-build"], TestProjects, Path.GetFullPath(Root)).Verdict);
 
     [Fact]
     public async Task Create_RunsDotnetThroughTheRule()

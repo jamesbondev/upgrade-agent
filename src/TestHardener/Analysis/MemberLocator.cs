@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -10,6 +11,7 @@ namespace TestHardener.Analysis;
 
 internal sealed record MemberInfo(string Name, string Kind, int StartLine, int EndLine, int SpanStart, int SpanEnd, bool IsLogging, string TypeName = "")
 {
+    [JsonIgnore]
     public string OuterType => TypeName.Split('.')[0];
 }
 

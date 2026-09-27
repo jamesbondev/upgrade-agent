@@ -1,4 +1,5 @@
 using RepoKit;
+using TestHardener.Infrastructure;
 
 namespace TestHardener.Stryker;
 
@@ -57,9 +58,8 @@ internal sealed class StrykerTool(IProcessRunner processRunner)
         var result = await processRunner.RunAsync("dotnet", arguments, toolPath, environment, cancellationToken);
         if (!result.Succeeded)
         {
-            throw new StrykerToolException($"dotnet {string.Join(' ', arguments)} failed: {Tail(result.CombinedOutput)}");
+            throw new StrykerToolException($"dotnet {string.Join(' ', arguments)} failed: {TextFormat.Tail(result.CombinedOutput)}");
         }
     }
 
-    private static string Tail(string output) => output.Length <= 2000 ? output.Trim() : output[^2000..].Trim();
 }

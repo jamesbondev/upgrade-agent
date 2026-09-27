@@ -131,7 +131,7 @@ public class StrykerRunnerTests
         var runner = Runner(report, 0);
         var environment = new Dictionary<string, string?> { ["ADO_PAT"] = null };
 
-        var run = await Stryker(runner).RunAsync(Request(repo.Path), output.Path, environment, CancellationToken.None);
+        var run = await Stryker(runner, output.Path).RunAsync(Request(repo.Path), output.Path, environment, CancellationToken.None);
 
         Assert.Null(run.Failure);
         Assert.Single(run.Report!.Mutants);
@@ -148,7 +148,7 @@ public class StrykerRunnerTests
         using var repo = new TempDirectory().Write("src/Demo/Demo.csproj", "<Project />");
         using var output = new TempDirectory();
 
-        var run = await Stryker(Runner(null, 0)).RunAsync(Request(repo.Path), output.Path, new Dictionary<string, string?>(), CancellationToken.None);
+        var run = await Stryker(Runner(null, 0), output.Path).RunAsync(Request(repo.Path), output.Path, new Dictionary<string, string?>(), CancellationToken.None);
 
         Assert.Null(run.Report);
         Assert.Contains("wrote no mutation report", run.Failure, StringComparison.Ordinal);
@@ -160,7 +160,7 @@ public class StrykerRunnerTests
         using var repo = new TempDirectory().Write("src/Demo/Demo.csproj", "<Project />");
         using var output = new TempDirectory();
 
-        var run = await Stryker(Runner(null, 1)).RunAsync(Request(repo.Path), output.Path, new Dictionary<string, string?>(), CancellationToken.None);
+        var run = await Stryker(Runner(null, 1), output.Path).RunAsync(Request(repo.Path), output.Path, new Dictionary<string, string?>(), CancellationToken.None);
 
         Assert.Contains("exited with code 1", run.Failure, StringComparison.Ordinal);
     }
@@ -171,7 +171,7 @@ public class StrykerRunnerTests
         using var repo = new TempDirectory();
         using var output = new TempDirectory();
 
-        var run = await Stryker(Runner(null, 0)).RunAsync(Request(repo.Path), output.Path, new Dictionary<string, string?>(), CancellationToken.None);
+        var run = await Stryker(Runner(null, 0), output.Path).RunAsync(Request(repo.Path), output.Path, new Dictionary<string, string?>(), CancellationToken.None);
 
         Assert.Contains("is not in the repository", run.Failure, StringComparison.Ordinal);
     }
@@ -220,10 +220,10 @@ public class StrykerRunnerTests
         return new ProcessResult(exitCode, "stryker output", "");
     });
 
-    private static StrykerRunner Stryker(FakeProcessRunner runner)
+    private static StrykerRunner Stryker(FakeProcessRunner runner, string scratch)
     {
         var options = new TestHardenerOptions();
-        var config = new ResolvedConfig(options, [], "/out", "/work", Path.Combine(Path.GetTempPath(), "th-tools"));
+        var config = new ResolvedConfig(options, [], "/out", "/work", Path.Combine(scratch, "tools"));
         return new StrykerRunner(runner, config, new StrykerTool(runner), new FakeTimeProvider());
     }
 }

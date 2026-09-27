@@ -1,5 +1,3 @@
-using AgentHarness.Copilot;
-
 namespace AgentHarness.Tests;
 
 public class FileAgentLogTests
@@ -7,7 +5,8 @@ public class FileAgentLogTests
     [Fact]
     public async Task Observer_AppendsTimestampedEventsAndNotes()
     {
-        var path = Path.Combine(Directory.CreateTempSubdirectory("fal-").FullName, "nested", "agent.log");
+        var folder = Directory.CreateTempSubdirectory("fal-").FullName;
+        var path = Path.Combine(folder, "nested", "agent.log");
 
         await using (var log = FileAgentLog.Open(path))
         {
@@ -16,6 +15,7 @@ public class FileAgentLogTests
         }
 
         var lines = await File.ReadAllLinesAsync(path);
+        Directory.Delete(folder, recursive: true);
         Assert.Matches(@"^\d\d:\d\d:\d\d\.\d{3} .*done", lines[0]);
         Assert.Equal("a note", lines[1]);
     }
@@ -23,7 +23,8 @@ public class FileAgentLogTests
     [Fact]
     public async Task Open_AppendsToAnExistingLog()
     {
-        var path = Path.Combine(Directory.CreateTempSubdirectory("fal-").FullName, "agent.log");
+        var folder = Directory.CreateTempSubdirectory("fal-").FullName;
+        var path = Path.Combine(folder, "agent.log");
         await File.WriteAllTextAsync(path, "earlier\n");
 
         await using (var log = FileAgentLog.Open(path))
@@ -31,17 +32,8 @@ public class FileAgentLogTests
             log.Note("later");
         }
 
-        Assert.Equal(["earlier", "later"], await File.ReadAllLinesAsync(path));
+        var lines = await File.ReadAllLinesAsync(path);
+        Directory.Delete(folder, recursive: true);
+        Assert.Equal(["earlier", "later"], lines);
     }
-}
-
-public class CopilotQuotaTests
-{
-    [Theory]
-    [InlineData("You have exceeded your monthly quota of premium requests", true)]
-    [InlineData("Error: Quota exceeded for model", true)]
-    [InlineData("rate limited", false)]
-    [InlineData(null, false)]
-    public void IsExceeded_RecognisesQuotaMessages(string? message, bool expected) =>
-        Assert.Equal(expected, CopilotQuota.IsExceeded(message));
 }

@@ -75,14 +75,11 @@ internal static class SurvivorAnalysis
             }
         }
 
-        var groups = candidates
-            .GroupBy(c => (c.File, c.Member.Name))
-            .Select(g => Group(g.Key.File, g.First().Member, g.Select(c => c.Survivor), fixCommits.GetValueOrDefault(g.Key.File), report.TestFiles))
-            .OrderByDescending(g => g.Survivors.Count(s => !s.IsString))
-            .ThenByDescending(g => g.Survivors.Count)
-            .ThenByDescending(g => g.FixCommits)
-            .ThenBy(g => g.File, StringComparer.Ordinal)
-            .ThenBy(g => g.Member.StartLine)
+        var groups = GroupRanking.Order(
+                candidates
+                    .GroupBy(c => (c.File, c.Member.Name))
+                    .Select(g => Group(g.Key.File, g.First().Member, g.Select(c => c.Survivor), fixCommits.GetValueOrDefault(g.Key.File), report.TestFiles)),
+                g => g)
             .Select((g, i) => g with { Rank = i + 1 })
             .ToList();
 

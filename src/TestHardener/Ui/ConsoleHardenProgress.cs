@@ -1,27 +1,11 @@
 using System.Globalization;
-using AgentHarness.Policies;
 using Spectre.Console;
 using TestHardener.Config;
 using TestHardener.Hardening;
+using TestHardener.Infrastructure;
 using TestHardener.Run;
 
 namespace TestHardener.Ui;
-
-internal sealed class SpectreApprovalPrompter(IAnsiConsole console) : IApprovalPrompter
-{
-    public async Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken)
-    {
-        console.MarkupLine($"  [yellow]approval needed:[/] {Markup.Escape(action)} [grey]({Markup.Escape(reason)})[/]");
-        try
-        {
-            return await new ConfirmationPrompt("  Go ahead?") { DefaultValue = false }.ShowAsync(console, cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
-        }
-    }
-}
 
 internal sealed class ConsoleHardenProgress(IAnsiConsole console) : IHardenProgress
 {
@@ -41,7 +25,7 @@ internal sealed class ConsoleHardenProgress(IAnsiConsole console) : IHardenProgr
         };
         var detail = result.Outcome == GroupOutcome.Verified && result.Final is { } final
             ? $"{final.Killed} of {final.Survivors.Count} killed by {final.NewTests.Count} tests"
-            : FirstLine(result.Reason ?? "");
+            : TextFormat.FirstLine(result.Reason ?? "");
         console.MarkupLine($"    [{colour}]{result.Outcome}[/] [grey]{Markup.Escape(detail)} · {result.Rounds.Count} rounds · {result.Duration.TotalMinutes:0.0} min[/]");
     }
 
@@ -74,9 +58,4 @@ internal sealed class ConsoleHardenProgress(IAnsiConsole console) : IHardenProgr
         console.MarkupLine($"{report.Duration.TotalMinutes:0.0} min · Report: [link]{Markup.Escape(reportPath)}[/]");
     }
 
-    private static string FirstLine(string text)
-    {
-        var line = text.ReplaceLineEndings("\n").Split('\n')[0];
-        return line.Length > 120 ? line[..120] + "…" : line;
-    }
 }

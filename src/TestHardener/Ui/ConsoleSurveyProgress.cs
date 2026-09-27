@@ -5,20 +5,6 @@ using TestHardener.Run;
 
 namespace TestHardener.Ui;
 
-internal static class ConsoleFactory
-{
-    public static IAnsiConsole Create()
-    {
-        var console = AnsiConsole.Console;
-        if (Console.IsOutputRedirected && int.TryParse(Environment.GetEnvironmentVariable("COLUMNS"), out var width) && width >= 40)
-        {
-            console.Profile.Width = width;
-        }
-
-        return console;
-    }
-}
-
 internal sealed class ConsoleSurveyProgress(IAnsiConsole console) : ISurveyProgress
 {
     public void RepoStarted(RepoTarget target, int index, int count) =>

@@ -96,9 +96,9 @@ internal sealed class RepoSurveyor(
         if (run.From is { } from)
         {
             earlier = await ReadEarlierAsync(from, target.Name, cancellationToken);
-            if (earlier?.Sha is null)
+            if (earlier?.Sha is null || earlier.CloneRoot is null)
             {
-                return new SurveyedRepo(RepoSurvey.Failed(target, $"no survey.json with a commit for this repo in {from}"), null);
+                return new SurveyedRepo(RepoSurvey.Failed(target, $"no survey.json with a commit and clone path for this repo in {from}"), null);
             }
         }
 
@@ -114,7 +114,7 @@ internal sealed class RepoSurveyor(
             var survey = await SurveyCloneAsync(target, run, workspace, earlier, cancellationToken);
             return new SurveyedRepo(survey, workspace);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (ex is not StrykerToolException && (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested))
         {
             if (workspace is not null)
             {
@@ -218,7 +218,7 @@ internal sealed class RepoSurveyor(
                 Duration = time.GetElapsedTime(started),
             };
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (ex is not StrykerToolException && (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested))
         {
             return survey with { Failure = ex.GetBaseException().Message, Duration = time.GetElapsedTime(started) };
         }
@@ -242,7 +242,7 @@ internal sealed class RepoSurveyor(
         var destination = Path.Combine(outputDirectory, StrykerRunner.ReportRelativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         File.Copy(source, destination, overwrite: true);
-        return await StrykerRunner.ReadAsync(0, outputDirectory, earlier.CloneRoot ?? "", time.GetElapsedTime(started), cancellationToken);
+        return await StrykerRunner.ReadAsync(0, outputDirectory, earlier.CloneRoot!, time.GetElapsedTime(started), cancellationToken);
     }
 
     private async Task<string?> RestoreAsync(string repoRoot, string solution, IReadOnlyDictionary<string, string?> environment, CancellationToken cancellationToken)
@@ -253,7 +253,7 @@ internal sealed class RepoSurveyor(
         }
 
         var result = await processRunner.RunAsync("dotnet", ["restore", solution, "-tl:off", "-nologo"], repoRoot, environment, cancellationToken);
-        return result.Succeeded ? null : $"dotnet restore {solution} failed: {Tail(result.CombinedOutput)}";
+        return result.Succeeded ? null : $"dotnet restore {solution} failed: {TextFormat.Tail(result.CombinedOutput, 1500)}";
     }
 
     private async Task<IReadOnlyDictionary<string, int>> FixCountsAsync(RepoWorkspace workspace, CancellationToken cancellationToken)
@@ -306,8 +306,6 @@ internal sealed class RepoSurveyor(
             ? throw new ConfigurationException($"--only names repos that aren't configured: {string.Join(", ", unknown)}")
             : config.Repos.Where(r => only.Contains(r.Name, StringComparer.OrdinalIgnoreCase)).ToList();
     }
-
-    private static string Tail(string output) => output.Length <= 1500 ? output.Trim() : output[^1500..].Trim();
 }
 
 internal sealed class SurveyOrchestrator(ResolvedConfig config, RepoSurveyor surveyor, ISurveyProgress progress, TimeProvider time)

@@ -151,6 +151,105 @@ public sealed class HardenOrchestratorTests : IDisposable
         Assert.Contains("local repo", report.Repos.Single().Note, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task RunAsync_OneGroupThrows_TheOtherGroupsStillCount()
+    {
+        await OriginAsync();
+        var calls = 0;
+        var hardener = new FakeHardener(job => ++calls == 1 ? throw new InvalidOperationException("boom") : Verified(job));
+
+        var report = await Orchestrator(new FakeHost(), hardener, new FakeStryker(TwoGroupReport)).RunAsync(Arguments(approve: false), CancellationToken.None);
+
+        var repo = Assert.Single(report.Repos);
+        Assert.Equal([GroupOutcome.Failed, GroupOutcome.Verified], repo.Groups.Select(g => g.Outcome));
+        Assert.Equal("boom", repo.Groups[0].Reason);
+        Assert.Equal(HardenStatus.Declined, repo.Status);
+    }
+
+    [Fact]
+    public async Task RunAsync_QuotaRunsOut_KeepsVerifiedWorkWritesTheReportAndStops()
+    {
+        await OriginAsync();
+        var calls = 0;
+        var hardener = new FakeHardener(job => ++calls == 1 ? Verified(job) : throw new AgentUnavailableException("quota used up"));
+
+        var error = await Assert.ThrowsAsync<AgentUnavailableException>(() =>
+            Orchestrator(new FakeHost(), hardener, new FakeStryker(TwoGroupReport)).RunAsync(Arguments(approve: true, dryRun: true), CancellationToken.None));
+
+        Assert.Equal("quota used up", error.Message);
+        var run = Directory.GetDirectories(_output.Path, "run-*").Single();
+        Assert.True(File.Exists(Path.Combine(run, "harden-report.md")));
+        Assert.True(File.Exists(Path.Combine(run, "demo", "hardening.patch")));
+        Assert.Contains("Copilot stopped the run after 1 groups", await File.ReadAllTextAsync(Path.Combine(run, "harden-report.md")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunAsync_CreditCap_SkipsTheRemainingGroups()
+    {
+        await OriginAsync();
+        var hardener = new FakeHardener(async job => await Verified(job) with { Stats = new AgentStats("m", 1, 1, 1, 1, 6, 0, 0, null, TimeSpan.Zero) });
+
+        var report = await Orchestrator(new FakeHost(), hardener, new FakeStryker(TwoGroupReport), configure: o => o.Agent.MaxAiCreditsPerRun = 5)
+            .RunAsync(Arguments(approve: false), CancellationToken.None);
+
+        Assert.Equal([GroupOutcome.Verified, GroupOutcome.Skipped], report.Repos.Single().Groups.Select(g => g.Outcome));
+        Assert.Equal(1, hardener.Calls);
+    }
+
+    [Fact]
+    public async Task RunAsync_PullRequestFailsAfterThePush_SaysTheBranchWasPushed()
+    {
+        var origin = await OriginAsync();
+        var host = new FakeHost { FailCreate = true };
+
+        var report = await Orchestrator(host, new FakeHardener(Verified)).RunAsync(Arguments(approve: true), CancellationToken.None);
+
+        var repo = Assert.Single(report.Repos);
+        Assert.Equal(HardenStatus.Failed, repo.Status);
+        Assert.Contains($"pushed {repo.Branch}, but the pull request couldn't be opened", repo.Note, StringComparison.Ordinal);
+        Assert.Contains(repo.Branch!, await origin.RunAsync("branch", "--format=%(refname:short)"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunAsync_TestingPlatformRepo_IsRefusedBeforeTheAgent()
+    {
+        var origin = await OriginAsync();
+        origin.Write("global.json", "{ \"test\": { \"runner\": \"Microsoft.Testing.Platform\" } }");
+        await origin.CommitAsync("mtp");
+        var hardener = new FakeHardener(Verified);
+
+        var report = await Orchestrator(new FakeHost(), hardener).RunAsync(Arguments(approve: true), CancellationToken.None);
+
+        Assert.Equal(HardenStatus.Failed, report.Repos.Single().Status);
+        Assert.Contains("Microsoft.Testing.Platform", report.Repos.Single().Note, StringComparison.Ordinal);
+        Assert.Equal(0, hardener.Calls);
+    }
+
+    [Fact]
+    public void Plan_TakesTheTopGroupsAcrossTargets()
+    {
+        var engine = new TargetConfig("Engine", "src/Engine/Engine.csproj", ["t/E.csproj"], null, [], []);
+        var api = new TargetConfig("Api", "src/Api/Api.csproj", ["t/A.csproj"], null, [], []);
+        var target = new RepoTarget("demo", null, "/r", "Demo.slnx", [engine, api]);
+        var survey = new RepoSurvey
+        {
+            Name = "demo",
+            Location = "/r",
+            Status = SurveyStatus.Surveyed,
+            Targets =
+            [
+                new TargetSurvey { Name = "Engine", Project = engine.Project, Groups = [PlanGroup("E.Small", 1, 0), PlanGroup("E.Strings", 5, 5)] },
+                new TargetSurvey { Name = "Api", Project = api.Project, Groups = [PlanGroup("A.Big", 3, 0)] },
+                new TargetSurvey { Name = "Broken", Project = "x.csproj", Failure = "failed", Groups = [PlanGroup("B.Huge", 9, 0)] },
+            ],
+        };
+
+        var planned = HardenOrchestrator.Plan(target, survey, maxGroups: 2);
+
+        Assert.Equal(["A.Big", "E.Small"], planned.Select(p => p.Group.Member.Name));
+        Assert.Equal("Api", planned[0].Target.Name);
+    }
+
     public void Dispose()
     {
         _origin?.Dispose();
@@ -173,7 +272,8 @@ public sealed class HardenOrchestratorTests : IDisposable
         return _origin;
     }
 
-    private HardenOrchestrator Orchestrator(IPullRequestHost? host, IGroupHardener hardener, FakeStryker? stryker = null, bool finalTestsPass = true)
+    private HardenOrchestrator Orchestrator(
+        IPullRequestHost? host, IGroupHardener hardener, FakeStryker? stryker = null, bool finalTestsPass = true, Action<TestHardenerOptions>? configure = null)
     {
         var options = new TestHardenerOptions
         {
@@ -189,6 +289,7 @@ public sealed class HardenOrchestratorTests : IDisposable
             ],
             Output = new OutputOptions { Directory = _output.Path, WorkRoot = _work.Path },
         };
+        configure?.Invoke(options);
         var config = ConfigLoader.Resolve(options, _output.Path);
         var processes = new FakeProcessRunner(call => Dotnet(call, finalTestsPass));
         var credentials = new AzureDevOpsCredentialProvider(new AzureDevOpsAuthOptions());
@@ -214,6 +315,23 @@ public sealed class HardenOrchestratorTests : IDisposable
 
         return FakeProcessRunner.Ok();
     }
+
+    private static TestHardener.Analysis.SurvivorGroup PlanGroup(string name, int survivors, int strings) => new()
+    {
+        File = $"src/{name}.cs",
+        Member = new TestHardener.Analysis.MemberInfo(name, "method", 1, 2, 0, 1, false, name),
+        Survivors = Enumerable.Range(0, survivors)
+            .Select(i => new TestHardener.Analysis.Survivor($"{i}", "m", new Location(new(1, 1), new(1, 2)), "a", "b", i < strings, []))
+            .ToList(),
+    };
+
+    private static string TwoGroupReport(StrykerRequest request) =>
+        new ReportBuilder(request.RepoRoot)
+            .Test("t1", "Demo.Tests.CalculatorTests.Existing")
+            .Mutant(Samples.CalculatorPath, Samples.Calculator, "a > b", MutantStatus.Survived, replacement: "a >= b")
+            .Mutant(Samples.CalculatorPath, Samples.Calculator, "a > b", MutantStatus.Survived, replacement: "a < b")
+            .Mutant(Samples.CalculatorPath, Samples.Calculator, "seed > 0", MutantStatus.Survived, replacement: "seed >= 0")
+            .Json();
 
     private static string SurvivorReport(StrykerRequest request) =>
         new ReportBuilder(request.RepoRoot)
@@ -262,12 +380,19 @@ public sealed class HardenOrchestratorTests : IDisposable
     {
         public IReadOnlyList<AzureDevOpsPullRequest> Existing { get; init; } = [];
 
+        public bool FailCreate { get; init; }
+
         public List<(string Branch, string Target, string Title, string Description)> Created { get; } = [];
 
         public Task<IReadOnlyList<AzureDevOpsPullRequest>> ListAsync(string branchPrefix, CancellationToken cancellationToken) => Task.FromResult(Existing);
 
         public Task<AzureDevOpsPullRequest> CreateDraftAsync(string branch, string targetBranch, string title, string description, CancellationToken cancellationToken)
         {
+            if (FailCreate)
+            {
+                throw new HttpRequestException("503 from Azure DevOps");
+            }
+
             Created.Add((branch, targetBranch, title, description));
             return Task.FromResult(new AzureDevOpsPullRequest(1, title, "active", branch, targetBranch, true, DateTimeOffset.UnixEpoch, "https://example.invalid/pr/1"));
         }

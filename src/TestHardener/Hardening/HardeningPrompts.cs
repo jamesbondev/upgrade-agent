@@ -2,6 +2,7 @@ using System.Globalization;
 using System.ComponentModel;
 using System.Text;
 using TestHardener.Analysis;
+using TestHardener.Infrastructure;
 
 namespace TestHardener.Hardening;
 
@@ -122,9 +123,5 @@ internal static class HardeningPrompts
 
     public const string SummaryQuestion = "Summarise the tests you added: for each, what it asserts and which survivor ids it kills. Say whether anything blocked you.";
 
-    private static string Flat(string text)
-    {
-        var flat = string.Join(' ', text.ReplaceLineEndings(" ").Split(' ', StringSplitOptions.RemoveEmptyEntries)).Replace("`", "'", StringComparison.Ordinal);
-        return flat.Length > 160 ? flat[..160] + "…" : flat;
-    }
+    private static string Flat(string text) => TextFormat.FlatShort(text, 160).Replace("`", "'", StringComparison.Ordinal);
 }

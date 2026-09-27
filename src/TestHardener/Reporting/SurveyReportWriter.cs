@@ -1,8 +1,9 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using RepoKit.AzureDevOps;
 using TestHardener.Analysis;
+using TestHardener.Infrastructure;
 using TestHardener.Run;
 using TestHardener.Stryker;
 
@@ -18,12 +19,7 @@ internal static class SurveyReportWriter
     private const int ShownChangeLength = 80;
     private const int ChangeContext = 15;
 
-    public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
+    public static JsonSerializerOptions Json => ReportJson.Options;
 
     public static string FolderName(string repoName)
     {
@@ -239,22 +235,7 @@ internal static class SurveyReportWriter
         return $"{(start > 0 ? "…" : "")}{window}{(end < text.Length ? "…" : "")}";
     }
 
-    private static string Flat(string text) =>
-        string.Join(' ', text.ReplaceLineEndings(" ").Split(' ', StringSplitOptions.RemoveEmptyEntries)).Replace("`", "'", StringComparison.Ordinal);
+    private static string Flat(string text) => TextFormat.Flat(text).Replace("`", "'", StringComparison.Ordinal);
 
-    internal static string Escape(string text)
-    {
-        var builder = new StringBuilder(text.Length);
-        foreach (var c in text.ReplaceLineEndings(" "))
-        {
-            if ("\\`*_[]<>|#".Contains(c, StringComparison.Ordinal))
-            {
-                builder.Append('\\');
-            }
-
-            builder.Append(c);
-        }
-
-        return builder.ToString();
-    }
+    internal static string Escape(string text) => PullRequestMarkdown.Escape(text);
 }

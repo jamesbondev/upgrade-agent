@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using AgentHarness;
 using AgentHarness.Copilot;
 using AgentHarness.Policies;
@@ -38,6 +39,7 @@ internal sealed record GroupResult
 
     public TimeSpan Duration { get; init; }
 
+    [JsonIgnore]
     public Verification? Final => Rounds.Count == 0 ? null : Rounds[^1];
 }
 
@@ -122,7 +124,7 @@ internal sealed class GroupHardener(IGroupVerifier verifier, DotnetCli dotnet, R
             Name = $"harden {job.Group.Member.Name}",
             WorkingDirectory = job.RepoRoot,
             Instructions = HardeningPrompts.System(owned),
-            Policy = HardeningPolicy.Create(job.RepoRoot, owned.Path, job.Target.TestProjects),
+            Policy = HardeningPolicy.Create(job.RepoRoot, owned.Path, job.Target.TestProjects, () => CheckBeforeTests(job, owned, snapshot)),
             Limits = new AgentLimits { MaxDuration = TimeSpan.FromMinutes(agent.MaxMinutes), MaxToolCalls = agent.MaxToolCalls, MaxRefusals = agent.MaxRefusals },
             Observers = [log.Observer],
         };
@@ -141,9 +143,7 @@ internal sealed class GroupHardener(IGroupVerifier verifier, DotnetCli dotnet, R
                 var reply = await session.SendAsync(message, cancellationToken);
                 ThrowIfQuotaExceeded(reply.StopReason);
                 var verification = await verifier.VerifyAsync(
-                    new VerifyRequest(job.RepoRoot, job.Git, job.Target, job.Runner, job.Group, survivors, owned, snapshot, job.Kept, job.TestNamePattern,
-                        Path.Combine(job.OutputDirectory, $"round-{round}"), job.Environment),
-                    cancellationToken);
+                    new VerifyRequest(job, survivors, owned, snapshot, Path.Combine(job.OutputDirectory, $"round-{round}")), cancellationToken);
                 rounds.Add(verification);
                 log.Note($"--- round {round}: {(verification.Passed ? "passed" : "failed")} {string.Join("; ", verification.Steps.Select(s => $"{s.Name}: {(s.Passed ? "ok" : "failed")}"))}");
                 if (verification.Passed || reply.Stopped)
@@ -176,19 +176,37 @@ internal sealed class GroupHardener(IGroupVerifier verifier, DotnetCli dotnet, R
         }
     }
 
+    internal static string? CheckBeforeTests(GroupJob job, OwnedFile owned, string snapshot)
+    {
+        var path = Path.Combine(job.RepoRoot, owned.Path);
+        var current = File.Exists(path) ? File.ReadAllText(path) : "";
+        if (current == snapshot)
+        {
+            return null;
+        }
+
+        var check = TestFileChecker.Check(snapshot, current, job.TestNamePattern);
+        return check.Passed ? null : string.Join(Environment.NewLine, check.Problems.Select(p => $"- {p}"));
+    }
+
     private async Task<string?> WriteSkeletonAsync(GroupJob job, OwnedFile owned, string ownedPath, CancellationToken cancellationToken)
     {
         var skeleton = OwnedFileChooser.Skeleton(owned, ReadTracked(job, owned.TestProject), ReadTracked(job, job.Group.File), job.Group.Member.OuterType);
         Directory.CreateDirectory(Path.GetDirectoryName(ownedPath)!);
         await File.WriteAllTextAsync(ownedPath, skeleton, cancellationToken);
-        var build = await dotnet.BuildAsync(job.RepoRoot, owned.TestProject, job.Environment, cancellationToken);
-        if (build.Succeeded)
+        var built = false;
+        try
         {
-            return skeleton;
+            built = (await dotnet.BuildAsync(job.RepoRoot, owned.TestProject, job.Environment, cancellationToken)).Succeeded;
+            return built ? skeleton : null;
         }
-
-        File.Delete(ownedPath);
-        return null;
+        finally
+        {
+            if (!built)
+            {
+                File.Delete(ownedPath);
+            }
+        }
     }
 
     private static async Task RestoreAsync(string path, string snapshot, bool delete, CancellationToken cancellationToken)

@@ -17,7 +17,7 @@ internal static class HardeningPolicy
         "-v", "--verbosity", "-c", "--configuration", "-f", "--framework", "--filter",
     };
 
-    public static IToolPolicy Create(string root, string ownedPath, IReadOnlyList<string> testProjects)
+    public static IToolPolicy Create(string root, string ownedPath, IReadOnlyList<string> testProjects, Func<string?>? checkBeforeTests = null)
     {
         var owned = Path.GetFullPath(Path.Combine(root, ownedPath));
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -28,7 +28,7 @@ internal static class HardeningPolicy
             UnknownCommandRefusal = command =>
                 $"'{command}' is not available. Use read-only commands (cat, grep, find, ls, git diff), dotnet build/test on a test project, and the edit tool.",
         };
-        options.Commands["dotnet"] = arguments => EvaluateDotnet(arguments, testProjects);
+        options.Commands["dotnet"] = arguments => EvaluateDotnet(arguments, testProjects, root, checkBeforeTests);
 
         return new WorkspacePolicy(root, options).Wrap((request, decision) => request switch
         {
@@ -40,7 +40,7 @@ internal static class HardeningPolicy
         });
     }
 
-    internal static ToolDecision EvaluateDotnet(IReadOnlyList<string> arguments, IReadOnlyList<string> testProjects)
+    internal static ToolDecision EvaluateDotnet(IReadOnlyList<string> arguments, IReadOnlyList<string> testProjects, string root, Func<string?>? checkBeforeTests = null)
     {
         var names = string.Join(", ", testProjects);
         if (arguments.Count == 0 || arguments[0].ToLowerInvariant() is not ("build" or "test"))
@@ -83,6 +83,11 @@ internal static class HardeningPolicy
             }
         }
 
+        if (project is not null && !InsideRepo(project, root))
+        {
+            return ToolDecision.Reject($"{project} is outside the repository. Name one of: {names}.");
+        }
+
         if (project is null || !testProjects.Any(p => Matches(project, p)))
         {
             return ToolDecision.Reject($"Name the test project to {verb}, one of: {names}. A bare dotnet {verb} would build the whole solution, including slow suites.");
@@ -95,7 +100,30 @@ internal static class HardeningPolicy
                 : "Add --no-build (after dotnet build --no-restore) or --no-restore.");
         }
 
+        if (verb == "test" && checkBeforeTests?.Invoke() is { } problems)
+        {
+            return ToolDecision.Reject($"The test file doesn't pass TestHardener's checks yet, so its tests can't run. Fix these first:{Environment.NewLine}{problems}");
+        }
+
         return ToolDecision.Approve($"dotnet {verb} {project}");
+    }
+
+    private static bool InsideRepo(string argument, string root)
+    {
+        var normalized = argument.Replace('\\', '/');
+        if (normalized.Split('/').Contains("..", StringComparer.Ordinal))
+        {
+            return false;
+        }
+
+        if (!Path.IsPathRooted(argument))
+        {
+            return true;
+        }
+
+        var full = Path.GetFullPath(argument);
+        var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        return full.StartsWith(rootFull, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
     }
 
     private static bool Matches(string argument, string testProject)

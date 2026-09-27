@@ -111,6 +111,8 @@ internal sealed class HardeningOptions
     public int MaxRounds { get; set; } = 3;
 
     public int OriginalRuns { get; set; } = 5;
+
+    public int TestTimeoutMinutes { get; set; } = 10;
 }
 
 internal sealed class AgentOptions

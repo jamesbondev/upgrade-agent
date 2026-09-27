@@ -110,7 +110,7 @@ public class TestFileCheckerTests
     [InlineData("[Fact]", "[Fact(Skip = \"later\")]", "is skipped")]
     [InlineData("Assert.Equal(5, _calculator.Add(3, 2));", "Assert.True(DateTime.UtcNow.Year > 2000);", "the real clock")]
     [InlineData("Assert.Equal(5, _calculator.Add(3, 2));", "Assert.NotNull(typeof(Calculator).GetMethod(\"Add\"));", "reflection")]
-    [InlineData("Assert.Equal(5, _calculator.Add(3, 2));", "Assert.Null(Environment.GetEnvironmentVariable(\"X\"));", "environment variables")]
+    [InlineData("Assert.Equal(5, _calculator.Add(3, 2));", "Assert.Null(Environment.GetEnvironmentVariable(\"X\"));", "the environment")]
     [InlineData("Assert.Equal(5, _calculator.Add(3, 2));", "Thread.Sleep(10); Assert.True(true);", "sleeping")]
     public void Check_BadNewTest_IsRejected(string from, string to, string problem)
     {
@@ -156,5 +156,77 @@ public class TestFileCheckerTests
         var after = Before.Replace("    private static int Helper() => 1;", "    private static int Helper() => 1;\n\n    [UnixOnlyFact]\n    public void A_B_C() => Assert.True(true);", StringComparison.Ordinal);
 
         Assert.Single(TestFileChecker.Check(Before, after, null).NewTests);
+    }
+
+    [Theory]
+    [InlineData("    private static int Helper() => 1;\n\n    [Fact]\n    public void A_B_C() => Assert.True(Helper() == 1);\n    private static int Helper() => 2;", "declared more than once")]
+    [InlineData("#if DEBUG\n    [Fact]\n    public void A_B_C() => Assert.True(true);\n#endif", "preprocessor directives")]
+    [InlineData("#pragma warning disable CA1822\n    [Fact]\n    public void A_B_C() => Assert.True(true);", "preprocessor directives")]
+    [InlineData("    [Fact]\n    public void A_B_C() => Assert.Equal(1, Helper());\n\n    public static int Twice(this int x) => x * 2;", "extension method")]
+    [InlineData("    [Fact]\n    public void A_B_C() => Assert.True(DateTime . Now.Year > 0);", "the real clock")]
+    [InlineData("    [Fact]\n    public void A_B_C() => Assert.NotNull(new System.Net.Http.HttpClient());", "the network")]
+    [InlineData("    [Fact]\n    public void A_B_C() => Assert.NotNull(System.Diagnostics.Process.Start(\"sh\"));", "processes")]
+    [InlineData("    [Fact]\n    public void A_B_C() => Assert.NotNull(File.ReadAllText(\"/etc/passwd\"));", "the file system")]
+    [InlineData("    [Fact]\n    public void A_B_C() => Assert.True(Random.Shared.Next() >= 0);", "randomness")]
+    public void Check_BlindSpots_AreRejected(string addition, string problem)
+    {
+        var after = Before.Replace("    private static int Helper() => 1;", addition.Contains("private static int Helper() => 1;", StringComparison.Ordinal) ? addition : "    private static int Helper() => 1;\n\n" + addition, StringComparison.Ordinal);
+
+        Assert.Contains(TestFileChecker.Check(Before, after, null).Problems, p => p.Contains(problem, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("using static System.IO.File;")]
+    [InlineData("global using System.IO;")]
+    [InlineData("using H = System.Net.Http.HttpClient;")]
+    public void Check_AddedSpecialUsing_IsRejected(string directive)
+    {
+        var after = directive + "\n" + Before.Replace("    private static int Helper() => 1;", "    private static int Helper() => 1;\n\n    [Fact]\n    public void A_B_C() => Assert.True(true);", StringComparison.Ordinal);
+
+        Assert.Contains(TestFileChecker.Check(Before, after, null).Problems, p => p.Contains("Don't add `", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Check_AddedPlainUsing_IsFine()
+    {
+        var after = "using System.Linq;\n" + Before.Replace("    private static int Helper() => 1;", "    private static int Helper() => 1;\n\n    [Fact]\n    public void A_B_C() => Assert.True(true);", StringComparison.Ordinal);
+
+        Assert.True(TestFileChecker.Check(Before, after, null).Passed);
+    }
+
+    [Fact]
+    public void Check_AssemblyAttribute_IsRejected()
+    {
+        var after = "[assembly: Xunit.CollectionBehavior(DisableTestParallelization = true)]\n" + Before.Replace("    private static int Helper() => 1;", "    private static int Helper() => 1;\n\n    [Fact]\n    public void A_B_C() => Assert.True(true);", StringComparison.Ordinal);
+
+        Assert.Contains(TestFileChecker.Check(Before, after, null).Problems, p => p.Contains("assembly or module attributes", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Check_NewTopLevelType_IsRejected()
+    {
+        var after = Before + "\npublic static class Assert\n{\n    public static void Equal<T>(T a, T b) { }\n}\n";
+        after = after.Replace("    private static int Helper() => 1;", "    private static int Helper() => 1;\n\n    [Fact]\n    public void A_B_C() => Xunit.Assert.True(true);", StringComparison.Ordinal);
+
+        Assert.Contains(TestFileChecker.Check(Before, after, null).Problems, p => p.Contains("new top-level type", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Check_NestedTestClass_UsesPlusInTheName()
+    {
+        var after = Before.Replace("    private static int Helper() => 1;", "    private static int Helper() => 1;\n\n    public class Edges\n    {\n        [Fact]\n        public void A_B_C() => Assert.True(true);\n    }", StringComparison.Ordinal);
+
+        var check = TestFileChecker.Check(Before, after, null);
+
+        Assert.True(check.Passed, string.Join("; ", check.Problems));
+        Assert.Equal("Demo.Tests.CalculatorTests+Edges.A_B_C", Assert.Single(check.NewTests).FullyQualifiedName);
+    }
+
+    [Fact]
+    public void Check_EnvironmentNewLine_IsAllowed()
+    {
+        var after = Before.Replace("    private static int Helper() => 1;", "    private static int Helper() => 1;\n\n    [Fact]\n    public void A_B_C() => Assert.Equal(\"a\" + Environment.NewLine, \"a\" + Environment.NewLine);", StringComparison.Ordinal);
+
+        Assert.True(TestFileChecker.Check(Before, after, null).Passed);
     }
 }

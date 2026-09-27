@@ -1,6 +1,7 @@
 using System.Xml;
 using System.Xml.Linq;
 using RepoKit;
+using TestHardener.Infrastructure;
 
 namespace TestHardener.Hardening;
 
@@ -8,7 +9,11 @@ internal sealed record BuildOutcome(bool Succeeded, IReadOnlyList<string> Errors
 
 internal sealed record TestFailure(string Test, string Message);
 
-internal sealed record TestOutcome(bool Succeeded, int Passed, int Failed, int Total, IReadOnlyList<TestFailure> Failures, string Output);
+internal sealed record TestOutcome(
+    bool Succeeded, int Passed, int Failed, int Skipped, IReadOnlyList<string> PassedTests, IReadOnlyList<TestFailure> Failures, string Output, bool TimedOut = false)
+{
+    public int Total => Passed + Failed + Skipped;
+}
 
 internal sealed class DotnetCli(IProcessRunner processRunner)
 {
@@ -29,7 +34,13 @@ internal sealed class DotnetCli(IProcessRunner processRunner)
     }
 
     public async Task<TestOutcome> TestAsync(
-        string repoRoot, string project, string? filter, string resultsDirectory, IReadOnlyDictionary<string, string?> environment, CancellationToken cancellationToken)
+        string repoRoot,
+        string project,
+        string? filter,
+        string resultsDirectory,
+        IReadOnlyDictionary<string, string?> environment,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
     {
         if (Directory.Exists(resultsDirectory))
         {
@@ -43,18 +54,29 @@ internal sealed class DotnetCli(IProcessRunner processRunner)
             arguments.AddRange(["--filter", filter]);
         }
 
-        var result = await processRunner.RunAsync("dotnet", arguments, repoRoot, environment, cancellationToken);
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        limit.CancelAfter(timeout);
+        ProcessResult result;
+        try
+        {
+            result = await processRunner.RunAsync("dotnet", arguments, repoRoot, environment, limit.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new TestOutcome(false, 0, 0, 0, [], [new TestFailure("the test run", $"didn't finish within {timeout.TotalMinutes:0} minutes, so a test hangs")], "", TimedOut: true);
+        }
+
         var trx = Directory.Exists(resultsDirectory) ? Directory.GetFiles(resultsDirectory, "*.trx", SearchOption.AllDirectories) : [];
-        var outcome = trx.Length == 0 ? new TestOutcome(false, 0, 0, 0, [], "") : ParseTrx(trx.Select(File.ReadAllText));
-        return outcome with { Succeeded = result.Succeeded && outcome.Failed == 0 && outcome.Total > 0, Output = result.CombinedOutput };
+        var outcome = trx.Length == 0 ? new TestOutcome(false, 0, 0, 0, [], [], "") : ParseTrx(trx.Select(File.ReadAllText));
+        return outcome with { Succeeded = result.Succeeded && outcome.Failed == 0 && outcome.Passed > 0, Output = result.CombinedOutput };
     }
 
     internal static TestOutcome ParseTrx(IEnumerable<string> documents)
     {
         XNamespace ns = "http://microsoft.com/schemas/VisualStudio/TeamTest/2010";
-        var passed = 0;
+        var passed = new List<string>();
+        var skipped = 0;
         var failures = new List<TestFailure>();
-        var total = 0;
         foreach (var text in documents)
         {
             XDocument document;
@@ -70,20 +92,23 @@ internal sealed class DotnetCli(IProcessRunner processRunner)
 
             foreach (var result in document.Descendants(ns + "UnitTestResult"))
             {
-                total++;
-                var outcome = (string?)result.Attribute("outcome");
-                if (outcome == "Passed")
+                var name = (string?)result.Attribute("testName") ?? "?";
+                switch ((string?)result.Attribute("outcome"))
                 {
-                    passed++;
-                }
-                else
-                {
-                    var message = result.Descendants(ns + "Message").FirstOrDefault()?.Value.Trim() ?? outcome ?? "failed";
-                    failures.Add(new TestFailure((string?)result.Attribute("testName") ?? "?", message.Length > 600 ? message[..600] + "…" : message));
+                    case "Passed":
+                        passed.Add(name);
+                        break;
+                    case "NotExecuted" or "Inconclusive":
+                        skipped++;
+                        break;
+                    case var outcome:
+                        var message = result.Descendants(ns + "Message").FirstOrDefault()?.Value.Trim() ?? outcome ?? "failed";
+                        failures.Add(new TestFailure(name, TextFormat.Shorten(message, 600)));
+                        break;
                 }
             }
         }
 
-        return new TestOutcome(failures.Count == 0 && total > 0, passed, failures.Count, total, failures, "");
+        return new TestOutcome(failures.Count == 0 && passed.Count > 0, passed.Count, failures.Count, skipped, passed, failures, "");
     }
 }

@@ -52,13 +52,13 @@ internal static class PullRequestText
             .ToString();
     }
 
-    public static string Description(string sha, IReadOnlyList<GroupResult> kept, IReadOnlyList<FileScore> scores)
+    public static string Description(string sha, IReadOnlyList<GroupResult> kept, IReadOnlyList<FileScore> scores, int originalRuns)
     {
         var builder = new StringBuilder()
             .AppendLine(CultureInfo.InvariantCulture, $"Stryker.NET found code where a small change (a mutant) broke no test, at commit `{sha[..Math.Min(12, sha.Length)]}`. An agent (TestHardener) wrote the tests below to catch those mutants. TestHardener then checked, in code:")
             .AppendLine()
             .AppendLine("- only these test files changed, and only by adding tests (existing tests, helpers and data rows are untouched);")
-            .AppendLine("- the project builds, and the new tests pass on the current code five times in a row;")
+            .AppendLine(CultureInfo.InvariantCulture, $"- the project builds, and the new tests pass on the current code {originalRuns} times in a row;")
             .AppendLine("- each new test fails when one of the mutants below is applied, as a scoped Stryker.NET run confirmed;")
             .AppendLine("- the test projects pass as a whole.")
             .AppendLine()

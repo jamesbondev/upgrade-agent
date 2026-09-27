@@ -38,11 +38,12 @@ public class PullRequestTextTests
             Summary = new GroupSummary { Tests = [new TestClaim { Name = "Add_Works", Asserts = "ping @team and *bold*" }], BlockedBy = BlockedBy.None },
         };
 
-        var description = PullRequestText.Description("0123456789abcdef", [group], [new FileScore("src/A.cs", 6, 10, 2)]);
+        var description = PullRequestText.Description("0123456789abcdef", [group], [new FileScore("src/A.cs", 6, 10, 2)], originalRuns: 7);
 
         Assert.Contains("commit `0123456789ab`", description, StringComparison.Ordinal);
         Assert.Contains("ping @​team and \\*bold\\*", description, StringComparison.Ordinal);
         Assert.Contains("Read each assertion", description, StringComparison.Ordinal);
+        Assert.Contains("pass on the current code 7 times in a row", description, StringComparison.Ordinal);
         Assert.Contains("| `Calculator.Add` | `Add_Works` | 1 |", description, StringComparison.Ordinal);
         Assert.Contains("`src/A.cs`: 60.0% → 80.0%", description, StringComparison.Ordinal);
     }

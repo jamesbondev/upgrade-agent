@@ -25,7 +25,8 @@ internal sealed class ReportBuilder(string repoRoot)
         string replacement = "x",
         string[]? coveredBy = null,
         bool isStatic = false,
-        int occurrence = 0)
+        int occurrence = 0,
+        string[]? killedBy = null)
     {
         var location = SourceLocation.Of(source, snippet, occurrence);
         var mutant = new JsonObject
@@ -41,6 +42,7 @@ internal sealed class ReportBuilder(string repoRoot)
             ["status"] = status.ToString(),
             ["static"] = isStatic,
             ["coveredBy"] = new JsonArray([.. (coveredBy ?? ["t1"]).Select(t => (JsonNode)JsonValue.Create(t))]),
+            ["killedBy"] = new JsonArray([.. (killedBy ?? []).Select(t => (JsonNode)JsonValue.Create(t))]),
         };
         var key = $"{repoRoot.TrimEnd('/')}/{file}";
         if (!_files.TryGetValue(key, out var mutants))

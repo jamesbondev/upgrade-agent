@@ -38,7 +38,7 @@ internal sealed record Mutant(
 
 internal sealed record MutantKey(string File, string Mutator, Location Location, string? Replacement);
 
-internal sealed record MutationReport(IReadOnlyList<Mutant> Mutants, IReadOnlyDictionary<string, string> TestNames)
+internal sealed record MutationReport(IReadOnlyList<Mutant> Mutants, IReadOnlyDictionary<string, string> TestNames, IReadOnlyDictionary<string, string> TestFiles)
 {
     public int TestCount => TestNames.Count;
 
@@ -86,11 +86,15 @@ internal static class MutationReportParser
             .SelectMany(file => (file.Value.Mutants ?? []).Select(m => ToMutant(RelativePath(file.Key, repoRoot), m)))
             .ToList();
         var tests = (dto.TestFiles ?? [])
-            .SelectMany(file => file.Value.Tests ?? [])
+            .SelectMany(file => (file.Value.Tests ?? []).Select(t => (File: RelativePath(file.Key, repoRoot), t.Id, t.Name)))
             .Where(t => t.Id is not null && t.Name is not null)
             .GroupBy(t => t.Id!, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.First().Name!, StringComparer.Ordinal);
-        return new MutationReport(mutants, tests);
+            .Select(g => g.First())
+            .ToList();
+        return new MutationReport(
+            mutants,
+            tests.ToDictionary(t => t.Id!, t => t.Name!, StringComparer.Ordinal),
+            tests.GroupBy(t => t.Name!, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().File, StringComparer.Ordinal));
     }
 
     public static async Task<MutationReport> ReadAsync(string path, string repoRoot, CancellationToken cancellationToken) =>

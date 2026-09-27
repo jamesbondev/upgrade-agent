@@ -56,6 +56,15 @@ internal sealed class OptionsValidator : IValidateOptions<TestHardenerOptions>
         RequirePositive(options.Hardening.MaxSurvivorsPerGroup, "Hardening:MaxSurvivorsPerGroup");
         RequirePositive(options.Hardening.FixHistoryDays, "Hardening:FixHistoryDays");
         RequirePositive(options.Output.CloneTimeoutMinutes, "Output:CloneTimeoutMinutes");
+        RequirePositive(options.Hardening.MaxRounds, "Hardening:MaxRounds");
+        RequirePositive(options.Hardening.OriginalRuns, "Hardening:OriginalRuns");
+        RequirePositive(options.Agent.MaxMinutes, "Agent:MaxMinutes");
+        RequirePositive(options.Agent.MaxToolCalls, "Agent:MaxToolCalls");
+        RequirePositive(options.Agent.MaxRefusals, "Agent:MaxRefusals");
+        if (options.Agent.MaxAiCreditsPerRun < 0)
+        {
+            failures.Add("Agent:MaxAiCreditsPerRun must be 0 (no cap) or more.");
+        }
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
 
@@ -104,9 +113,32 @@ internal sealed class OptionsValidator : IValidateOptions<TestHardenerOptions>
             }
         }
 
+        if (!repo.VerifyTestProjects.All(IsRelativeProject))
+        {
+            failures.Add($"Repo '{repo.Name}': VerifyTestProjects must be repo-relative .csproj paths.");
+        }
+
+        if (repo.TestNamePattern is { Length: > 0 } pattern && !IsRegex(pattern))
+        {
+            failures.Add($"Repo '{repo.Name}': TestNamePattern is not a valid regular expression.");
+        }
+
         foreach (var duplicate in repo.Targets.GroupBy(t => ConfigLoader.TargetName(t.Project), StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
         {
             failures.Add($"Repo '{repo.Name}' lists the target {duplicate.Key} {duplicate.Count()} times.");
+        }
+    }
+
+    private static bool IsRegex(string pattern)
+    {
+        try
+        {
+            _ = new System.Text.RegularExpressions.Regex(pattern, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
         }
     }
 

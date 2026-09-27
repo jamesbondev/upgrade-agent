@@ -154,14 +154,16 @@ public sealed class SurveyOrchestratorTests : IDisposable
             Output = new OutputOptions { Directory = _output.Path, WorkRoot = _work.Path },
         };
         var config = ConfigLoader.Resolve(options, _output.Path);
-        return new SurveyOrchestrator(
+        var progress = new SilentProgress();
+        var surveyor = new RepoSurveyor(
             config,
             new GitCli(new ProcessRunner()),
             processes ?? new FakeProcessRunner(_ => FakeProcessRunner.Ok()),
             new AzureDevOpsCredentialProvider(new AzureDevOpsAuthOptions { PatEnvVar = "ADO_PAT" }),
             stryker,
-            new SilentProgress(),
+            progress,
             _time);
+        return new SurveyOrchestrator(config, surveyor, progress, _time);
     }
 
     private sealed class FakeStryker(Func<StrykerRequest, string?> report) : IStrykerRunner

@@ -36,7 +36,11 @@ internal sealed record SurvivorGroup
 
     public IReadOnlyList<string> CoveringTests { get; init; } = [];
 
+    public IReadOnlyList<string> CoveringTestFiles { get; init; } = [];
+
     public IReadOnlyList<string> Reasons { get; init; } = [];
+
+    public int LogicSurvivors => Survivors.Count(s => !s.IsString);
 }
 
 internal sealed record NotMutatedMember(string File, string Member, int CompileErrors);
@@ -73,7 +77,7 @@ internal static class SurvivorAnalysis
 
         var groups = candidates
             .GroupBy(c => (c.File, c.Member.Name))
-            .Select(g => Group(g.Key.File, g.First().Member, g.Select(c => c.Survivor), fixCommits.GetValueOrDefault(g.Key.File)))
+            .Select(g => Group(g.Key.File, g.First().Member, g.Select(c => c.Survivor), fixCommits.GetValueOrDefault(g.Key.File), report.TestFiles))
             .OrderByDescending(g => g.Survivors.Count(s => !s.IsString))
             .ThenByDescending(g => g.Survivors.Count)
             .ThenByDescending(g => g.FixCommits)
@@ -129,7 +133,8 @@ internal static class SurvivorAnalysis
         return (null, member, new Survivor(mutant.Id, mutant.Mutator, mutant.Location, place.OriginalText, mutant.Replacement, mutant.IsStringMutation, tests));
     }
 
-    private static SurvivorGroup Group(string file, MemberInfo member, IEnumerable<Survivor> survivors, int fixCommits)
+    private static SurvivorGroup Group(
+        string file, MemberInfo member, IEnumerable<Survivor> survivors, int fixCommits, IReadOnlyDictionary<string, string> testFiles)
     {
         var ordered = survivors
             .OrderBy(s => s.IsString)
@@ -148,7 +153,18 @@ internal static class SurvivorAnalysis
             reasons.Add(string.Create(CultureInfo.InvariantCulture, $"{fixCommits} fix commit{(fixCommits == 1 ? "" : "s")} touched the file recently"));
         }
 
-        return new SurvivorGroup { File = file, Member = member, Survivors = ordered, FixCommits = fixCommits, CoveringTests = tests, Reasons = reasons };
+        var files = tests
+            .Select(t => testFiles.GetValueOrDefault(t))
+            .OfType<string>()
+            .GroupBy(f => f, StringComparer.Ordinal)
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g => g.Key)
+            .ToList();
+        return new SurvivorGroup
+        {
+            File = file, Member = member, Survivors = ordered, FixCommits = fixCommits, CoveringTests = tests, CoveringTestFiles = files, Reasons = reasons,
+        };
     }
 
     private static List<NotMutatedMember> NotMutated(MutationReport report, Func<string, MemberLocator?> locator) =>

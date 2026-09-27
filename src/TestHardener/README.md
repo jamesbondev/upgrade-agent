@@ -4,9 +4,10 @@ Runs [Stryker.NET](https://stryker-mutator.io/docs/stryker-net/introduction/) on
 mutants their tests don't catch. Stryker makes small changes to the code (a mutant), such as `>` to `>=` or removing
 a statement, and runs the tests. A mutant the tests don't notice (a survivor) marks behavior no test checks.
 
-`survey` reports the survivors worth a test, grouped by method and ranked. It changes nothing. Having an agent write
-the tests (`harden`) comes next. It is built on [RepoKit](../RepoKit/README.md) and
-[RepoKit.AzureDevOps](../RepoKit.AzureDevOps/README.md).
+`survey` reports the survivors worth a test, grouped by method and ranked. It changes nothing. `harden --dry-run` has
+an agent write tests that kill the top-ranked survivors, checks them with plain code and with Stryker itself, and
+saves them as a patch. Opening pull requests comes next. It is built on [AgentHarness](../AgentHarness/README.md),
+[RepoKit](../RepoKit/README.md) and [RepoKit.AzureDevOps](../RepoKit.AzureDevOps/README.md).
 
 ## Run it
 
@@ -57,7 +58,7 @@ dotnet run --project src/TestHardener -- survey --config test-hardener.json --fr
   variables.
 
 Exit codes: 0 when at least one repo was surveyed, 2 for configuration, sign-in or Stryker install problems, 3 when
-every repo failed, 130 when cancelled.
+every repo failed, 4 when Copilot isn't ready or its quota is used up, 130 when cancelled.
 
 ## What it does
 
@@ -114,6 +115,72 @@ Restore and Stryker run the repo's build and tests on your machine. They get an 
 
 A private NuGet feed that needs such a variable to restore won't work yet.
 
+## Harden: agent-written tests
+
+```sh
+dotnet run --project src/TestHardener -- harden --dry-run --config test-hardener.json --only payments-api
+dotnet run --project src/TestHardener -- harden --dry-run --config test-hardener.json --from out/run-20260927-101500
+```
+
+**Prerequisites:** a GitHub Copilot subscription with the Copilot CLI signed in (`copilot`, then `/login`).
+
+**Settings:**
+
+| Setting | Default | What it does |
+|---|---|---|
+| `Hardening:MaxGroupsPerRun` | 5 | Groups worked on per repo |
+| `Hardening:MaxSurvivorsPerGroup` | 12 | Survivors given to the agent per group; non-string ones first |
+| `Hardening:MaxRounds` | 3 | Feedback rounds per group |
+| `Hardening:OriginalRuns` | 5 | Times the new tests must pass on the current code |
+| `Agent:Model` | none | Pins a model; otherwise Copilot chooses |
+| `Agent:MaxMinutes`, `MaxToolCalls`, `MaxRefusals` | 30, 90, 5 | Limits for one group's session, across all its rounds |
+| `Agent:MaxAiCreditsPerRun` | 0 (no cap) | Once reached, the remaining groups are skipped |
+| `ConventionFiles` (per repo) | `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md` | Files the agent is told to read for testing conventions, if they exist |
+| `TestNamePattern` (per repo) | none | A regex every new test name must match |
+| `VerifyTestProjects` (per repo) | the targets' test projects | Test projects run once at the end, unfiltered |
+
+It surveys first (or reuses `--from`), then for each repo takes the top groups across its targets and for each group:
+
+1. **Chooses the one test file the agent may write**, in this order:
+   1. the file that holds most of the tests Stryker says cover the method;
+   2. a test file in the target's test projects that mentions the class, preferring the folder that mirrors the
+      source file;
+   3. a new `<Class>Tests.cs` at the mirrored path.
+
+   For a new file, the app writes an empty class (namespace from the test project's `RootNamespace` and the
+   folder, plus a `using` for the source namespace) and builds it first.
+2. **Starts one agent session** in the clone. The session:
+   - may read anything and run read-only commands;
+   - may run `dotnet build`/`dotnet test`, but only on the target's test projects, with `--no-restore` or
+     `--no-build`, and without `--logger`, `--results-directory` or `-p:`;
+   - may write only that one file;
+   - has no Azure DevOps credential in its environment.
+
+   The prompt has the method's source, the survivors (original and mutated code), the test file, the covering
+   tests and the rules.
+3. **Checks the result with code**, in this order. The first failure goes back to the agent, for up to
+   `MaxRounds` rounds.
+   1. **Nothing else changed.** Any other change is undone. A `TestResults` folder is deleted first.
+   2. **The file only grew.** Checked with Roslyn: existing members, attributes, fields, helpers and usings are
+      unchanged, except that an existing `[Theory]` may gain `[InlineData]` rows.
+   3. **Each new test is sound.** It has an assertion, isn't skipped, adds no comments, and uses no reflection,
+      network, process, file-writing, environment, sleep, clock or randomness APIs. Its name matches
+      `TestNamePattern`.
+   4. **The test project builds.**
+   5. **The new tests pass on the current code** `OriginalRuns` times in a row.
+   6. **Stryker confirms the kills.** It re-runs with `mutate` narrowed to the method's character span, only the new
+      tests (`test-case-filter`) and `disable-bail`. A survivor counts as killed only when Stryker reports `Killed`
+      and a new test is among its killers. Every new test must kill at least one survivor. `NoCoverage` goes back
+      as "your tests don't execute this code".
+4. **Keeps the change** if every check passed. Otherwise the file goes back to how it was before this group.
+
+After the groups, `VerifyTestProjects` are built and run once. The kept files are written to `hardening.patch`.
+The agent's summary of each test is reported as its claim, next to what was verified. The summary also records
+`BlockedBy`, for when a test needed a helper in another file or a production refactor.
+
+A group takes a few minutes: each round is an agent turn, a build, `OriginalRuns` filtered test runs, and a scoped
+Stryker run (about 50 seconds on a 10k-line project).
+
 ## Output
 
 Written to `out/run-<utc>/`:
@@ -124,6 +191,9 @@ Written to `out/run-<utc>/`:
 | `report.json` | The same, for tools. |
 | `<repo>/survey.json` | One repo's result, including the commit and the clone path. `--from` reads it. |
 | `<repo>/stryker/<target>/` | The Stryker config, `stryker.log`, and Stryker's own `reports/mutation-report.json` and `.html`. |
+| `harden-report.md` / `.json` | `harden` only. Per repo: status and patch. Per group: outcome, the test file, the checks, the mutants each test kills, the agent's account, and why a group wasn't kept. |
+| `<repo>/harden.json`, `<repo>/hardening.patch` | One repo's hardening result, and the kept tests as a patch. |
+| `<repo>/groups/<n>/` | `agent.log`, `result.json`, and per round the test runs and the Stryker re-run. |
 
 "Not mutated" lists members where every mutant was a compile error. When one mutant in a method doesn't compile,
 Stryker's safe mode drops every mutant in that method, so those methods have no survivors to report.

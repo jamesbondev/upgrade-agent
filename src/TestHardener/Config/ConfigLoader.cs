@@ -8,6 +8,14 @@ internal sealed record TargetConfig(string Name, string Project, IReadOnlyList<s
 
 internal sealed record RepoTarget(string Name, AzureDevOpsRepo? AzureDevOps, string? LocalPath, string Solution, IReadOnlyList<TargetConfig> Targets)
 {
+    public static readonly IReadOnlyList<string> DefaultConventionFiles = ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"];
+
+    public IReadOnlyList<string> VerifyTestProjects { get; init; } = [];
+
+    public IReadOnlyList<string> ConventionFiles { get; init; } = DefaultConventionFiles;
+
+    public string? TestNamePattern { get; init; }
+
     public string Location => AzureDevOps?.WebUrl ?? LocalPath ?? Name;
 }
 
@@ -81,17 +89,25 @@ internal static class ConfigLoader
             t.Mutate,
             t.IgnoreStringMutationsIn)).ToList();
         var solution = RepoPath(repo.Solution);
-
-        if (!string.IsNullOrWhiteSpace(repo.Path))
-        {
-            return new RepoTarget(repo.Name, null, Path.GetFullPath(repo.Path, baseDirectory), solution, targets);
-        }
+        var local = !string.IsNullOrWhiteSpace(repo.Path);
 
         try
         {
             var organization = string.IsNullOrWhiteSpace(repo.OrganizationUrl) ? defaults.OrganizationUrl : repo.OrganizationUrl;
             var project = string.IsNullOrWhiteSpace(repo.Project) ? defaults.Project : repo.Project;
-            return new RepoTarget(repo.Name, new AzureDevOpsRepo(organization, project, repo.Name), null, solution, targets);
+            return new RepoTarget(
+                repo.Name,
+                local ? null : new AzureDevOpsRepo(organization, project, repo.Name),
+                local ? Path.GetFullPath(repo.Path!, baseDirectory) : null,
+                solution,
+                targets)
+            {
+                VerifyTestProjects = repo.VerifyTestProjects.Count > 0
+                    ? repo.VerifyTestProjects.Select(RepoPath).ToList()
+                    : targets.SelectMany(t => t.TestProjects).Distinct(StringComparer.Ordinal).ToList(),
+                ConventionFiles = repo.ConventionFiles?.Select(RepoPath).ToList() ?? RepoTarget.DefaultConventionFiles,
+                TestNamePattern = string.IsNullOrWhiteSpace(repo.TestNamePattern) ? null : repo.TestNamePattern,
+            };
         }
         catch (ArgumentException ex)
         {

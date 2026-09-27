@@ -8,7 +8,10 @@ using Location = TestHardener.Stryker.Location;
 
 namespace TestHardener.Analysis;
 
-internal sealed record MemberInfo(string Name, string Kind, int StartLine, int EndLine, int SpanStart, int SpanEnd, bool IsLogging);
+internal sealed record MemberInfo(string Name, string Kind, int StartLine, int EndLine, int SpanStart, int SpanEnd, bool IsLogging, string TypeName = "")
+{
+    public string OuterType => TypeName.Split('.')[0];
+}
 
 internal sealed record MutantPlace(MemberInfo? Member, bool InLoggingCall, string OriginalText);
 
@@ -104,7 +107,8 @@ internal sealed partial class MemberLocator
             lines.End.Line + 1,
             node.Span.Start,
             node.Span.End,
-            isLogging);
+            isLogging,
+            typeName);
     }
 
     private static string MemberName(SyntaxNode node) => node switch

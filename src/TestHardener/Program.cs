@@ -6,6 +6,7 @@ var root = new RootCommand("TestHardener: runs Stryker.NET on the repos you list
     CommonOptions.Config,
     CommonOptions.Verbose,
     SurveyCommand.Create(),
+    HardenCommand.Create(),
 };
 
 return await root.Parse(args).InvokeAsync(new InvocationConfiguration { ProcessTerminationTimeout = TimeSpan.FromSeconds(30) });

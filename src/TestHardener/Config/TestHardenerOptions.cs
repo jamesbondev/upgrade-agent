@@ -12,6 +12,8 @@ internal sealed class TestHardenerOptions
 
     public HardeningOptions Hardening { get; set; } = new();
 
+    public AgentOptions Agent { get; set; } = new();
+
     public OutputOptions Output { get; set; } = new();
 }
 
@@ -51,6 +53,12 @@ internal sealed class RepoOptions
     public string Solution { get; set; } = "";
 
     public List<TargetOptions> Targets { get; set; } = [];
+
+    public List<string> VerifyTestProjects { get; set; } = [];
+
+    public List<string>? ConventionFiles { get; set; }
+
+    public string? TestNamePattern { get; set; }
 }
 
 internal sealed class TargetOptions
@@ -95,6 +103,29 @@ internal sealed class HardeningOptions
     public int MaxSurvivorsPerGroup { get; set; } = 12;
 
     public int FixHistoryDays { get; set; } = 180;
+
+    public int MaxRounds { get; set; } = 3;
+
+    public int OriginalRuns { get; set; } = 5;
+}
+
+internal sealed class AgentOptions
+{
+    public string? Model { get; set; }
+
+    public string? ReasoningEffort { get; set; }
+
+    public int MaxMinutes { get; set; } = 30;
+
+    public int MaxToolCalls { get; set; } = 90;
+
+    public int MaxRefusals { get; set; } = 5;
+
+    public double MaxAiCreditsPerRun { get; set; }
+
+    public string? GitHubTokenEnvVar { get; set; }
+
+    public List<string> RemoveEnvironmentVariables { get; set; } = [];
 }
 
 internal sealed class OutputOptions

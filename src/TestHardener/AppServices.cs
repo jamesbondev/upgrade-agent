@@ -6,6 +6,7 @@ using RepoKit.AzureDevOps;
 using Spectre.Console;
 using TestHardener.Cli;
 using TestHardener.Config;
+using TestHardener.Hardening;
 using TestHardener.Infrastructure;
 using TestHardener.Run;
 using TestHardener.Stryker;
@@ -39,8 +40,18 @@ internal static class AppServices
         services.AddSingleton<StrykerTool>();
         services.AddSingleton<IStrykerRunner, StrykerRunner>();
         services.AddSingleton<ISurveyProgress, ConsoleSurveyProgress>();
+        services.AddSingleton<RepoSurveyor>();
         services.AddSingleton<SurveyOrchestrator>();
         services.AddSingleton<SurveyCommandHandler>();
+
+        services.AddSingleton(sp => sp.GetRequiredService<ResolvedConfig>().Options.Hardening);
+        services.AddSingleton<DotnetCli>();
+        services.AddSingleton<IGroupVerifier, GroupVerifier>();
+        services.AddSingleton<IGroupHardener, GroupHardener>();
+        services.AddSingleton<IAgentBackendFactory, CopilotBackendFactory>();
+        services.AddSingleton<IHardenProgress, ConsoleHardenProgress>();
+        services.AddSingleton<HardenOrchestrator>();
+        services.AddSingleton<HardenCommandHandler>();
 
         var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
         provider.GetRequiredService<IStartupValidator>().Validate();

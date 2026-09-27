@@ -47,7 +47,7 @@ internal sealed class ReadmeAssessor(IAgentBackendFactory backends, AgentOptions
     {
         await using var backend = backends.Create();
         await backends.EnsureReadyAsync(backend, root, cancellationToken);
-        await using var log = AgentLog.Open(logPath, time);
+        await using var log = FileAgentLog.Open(logPath, time);
 
         var result = await AgentSessions.ExploreThenAskAsync<ReadmeAssessment>(
             backend, SessionOptions($"readme {repoName}", root, AssessmentPrompts.System, options, log),
@@ -73,7 +73,7 @@ internal sealed class ReadmeAssessor(IAgentBackendFactory backends, AgentOptions
         return new AssessmentOutcome(assessment.Verdict, validation.Accepted, validation.Rejected, assessment.Summary, result.Stats, null);
     }
 
-    internal static AgentSessionOptions SessionOptions(string name, string root, string instructions, AgentOptions options, AgentLog log) => new()
+    internal static AgentSessionOptions SessionOptions(string name, string root, string instructions, AgentOptions options, FileAgentLog log) => new()
     {
         Name = name,
         WorkingDirectory = root,

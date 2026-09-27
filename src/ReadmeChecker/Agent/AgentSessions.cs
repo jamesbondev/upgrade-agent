@@ -1,4 +1,5 @@
 using AgentHarness;
+using AgentHarness.Copilot;
 using AgentHarness.Policies;
 
 namespace ReadmeChecker.Agent;
@@ -43,8 +44,7 @@ internal static class AgentSessions
     {
         foreach (var text in new[] { result.Failure, result.Structured?.Error, result.Reply?.StopReason })
         {
-            if (text is not null && (text.Contains("exceeded your monthly quota", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("quota exceeded", StringComparison.OrdinalIgnoreCase)))
+            if (CopilotQuota.IsExceeded(text))
             {
                 throw new AgentUnavailableException($"Copilot's usage quota is used up, so the run stopped: {text}");
             }
@@ -71,40 +71,4 @@ internal static class AgentSessions
             stopped.Count == 0 ? null : $"{stopped.Count} of {all.Count} sessions stopped: {stopped[0].StopReason}",
             TimeSpan.FromTicks(all.Sum(s => s.Duration.Ticks)));
     }
-}
-
-internal sealed class AgentLog : IAsyncDisposable
-{
-    private readonly StreamWriter _writer;
-    private readonly Lock _lock = new();
-
-    private AgentLog(StreamWriter writer, TimeProvider time)
-    {
-        _writer = writer;
-        Observer = AgentObserver.From(e =>
-        {
-            lock (_lock)
-            {
-                _writer.WriteLine($"{time.GetLocalNow():HH:mm:ss.fff} {e}");
-            }
-        });
-    }
-
-    public IAgentObserver Observer { get; }
-
-    public static AgentLog Open(string path, TimeProvider time)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        return new AgentLog(new StreamWriter(path, append: true) { AutoFlush = true }, time);
-    }
-
-    public void Note(string text)
-    {
-        lock (_lock)
-        {
-            _writer.WriteLine(text);
-        }
-    }
-
-    public ValueTask DisposeAsync() => _writer.DisposeAsync();
 }

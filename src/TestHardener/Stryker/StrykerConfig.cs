@@ -10,7 +10,8 @@ internal sealed record StrykerRequest(
     TargetConfig Target,
     TestRunnerMode Runner,
     IReadOnlyList<string> Mutate,
-    string? TestFilter);
+    string? TestFilter,
+    bool DisableBail = false);
 
 internal static class StrykerConfig
 {
@@ -31,6 +32,11 @@ internal static class StrykerConfig
             ["mutation-level"] = options.MutationLevel,
             ["reporters"] = Array(["json", "html"]),
         };
+
+        if (request.DisableBail)
+        {
+            config["disable-bail"] = true;
+        }
 
         if (request.TestFilter is { } filter)
         {

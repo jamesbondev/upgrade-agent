@@ -5,6 +5,7 @@ using RepoKit;
 using RepoKit.AzureDevOps;
 using Spectre.Console;
 using TestHardener.Config;
+using TestHardener.Hardening;
 using TestHardener.Stryker;
 using TestHardener.Ui;
 
@@ -16,6 +17,7 @@ internal static class ExitCodes
     public const int UnexpectedError = 1;
     public const int ConfigurationError = 2;
     public const int AllReposFailed = 3;
+    public const int AgentUnavailable = 4;
     public const int Cancelled = 130;
 }
 
@@ -63,6 +65,9 @@ internal static class CommandRunner
             case AzureDevOpsAuthException:
                 console.MarkupLine($"[red]Azure DevOps sign-in:[/] {Markup.Escape(exception.Message)}");
                 return ExitCodes.ConfigurationError;
+            case AgentUnavailableException:
+                console.MarkupLine($"[red]Copilot isn't ready:[/] {Markup.Escape(exception.Message)}");
+                return ExitCodes.AgentUnavailable;
             case StrykerToolException:
                 console.MarkupLine($"[red]Stryker:[/] {Markup.Escape(exception.Message)}");
                 return ExitCodes.ConfigurationError;

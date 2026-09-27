@@ -10,7 +10,30 @@ using TestHardener.Stryker;
 
 namespace TestHardener.Run;
 
-internal sealed class SurveyOrchestrator(
+internal sealed record RunContext(
+    string RunId,
+    DateTimeOffset StartedUtc,
+    long StartedTimestamp,
+    string OutputDirectory,
+    string WorkRoot,
+    string? From,
+    IReadOnlyList<RepoTarget> Targets,
+    AzureDevOpsCredential? Credential,
+    IReadOnlyDictionary<string, string?> Environment)
+{
+    public string RepoOutput(string repoName) => Path.Combine(OutputDirectory, SurveyReportWriter.FolderName(repoName));
+}
+
+internal sealed class SurveyedRepo(RepoSurvey survey, RepoWorkspace? workspace) : IAsyncDisposable
+{
+    public RepoSurvey Survey { get; } = survey;
+
+    public RepoWorkspace? Workspace { get; } = workspace;
+
+    public ValueTask DisposeAsync() => Workspace?.DisposeAsync() ?? ValueTask.CompletedTask;
+}
+
+internal sealed class RepoSurveyor(
     ResolvedConfig config,
     GitCli git,
     IProcessRunner processRunner,
@@ -19,64 +42,63 @@ internal sealed class SurveyOrchestrator(
     ISurveyProgress progress,
     TimeProvider time)
 {
-    public async Task<SurveyReport> RunAsync(SurveyArguments arguments, CancellationToken cancellationToken)
+    public async Task<RunContext> PrepareAsync(IReadOnlyCollection<string> only, string? from, CancellationToken cancellationToken)
     {
         var started = time.GetTimestamp();
         var startedUtc = time.GetUtcNow();
         var runId = startedUtc.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-        var outputDirectory = Path.Combine(config.OutputDirectory, $"run-{runId}");
-        var workRoot = Path.Combine(config.WorkRoot, runId);
-        var from = arguments.From is null ? null : Path.GetFullPath(arguments.From);
-        if (from is not null && !Directory.Exists(from))
+        var fullFrom = from is null ? null : Path.GetFullPath(from);
+        if (fullFrom is not null && !Directory.Exists(fullFrom))
         {
-            throw new ConfigurationException($"--from folder not found: {from}");
+            throw new ConfigurationException($"--from folder not found: {fullFrom}");
         }
 
-        var targets = Select(arguments.Only);
+        var targets = Select(only);
         var credential = targets.Any(t => t.AzureDevOps is not null) ? await credentials.AcquireAsync(cancellationToken) : null;
-        var environment = SafeEnvironment.ForCurrentProcess(credentials.SecretEnvironmentVariables);
-
-        var repos = new List<RepoSurvey>();
-        try
-        {
-            for (var i = 0; i < targets.Count; i++)
-            {
-                progress.RepoStarted(targets[i], i + 1, targets.Count);
-                var repoStarted = time.GetTimestamp();
-                var survey = await SurveyRepoAsync(targets[i], outputDirectory, workRoot, from, credential, environment, cancellationToken);
-                survey = survey with { Duration = time.GetElapsedTime(repoStarted) };
-                repos.Add(survey);
-                await SurveyReportWriter.WriteRepoAsync(survey, outputDirectory, cancellationToken);
-                progress.RepoFinished(survey);
-            }
-        }
-        finally
-        {
-            TryDeleteEmpty(workRoot);
-        }
-
-        var report = new SurveyReport(runId, startedUtc, time.GetElapsedTime(started), outputDirectory, from, repos);
-        var reportPath = await SurveyReportWriter.WriteAsync(report, config.Options.Hardening.MaxGroupsPerRun, cancellationToken);
-        progress.RunFinished(report, reportPath);
-        return report;
+        return new RunContext(
+            runId,
+            startedUtc,
+            started,
+            Path.Combine(config.OutputDirectory, $"run-{runId}"),
+            Path.Combine(config.WorkRoot, runId),
+            fullFrom,
+            targets,
+            credential,
+            SafeEnvironment.ForCurrentProcess(credentials.SecretEnvironmentVariables));
     }
 
-    private async Task<RepoSurvey> SurveyRepoAsync(
-        RepoTarget target,
-        string outputDirectory,
-        string workRoot,
-        string? from,
-        AzureDevOpsCredential? credential,
-        IReadOnlyDictionary<string, string?> environment,
-        CancellationToken cancellationToken)
+    public async Task<SurveyedRepo> SurveyAsync(RepoTarget target, RunContext run, CancellationToken cancellationToken)
+    {
+        var started = time.GetTimestamp();
+        var surveyed = await SurveyRepoAsync(target, run, cancellationToken);
+        var survey = surveyed.Survey with { Duration = time.GetElapsedTime(started) };
+        await SurveyReportWriter.WriteRepoAsync(survey, run.OutputDirectory, cancellationToken);
+        return new SurveyedRepo(survey, surveyed.Workspace);
+    }
+
+    public static void TryDeleteEmpty(string folder)
+    {
+        try
+        {
+            if (Directory.Exists(folder) && !Directory.EnumerateFileSystemEntries(folder).Any())
+            {
+                Directory.Delete(folder);
+            }
+        }
+        catch (IOException)
+        {
+        }
+    }
+
+    private async Task<SurveyedRepo> SurveyRepoAsync(RepoTarget target, RunContext run, CancellationToken cancellationToken)
     {
         RepoSurvey? earlier = null;
-        if (from is not null)
+        if (run.From is { } from)
         {
             earlier = await ReadEarlierAsync(from, target.Name, cancellationToken);
             if (earlier?.Sha is null)
             {
-                return RepoSurvey.Failed(target, $"no survey.json with a commit for this repo in {from}");
+                return new SurveyedRepo(RepoSurvey.Failed(target, $"no survey.json with a commit for this repo in {from}"), null);
             }
         }
 
@@ -84,67 +106,78 @@ internal sealed class SurveyOrchestrator(
         try
         {
             var source = target.AzureDevOps is { } azureDevOps
-                ? RepoSource.Remote(target.Name, azureDevOps.CloneUrl, credential?.AuthorizationHeader)
+                ? RepoSource.Remote(target.Name, azureDevOps.CloneUrl, run.Credential?.AuthorizationHeader)
                 : RepoSource.Local(target.Name, target.LocalPath!);
             workspace = await RepoWorkspace.CloneAsync(
-                source, workRoot, git, TimeSpan.FromMinutes(config.Options.Output.CloneTimeoutMinutes), cancellationToken);
+                source, run.WorkRoot, git, TimeSpan.FromMinutes(config.Options.Output.CloneTimeoutMinutes), cancellationToken);
             workspace.Keep = config.Options.Output.KeepClones;
-
-            if (earlier?.Sha is { } sha)
-            {
-                var checkout = await workspace.Git.TryRunAsync(workspace.Path, ["checkout", "-q", "--detach", sha], cancellationToken);
-                if (!checkout.Succeeded)
-                {
-                    return RepoSurvey.Failed(target, $"the earlier run surveyed commit {sha}, which this clone can't check out");
-                }
-            }
-
-            var head = await workspace.Git.HeadAsync(workspace.Path, cancellationToken);
-            var survey = new RepoSurvey
-            {
-                Name = target.Name,
-                Location = target.Location,
-                Status = SurveyStatus.Surveyed,
-                Sha = head,
-                CloneRoot = workspace.Path,
-            };
-
-            if (earlier is null && await RestoreAsync(workspace.Path, target.Solution, environment, cancellationToken) is { } restoreFailure)
-            {
-                return survey with { Status = SurveyStatus.Failed, Note = restoreFailure };
-            }
-
-            var fixCommits = await FixCountsAsync(workspace, cancellationToken);
-            var runner = TestRunnerDetector.Detect(workspace.Path);
-            var results = new List<TargetSurvey>();
-            foreach (var targetConfig in target.Targets)
-            {
-                progress.TargetStarted(targetConfig, earlier is not null);
-                var result = await SurveyTargetAsync(
-                    workspace.Path, targetConfig, runner, Path.Combine(outputDirectory, SurveyReportWriter.FolderName(target.Name)), earlier, from, fixCommits, environment, cancellationToken);
-                results.Add(result);
-                progress.TargetFinished(result);
-            }
-
-            var failed = results.Count(r => r.Failure is not null);
-            return survey with
-            {
-                Targets = results,
-                Status = failed == 0 ? SurveyStatus.Surveyed : failed == results.Count ? SurveyStatus.Failed : SurveyStatus.Partial,
-                Note = failed == 0 ? null : $"{failed} of {results.Count} targets failed",
-            };
+            var survey = await SurveyCloneAsync(target, run, workspace, earlier, cancellationToken);
+            return new SurveyedRepo(survey, workspace);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-        {
-            return RepoSurvey.Failed(target, ex is CloneException clone ? clone.Reason : ex.GetBaseException().Message);
-        }
-        finally
         {
             if (workspace is not null)
             {
                 await workspace.DisposeAsync();
             }
+
+            return new SurveyedRepo(RepoSurvey.Failed(target, ex is CloneException clone ? clone.Reason : ex.GetBaseException().Message), null);
         }
+        catch
+        {
+            if (workspace is not null)
+            {
+                await workspace.DisposeAsync();
+            }
+
+            throw;
+        }
+    }
+
+    private async Task<RepoSurvey> SurveyCloneAsync(
+        RepoTarget target, RunContext run, RepoWorkspace workspace, RepoSurvey? earlier, CancellationToken cancellationToken)
+    {
+        if (earlier?.Sha is { } sha)
+        {
+            var checkout = await workspace.Git.TryRunAsync(workspace.Path, ["checkout", "-q", "--detach", sha], cancellationToken);
+            if (!checkout.Succeeded)
+            {
+                return RepoSurvey.Failed(target, $"the earlier run surveyed commit {sha}, which this clone can't check out");
+            }
+        }
+
+        var survey = new RepoSurvey
+        {
+            Name = target.Name,
+            Location = target.Location,
+            Status = SurveyStatus.Surveyed,
+            Sha = await workspace.Git.HeadAsync(workspace.Path, cancellationToken),
+            CloneRoot = workspace.Path,
+        };
+
+        if (await RestoreAsync(workspace.Path, target.Solution, run.Environment, cancellationToken) is { } restoreFailure)
+        {
+            return survey with { Status = SurveyStatus.Failed, Note = restoreFailure };
+        }
+
+        var fixCommits = await FixCountsAsync(workspace, cancellationToken);
+        var runner = TestRunnerDetector.Detect(workspace.Path);
+        var results = new List<TargetSurvey>();
+        foreach (var targetConfig in target.Targets)
+        {
+            progress.TargetStarted(targetConfig, earlier is not null);
+            var result = await SurveyTargetAsync(workspace.Path, targetConfig, runner, run.RepoOutput(target.Name), earlier, run, fixCommits, cancellationToken);
+            results.Add(result);
+            progress.TargetFinished(result);
+        }
+
+        var failed = results.Count(r => r.Failure is not null);
+        return survey with
+        {
+            Targets = results,
+            Status = failed == 0 ? SurveyStatus.Surveyed : failed == results.Count ? SurveyStatus.Failed : SurveyStatus.Partial,
+            Note = failed == 0 ? null : $"{failed} of {results.Count} targets failed",
+        };
     }
 
     private async Task<TargetSurvey> SurveyTargetAsync(
@@ -153,9 +186,8 @@ internal sealed class SurveyOrchestrator(
         TestRunnerMode runner,
         string repoOutput,
         RepoSurvey? earlier,
-        string? from,
+        RunContext run,
         IReadOnlyDictionary<string, int> fixCommits,
-        IReadOnlyDictionary<string, string?> environment,
         CancellationToken cancellationToken)
     {
         var started = time.GetTimestamp();
@@ -163,12 +195,12 @@ internal sealed class SurveyOrchestrator(
         var survey = new TargetSurvey { Name = target.Name, Project = target.Project, TestProjects = target.TestProjects };
         try
         {
-            var run = earlier is null
-                ? await stryker.RunAsync(new StrykerRequest(repoRoot, target, runner, target.Mutate, target.TestFilter), outputDirectory, environment, cancellationToken)
-                : await ReuseAsync(earlier, from!, target, outputDirectory, cancellationToken);
-            if (run.Report is not { } report)
+            var result = earlier is null
+                ? await stryker.RunAsync(new StrykerRequest(repoRoot, target, runner, target.Mutate, target.TestFilter), outputDirectory, run.Environment, cancellationToken)
+                : await ReuseAsync(earlier, run.From!, target, outputDirectory, cancellationToken);
+            if (result.Report is not { } report)
             {
-                return survey with { Failure = run.Failure ?? "Stryker produced no report", Duration = time.GetElapsedTime(started) };
+                return survey with { Failure = result.Failure ?? "Stryker produced no report", Duration = time.GetElapsedTime(started) };
             }
 
             var analysis = SurvivorAnalysis.Analyze(report, target, file => ReadSource(repoRoot, file), fixCommits);
@@ -276,18 +308,32 @@ internal sealed class SurveyOrchestrator(
     }
 
     private static string Tail(string output) => output.Length <= 1500 ? output.Trim() : output[^1500..].Trim();
+}
 
-    private static void TryDeleteEmpty(string folder)
+internal sealed class SurveyOrchestrator(ResolvedConfig config, RepoSurveyor surveyor, ISurveyProgress progress, TimeProvider time)
+{
+    public async Task<SurveyReport> RunAsync(SurveyArguments arguments, CancellationToken cancellationToken)
     {
+        var run = await surveyor.PrepareAsync(arguments.Only, arguments.From, cancellationToken);
+        var repos = new List<RepoSurvey>();
         try
         {
-            if (Directory.Exists(folder) && !Directory.EnumerateFileSystemEntries(folder).Any())
+            for (var i = 0; i < run.Targets.Count; i++)
             {
-                Directory.Delete(folder);
+                progress.RepoStarted(run.Targets[i], i + 1, run.Targets.Count);
+                await using var surveyed = await surveyor.SurveyAsync(run.Targets[i], run, cancellationToken);
+                repos.Add(surveyed.Survey);
+                progress.RepoFinished(surveyed.Survey);
             }
         }
-        catch (IOException)
+        finally
         {
+            RepoSurveyor.TryDeleteEmpty(run.WorkRoot);
         }
+
+        var report = new SurveyReport(run.RunId, run.StartedUtc, time.GetElapsedTime(run.StartedTimestamp), run.OutputDirectory, run.From, repos);
+        var reportPath = await SurveyReportWriter.WriteAsync(report, config.Options.Hardening.MaxGroupsPerRun, cancellationToken);
+        progress.RunFinished(report, reportPath);
+        return report;
     }
 }

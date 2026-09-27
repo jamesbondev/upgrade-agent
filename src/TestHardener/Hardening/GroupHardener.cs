@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Serialization;
 using AgentHarness;
 using AgentHarness.Copilot;
@@ -56,7 +57,8 @@ internal sealed record GroupJob(
     IReadOnlyList<string> ConventionFiles,
     string? TestNamePattern,
     string OutputDirectory,
-    IReadOnlyDictionary<string, string?> Environment);
+    IReadOnlyDictionary<string, string?> Environment,
+    double? CreditBudget = null);
 
 internal interface IGroupHardener
 {
@@ -127,6 +129,7 @@ internal sealed class GroupHardener(IGroupVerifier verifier, DotnetCli dotnet, R
             Policy = HardeningPolicy.Create(job.RepoRoot, owned.Path, job.Target.TestProjects, () => CheckBeforeTests(job, owned, snapshot)),
             Limits = new AgentLimits { MaxDuration = TimeSpan.FromMinutes(agent.MaxMinutes), MaxToolCalls = agent.MaxToolCalls, MaxRefusals = agent.MaxRefusals },
             Observers = [log.Observer],
+            StopRules = job.CreditBudget is { } budget ? [CreditStop(budget)] : [],
         };
 
         var task = new HardeningTask(
@@ -174,6 +177,22 @@ internal sealed class GroupHardener(IGroupVerifier verifier, DotnetCli dotnet, R
                 await session.DisposeAsync();
             }
         }
+    }
+
+    internal static IStopRule CreditStop(double budget)
+    {
+        var spent = 0.0;
+        return AgentObserver.StopWhen(e =>
+        {
+            if (e is ModelUsage usage)
+            {
+                spent += usage.AiCredits;
+            }
+
+            return spent > budget
+                ? string.Create(CultureInfo.InvariantCulture, $"agent stopped: the AI credit cap was reached ({spent:0.##} of {budget:0.##} credits left for this run)")
+                : null;
+        });
     }
 
     internal static string? CheckBeforeTests(GroupJob job, OwnedFile owned, string snapshot)

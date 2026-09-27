@@ -32,6 +32,7 @@ internal static class HardeningPolicy
 
         return new WorkspacePolicy(root, options).Wrap((request, decision) => request switch
         {
+            ShellRequest when decision.Verdict == ToolVerdict.Reject => decision with { CountsTowardRefusalLimit = false },
             FileReadRequest or ShellRequest => decision,
             FileWriteRequest write when Path.GetFullPath(write.Path, root).Equals(owned, comparison) => ToolDecision.Approve("the test file this task owns"),
             FileWriteRequest => ToolDecision.Reject(

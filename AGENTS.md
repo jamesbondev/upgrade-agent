@@ -16,6 +16,7 @@ to do it → verify → open a PR.
 | `src/RepoKit.AzureDevOps` | Standalone library: Azure DevOps credentials, repo addresses and draft PRs (REST). Doesn't reference RepoKit. |
 | `src/UpgradeAgent` | App: NuGet upgrades with an agent fixing breaking changes, published as a draft PR in Azure DevOps. |
 | `src/ReadmeChecker` | App: finds READMEs that no longer match their repo, and opens draft PRs that fix them. |
+| `src/TestHardener` | App: runs Stryker.NET and reports the mutants the tests miss, ranked (`survey`). Agent-written tests come next. |
 | `samples/HelloAgent` | The smallest runnable use of AgentHarness. `--scripted` needs no model. |
 | `tests/` | xUnit. `*.IntegrationTests` replay recorded agent sessions end to end. |
 | `fixtures/` | Source for the sample repo and package the integration tests run against. |
@@ -29,6 +30,7 @@ dotnet test tests/AgentHarness.Tests
 dotnet test tests/RepoKit.Tests
 dotnet test tests/RepoKit.AzureDevOps.Tests
 dotnet test tests/ReadmeChecker.Tests
+dotnet test tests/TestHardener.Tests
 dotnet test tests/UpgradeAgent.Tests
 dotnet test tests/UpgradeAgent.IntegrationTests   # about 30 s, no model
 ```
@@ -70,6 +72,12 @@ and every test project passes.
   `.git/config`, where the agent could read them. Hide credential env vars from the agent's environment.
 - **Known duplication:** `src/UpgradeAgent/Infrastructure` and parts of `Publishing` are copies of what RepoKit now
   holds. UpgradeAgent moves onto RepoKit in a later milestone; until then, fix a bug in both places.
+  `TestHardener/Infrastructure/LoggingProcessRunner.cs` copies ReadmeChecker's, and `TestRunnerDetector.cs` copies
+  UpgradeAgent's.
+- **Processes that build or test a cloned repo get no secrets.** `ProcessRunner` passes on the full environment
+  unless told otherwise, so pass an environment that removes every `AgentEnvironment.IsSecret` variable and the
+  credential variables (see `TestHardener/Infrastructure/SafeEnvironment.cs`). Test code, possibly agent-written,
+  runs in those processes.
 
 ## Plans
 

@@ -25,9 +25,7 @@ internal sealed class ReadmeFixer(IAgentBackendFactory backends, AgentOptions op
         await using var backend = backends.Create();
         await backends.EnsureReadyAsync(backend, root, cancellationToken);
 
-        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
-        await using var log = new StreamWriter(logPath, append: true) { AutoFlush = true };
-        var logLock = new Lock();
+        await using var log = FileAgentLog.Open(logPath, time);
         var sessionOptions = new AgentSessionOptions
         {
             Name = $"readme fix {repoName}",
@@ -40,16 +38,7 @@ internal sealed class ReadmeFixer(IAgentBackendFactory backends, AgentOptions op
                 MaxToolCalls = options.MaxToolCalls,
                 MaxRefusals = options.MaxRefusals,
             },
-            Observers =
-            [
-                AgentObserver.From(e =>
-                {
-                    lock (logLock)
-                    {
-                        log.WriteLine($"{time.GetLocalNow():HH:mm:ss.fff} {e}");
-                    }
-                }),
-            ],
+            Observers = [log.Observer],
         };
 
         try

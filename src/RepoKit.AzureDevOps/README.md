@@ -49,5 +49,8 @@ var created = await pullRequests.CreateDraftAsync(repo, "agent/readme-refresh-20
   the prefix, newest pages first, up to 2,000.
 - `CreateDraftAsync` opens a draft with the labels you give. A description over Azure DevOps's 4,000-character limit
   is cut at a line break with a notice, and the full text is posted as the first (closed) comment.
+- `PullRequestMarkdown.Escape(text)` makes text safe to put in a description: Markdown characters are escaped, line
+  breaks become spaces, and `@` mentions are defused with a zero-width space, so agent-written text can't format the
+  page or notify people.
 - A failure throws `AzureDevOpsApiException` with the HTTP status and Azure DevOps's message. A response that isn't
   JSON, usually a sign-in page, means the credential isn't valid for that organization.

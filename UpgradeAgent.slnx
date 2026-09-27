@@ -4,6 +4,7 @@
     <Project Path="src/ReadmeChecker/ReadmeChecker.csproj" />
     <Project Path="src/RepoKit.AzureDevOps/RepoKit.AzureDevOps.csproj" />
     <Project Path="src/RepoKit/RepoKit.csproj" />
+    <Project Path="src/TestHardener/TestHardener.csproj" />
     <Project Path="src/UpgradeAgent/UpgradeAgent.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -11,6 +12,7 @@
     <Project Path="tests/ReadmeChecker.Tests/ReadmeChecker.Tests.csproj" />
     <Project Path="tests/RepoKit.AzureDevOps.Tests/RepoKit.AzureDevOps.Tests.csproj" />
     <Project Path="tests/RepoKit.Tests/RepoKit.Tests.csproj" />
+    <Project Path="tests/TestHardener.Tests/TestHardener.Tests.csproj" />
     <Project Path="tests/UpgradeAgent.IntegrationTests/UpgradeAgent.IntegrationTests.csproj" />
     <Project Path="tests/UpgradeAgent.Tests/UpgradeAgent.Tests.csproj" />
   </Folder>

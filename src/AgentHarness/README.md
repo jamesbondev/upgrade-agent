@@ -310,7 +310,9 @@ serialised per session, but an observer shared by concurrent sessions needs its 
 | `SessionStopped(Reason)` | session | A limit, stop rule or `Stop` ended the session. |
 
 `ConsoleAgentObserver(workingDirectory, output)` prints one line per event, with paths relative to the working
-directory. Write your own for anything richer:
+directory. `FileAgentLog.Open(path)` appends every event to a file with a timestamp: pass `log.Observer` to the
+session, add your own lines with `log.Note(text)`, and dispose it when the session ends. Write your own for anything
+richer:
 
 ```csharp
 var observer = AgentObserver.From(e =>
@@ -745,12 +747,14 @@ them like any failed step. `AskAsync` does not throw for these; it returns them 
 | `AgentTool.cs` | `AgentTool`: your functions as tools. |
 | `StructuredOutput.cs` | `StructuredOutput`, `StructuredReply<T>`: schema, prompt and lenient parsing. |
 | `ConsoleAgentObserver.cs` | One line per event to the console or any `TextWriter`. |
+| `FileAgentLog.cs` | Every event, timestamped, appended to a file. |
 | `IAgentBackend.cs` | `IAgentBackend`, `IAgentBackendSession`, `AgentBackendSettings`, `ToolApproval`: the provider contract. |
 | `AgentEnvironment.cs` | Builds the agent's environment without secrets. |
 | `Internal.cs` | `AgentTelemetry` (public), plus the pausable time budget and path helpers. |
 | `Copilot/CopilotBackend.cs` | `CopilotBackend`, `CopilotStatus`: GitHub Copilot through Agent Framework, hardened. |
 | `Copilot/CopilotOptions.cs` | Model, token, environment, excluded tools, `ConfigureSession`. |
 | `Copilot/CopilotToolNames.cs` | Built-in Copilot tool names, and the ones excluded by default. |
+| `Copilot/CopilotQuota.cs` | `IsExceeded`: whether an error or stop reason means the Copilot quota is used up. |
 | `Policies/IToolPolicy.cs` | `IToolPolicy`, `ToolPolicy` (ready-made policies, `From`, `Wrap`). |
 | `Policies/ToolDecision.cs` | `ToolDecision`, `ToolVerdict`. |
 | `Policies/WorkspacePolicy.cs` | `WorkspacePolicy`, `WorkspacePolicyOptions`, `CommandRule`, `CommandRules`. |

@@ -15,7 +15,7 @@ internal sealed class DeepReadmeAssessor(IAgentBackendFactory backends, AgentOpt
         var plan = ReadmeChunks.Plan(readme.Text);
         await using var backend = backends.Create();
         await backends.EnsureReadyAsync(backend, root, cancellationToken);
-        await using var log = AgentLog.Open(logPath, time);
+        await using var log = FileAgentLog.Open(logPath, time);
 
         var accepted = new List<ReadmeIssue>();
         var rejected = new List<RejectedIssue>();

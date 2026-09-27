@@ -75,8 +75,9 @@ For each repo, one at a time:
 4. **Read the report and pick the candidates.** A candidate is a surviving mutant that isn't one of these:
    - **Static data:** mutants in static initializers, such as word lists and lookup tables. Stryker marks them
      `static` and runs them against every test, so they have no covering tests.
-   - **Logging:** inside a call to a `Log*` method or an `Activity` API, or in a member named `Log*` or marked
-     `[LoggerMessage]`.
+   - **Logging:** inside a call to a `Log*` method or an `Activity` API, in the condition of an `if` whose only
+     statements are such calls (and which has no `else`), or in a member named `Log*` or marked `[LoggerMessage]`.
+     Tests for these would only check what gets logged.
    - **Outside a member:** for example an instance field initializer.
    - **An ignored string:** a string mutant in `IgnoreStringMutationsIn`.
 5. **Group** the candidates by the method, constructor, accessor or operator they're in. Local functions and lambdas

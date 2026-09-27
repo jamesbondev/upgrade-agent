@@ -23,6 +23,8 @@ internal sealed record TargetSurvey
 
     public string? ReportPath { get; init; }
 
+    public string? ReportRoot { get; init; }
+
     public IReadOnlyDictionary<MutantStatus, int> StatusCounts { get; init; } = new Dictionary<MutantStatus, int>();
 
     public double? Score { get; init; }

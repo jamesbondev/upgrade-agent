@@ -54,7 +54,9 @@ dotnet run --project src/TestHardener -- survey --config test-hardener.json --fr
 - **`Mutate`:** Stryker `mutate` globs, with a leading `!` to exclude.
 - **`IgnoreStringMutationsIn`:** globs where string mutants aren't worth a test, such as prompt or message text.
 - **`--from`:** reuses an earlier run's Stryker reports instead of running Stryker again, which can take half an
-  hour. The clone checks out the commit that run surveyed, so the report still matches the code.
+  hour. The clone checks out the commit that run surveyed, so the report still matches the code. `survey.json`
+  records which clone produced each report, so a `--from` of a `--from` run works too. A report whose file paths
+  match nothing in the clone fails its target, rather than quietly finding no candidates.
 - **Settings layer:** `appsettings.json`, then `--config`, then user secrets, then `TESTHARDENER_` environment
   variables.
 

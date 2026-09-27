@@ -184,6 +184,20 @@ public sealed class HardenOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_QuotaRunsOutBeforeAnyGroup_IsAFailureNotARejection()
+    {
+        await OriginAsync();
+        var hardener = new FakeHardener(_ => throw new AgentUnavailableException("quota used up"));
+
+        await Assert.ThrowsAsync<AgentUnavailableException>(() =>
+            Orchestrator(new FakeHost(), hardener).RunAsync(Arguments(approve: true, dryRun: true), CancellationToken.None));
+
+        var report = await File.ReadAllTextAsync(Path.Combine(Directory.GetDirectories(_output.Path, "run-*").Single(), "harden-report.md"));
+        Assert.Contains("## demo: Failed", report, StringComparison.Ordinal);
+        Assert.Contains("Copilot stopped the run before any group passed: quota used up", report, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunAsync_CreditCap_SkipsTheRemainingGroups()
     {
         await OriginAsync();

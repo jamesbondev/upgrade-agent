@@ -132,7 +132,9 @@ internal sealed class HardenOrchestrator(
         var stopNote = groups.Stop is null ? "" : $"; Copilot stopped the run after {groups.Results.Count} groups: {groups.Stop.Message}";
         if (groups.Kept.Count == 0)
         {
-            return (report with { Status = HardenStatus.Rejected, Note = "no group passed the checks" + stopNote }, groups.Stop);
+            return groups.Stop is { } stop && groups.Results.All(r => r.Outcome != GroupOutcome.Rejected)
+                ? (report with { Status = HardenStatus.Failed, Note = $"Copilot stopped the run before any group passed: {stop.Message}" }, stop)
+                : (report with { Status = HardenStatus.Rejected, Note = "no group passed the checks" + stopNote }, groups.Stop);
         }
 
         var repoOutput = run.RepoOutput(target.Name);

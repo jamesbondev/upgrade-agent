@@ -4,9 +4,9 @@ using System.Text.RegularExpressions;
 
 namespace AgentHarness.Policies;
 
-public sealed record ParsedCommand(IReadOnlyList<IReadOnlyList<string>> Segments);
+internal sealed record ParsedCommand(IReadOnlyList<IReadOnlyList<string>> Segments);
 
-public static partial class ShellCommandParser
+internal static partial class ShellCommandParser
 {
     private const string BackslashEscapesRefusal = "backslash escapes are not allowed; use single quotes for literal text";
 

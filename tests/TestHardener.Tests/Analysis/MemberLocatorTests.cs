@@ -40,6 +40,13 @@ public class MemberLocatorTests
         Assert.False(place.Member!.IsLogging);
     }
 
+    [Theory]
+    [InlineData("count > 0 && count < 10", true)]
+    [InlineData("count > 100", false)]
+    [InlineData("count < -5", false)]
+    public void Locate_ConditionThatOnlyGuardsLogging_IsMarkedAsLogging(string condition, bool expected) =>
+        Assert.Equal(expected, _locator.Locate(SourceLocation.Of(Samples.Calculator, condition)).InLoggingCall);
+
     [Fact]
     public void Locate_MemberNamedLogSomething_IsALoggingMember()
     {

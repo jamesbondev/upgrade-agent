@@ -18,6 +18,7 @@ internal static class Samples
                 if (a > b)
                 {
                     logger.LogInformation("bigger {A}", a);
+                    b--;
                 }
 
                 int Twice(int n) => n * 2;
@@ -36,6 +37,31 @@ internal static class Samples
                 : this(null!)
             {
                 _ = seed > 0;
+            }
+
+            public int Guarded(int count)
+            {
+                if (count > 0 && count < 10)
+                {
+                    LogResult(count);
+                }
+
+                if (count > 100)
+                {
+                    LogResult(count);
+                    return 1;
+                }
+
+                if (count < -5)
+                {
+                    LogResult(count);
+                }
+                else
+                {
+                    count++;
+                }
+
+                return count;
             }
 
             public void LogResult(int value)

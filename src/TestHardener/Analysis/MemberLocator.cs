@@ -52,6 +52,7 @@ internal sealed partial class MemberLocator
             }
 
             inLogging |= node is InvocationExpressionSyntax invocation && IsLoggingCall(invocation);
+            inLogging |= node is IfStatementSyntax guard && guard.Condition.Span.Contains(resolved) && GuardsOnlyLogging(guard);
         }
 
         var original = _text.ToString(resolved);
@@ -131,6 +132,18 @@ internal sealed partial class MemberLocator
 
     private static string Parameters(BaseParameterListSyntax list) =>
         string.Join(", ", list.Parameters.Select(p => p.Type?.ToString() ?? p.Identifier.Text));
+
+    private static bool GuardsOnlyLogging(IfStatementSyntax guard)
+    {
+        if (guard.Else is not null)
+        {
+            return false;
+        }
+
+        var statements = guard.Statement is BlockSyntax block ? block.Statements.ToList() : [guard.Statement];
+        return statements.Count > 0
+            && statements.All(s => s is ExpressionStatementSyntax { Expression: InvocationExpressionSyntax call } && IsLoggingCall(call));
+    }
 
     private static bool IsLoggingCall(InvocationExpressionSyntax invocation)
     {

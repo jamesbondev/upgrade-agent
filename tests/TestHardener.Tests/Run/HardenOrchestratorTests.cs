@@ -208,6 +208,7 @@ public sealed class HardenOrchestratorTests : IDisposable
 
         Assert.Equal([GroupOutcome.Verified, GroupOutcome.Skipped], report.Repos.Single().Groups.Select(g => g.Outcome));
         Assert.Equal(1, hardener.Calls);
+        Assert.Equal(5, hardener.Budgets.Single());
     }
 
     [Fact]
@@ -383,9 +384,12 @@ public sealed class HardenOrchestratorTests : IDisposable
     {
         public int Calls { get; private set; }
 
+        public List<double?> Budgets { get; } = [];
+
         public Task<GroupResult> HardenAsync(GroupJob job, IAgentBackend backend, CancellationToken cancellationToken)
         {
             Calls++;
+            Budgets.Add(job.CreditBudget);
             return result(job);
         }
     }

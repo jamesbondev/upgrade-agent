@@ -193,7 +193,8 @@ internal sealed class HardenOrchestrator(
             var groupOutput = Path.Combine(repoOutput, "groups", (i + 1).ToString(CultureInfo.InvariantCulture));
             var job = new GroupJob(
                 i + 1, target.Name, workspace.Path, workspace.Git, targetConfig, runner, group, tracked, kept,
-                target.ConventionFiles, target.TestNamePattern, groupOutput, run.Environment);
+                target.ConventionFiles, target.TestNamePattern, groupOutput, run.Environment,
+                cap > 0 ? cap - creditsSoFar - credits : null);
             GroupResult result;
             try
             {

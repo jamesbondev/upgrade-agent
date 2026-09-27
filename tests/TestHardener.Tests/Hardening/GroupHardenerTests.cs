@@ -1,3 +1,4 @@
+using AgentHarness;
 using AgentHarness.Testing;
 using Microsoft.Extensions.Time.Testing;
 using TestHardener.Analysis;
@@ -106,6 +107,38 @@ public sealed class GroupHardenerTests : IDisposable
         Assert.Equal(skeletonPath, result.Owned.Path);
         Assert.Contains("public class CalculatorTests", seen, StringComparison.Ordinal);
         Assert.False(File.Exists(Path.Combine(repo.Path, skeletonPath)));
+    }
+
+    [Fact]
+    public async Task HardenAsync_ManyRefusedShellCommands_DoNotEndTheSession()
+    {
+        var repo = await RepoAsync();
+        var backend = new ScriptedBackend()
+            .Turn(t =>
+            {
+                for (var i = 0; i < 8; i++)
+                {
+                    t.Shell("grep -rn Add src 2>/dev/null");
+                }
+
+                t.Edit(TestFile, Written).Reply("done");
+            })
+            .Turn(t => t.ReplyJson(Summary()));
+
+        var result = await Hardener(new FakeVerifier(Passed())).HardenAsync(Job(repo), backend, CancellationToken.None);
+
+        Assert.Equal(GroupOutcome.Verified, result.Outcome);
+        Assert.Null(result.Stats!.StopReason);
+    }
+
+    [Fact]
+    public void CreditStop_StopsOnceTheBudgetIsSpent()
+    {
+        var rule = GroupHardener.CreditStop(10);
+
+        Assert.Null(rule.Check(new ModelUsage("m", 1, 1, 6)));
+        Assert.Null(rule.Check(new SessionStopped("unrelated")));
+        Assert.Contains("AI credit cap", rule.Check(new ModelUsage("m", 1, 1, 5)), StringComparison.Ordinal);
     }
 
     [Fact]

@@ -145,7 +145,7 @@ dotnet run --project src/TestHardener -- harden --dry-run --config test-hardener
 | `Hardening:TestTimeoutMinutes` | 10 | Limit for one filtered test run (the final unfiltered run gets three times this) |
 | `Agent:Model` | none | Pins a model; otherwise Copilot chooses |
 | `Agent:MaxMinutes`, `MaxToolCalls`, `MaxRefusals` | 30, 90, 5 | Limits for one group's session, across all its rounds |
-| `Agent:MaxAiCreditsPerRun` | 0 (no cap) | Once reached, the remaining groups are skipped |
+| `Agent:MaxAiCreditsPerRun` | 0 (no cap) | Stops the session that reaches it, and skips the remaining groups |
 | `ConventionFiles` (per repo) | `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md` | Files the agent is told to read for testing conventions, if they exist |
 | `TestNamePattern` (per repo) | none | A regex every new test name must match |
 | `VerifyTestProjects` (per repo) | the targets' test projects | Test projects run once at the end, unfiltered |
@@ -167,6 +167,9 @@ It surveys first (or reuses `--from`), then for each repo takes the top groups a
    - may run `dotnet test` only while its test file passes the static checks below, so its own test code never runs
      before it has been checked;
    - may write only that one file;
+   - gets feedback for refused shell commands (redirection, `xargs`, paths outside the clone) without it counting
+     toward `Agent:MaxRefusals`, since a refused command is harmless and the prompt explains the rules; the session
+     is still bounded by `Agent:MaxToolCalls` and `Agent:MaxMinutes`, and a refused write still counts;
    - has no Azure DevOps credential in its environment.
 
    The prompt has the method's source, the survivors (original and mutated code), the test file, the covering

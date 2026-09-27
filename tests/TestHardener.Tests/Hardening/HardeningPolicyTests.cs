@@ -77,6 +77,21 @@ public class HardeningPolicyTests
         Assert.Equal(ToolVerdict.Approve, HardeningPolicy.EvaluateDotnet(["test", Path.GetFullPath("/clone/demo/tests/Demo.Tests/Demo.Tests.csproj"), "--no-build"], TestProjects, Path.GetFullPath(Root)).Verdict);
 
     [Fact]
+    public async Task Create_RefusedShellCommandsDoNotCountTowardTheRefusalLimit()
+    {
+        using var repo = new TempDirectory();
+        var policy = HardeningPolicy.Create(repo.Path, "tests/Demo.Tests/CalculatorTests.cs", TestProjects);
+
+        var shell = await policy.EvaluateAsync(new ShellRequest("find / -name CLAUDE.md 2>/dev/null", false, []), CancellationToken.None);
+        var write = await policy.EvaluateAsync(new FileWriteRequest(repo.Combine("src/Demo/Calculator.cs")), CancellationToken.None);
+
+        Assert.Equal(ToolVerdict.Reject, shell.Verdict);
+        Assert.False(shell.CountsTowardRefusalLimit);
+        Assert.Equal(ToolVerdict.Reject, write.Verdict);
+        Assert.True(write.CountsTowardRefusalLimit);
+    }
+
+    [Fact]
     public async Task Create_RunsDotnetThroughTheRule()
     {
         using var repo = new TempDirectory();

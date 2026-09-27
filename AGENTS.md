@@ -54,6 +54,10 @@ and every test project passes.
 - **Tests never call a model.** Use `ScriptedBackend` for sessions, and `--record`/`--replay` for app runs.
   Replay writes the recorded events back verbatim and never evaluates a policy, so changing a policy or its refusal
   texts doesn't invalidate a recording.
+- **Every turn of an `AgentSession` runs on one Copilot SDK session.** Don't run turns through Agent Framework's
+  `GitHubCopilotAgent.RunAsync`: up to at least package 1.22.0 it resumes the session each turn with a config that
+  drops `OnEvent` and the hardening flags, so turn 2 onwards report no usage or tool events (limits and stop rules
+  go blind, credits are undercounted) and run unhardened. See the Backend section of AgentHarness's README.
 - **One `CopilotBackend` per directory in use at the same time.** A backend restarts its runtime when a session
   starts in another directory, which breaks sessions still running in the old one.
 - **Treat every cloned repo as untrusted.** Clone through `RepoWorkspace`, which turns symlinks into plain files

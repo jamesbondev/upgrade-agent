@@ -1,10 +1,7 @@
 using System.Text.Json;
 using GitHub.Copilot;
 using GitHub.Copilot.Rpc;
-using Microsoft.Agents.AI;
-using Microsoft.Agents.AI.GitHub.Copilot;
 using Microsoft.Extensions.AI;
-using FrameworkSession = Microsoft.Agents.AI.AgentSession;
 
 namespace AgentHarness.Copilot;
 
@@ -67,17 +64,9 @@ public sealed class CopilotBackend(CopilotOptions? options = null) : IAgentBacke
             }
         };
         _options.ConfigureSession?.Invoke(config);
+        GateApprovalRequiredTools(config);
 
-        var agent = new GitHubCopilotAgent(client, config, ownsClient: false, name: _options.ClientName);
-        try
-        {
-            return new CopilotSession(agent, await agent.CreateSessionAsync(cancellationToken));
-        }
-        catch
-        {
-            await agent.DisposeAsync();
-            throw;
-        }
+        return new SingleCopilotSession(await client.CreateSessionAsync(config, cancellationToken));
     }
 
     public async ValueTask DisposeAsync()
@@ -204,11 +193,59 @@ public sealed class CopilotBackend(CopilotOptions? options = null) : IAgentBacke
             ? value.GetString()
             : null;
 
-    private sealed class CopilotSession(AIAgent agent, FrameworkSession session) : IAgentBackendSession
+    internal static void GateApprovalRequiredTools(SessionConfig config)
     {
-        public async Task<string?> SendAsync(string message, CancellationToken cancellationToken) =>
-            (await agent.RunAsync(message, session, cancellationToken: cancellationToken)).Text;
+        var gated = (config.Tools ?? [])
+            .OfType<AIFunction>()
+            .Where(f => f.GetService<ApprovalRequiredAIFunction>() is not null)
+            .Select(f => f.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        if (gated.Count == 0 || config.Hooks?.OnPreToolUse is not null)
+        {
+            return;
+        }
 
-        public ValueTask DisposeAsync() => agent is IAsyncDisposable disposable ? disposable.DisposeAsync() : ValueTask.CompletedTask;
+        config.Hooks ??= new SessionHooks();
+        config.Hooks.OnPreToolUse = (input, _) => Task.FromResult(gated.Contains(input.ToolName)
+            ? new PreToolUseHookOutput { PermissionDecision = "ask", PermissionDecisionReason = $"Tool '{input.ToolName}' requires approval." }
+            : null);
+    }
+
+    private sealed class SingleCopilotSession(CopilotSession session) : IAgentBackendSession
+    {
+        public async Task<string?> SendAsync(string message, CancellationToken cancellationToken)
+        {
+            var replies = new List<string>();
+            var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var subscription = session.On<SessionEvent>(sessionEvent =>
+            {
+                switch (sessionEvent)
+                {
+                    case AssistantMessageEvent { Data.ParentToolCallId: null } reply when !string.IsNullOrEmpty(reply.Data.Content):
+                        lock (replies)
+                        {
+                            replies.Add(reply.Data.Content);
+                        }
+
+                        break;
+                    case SessionIdleEvent:
+                        done.TrySetResult();
+                        break;
+                    case SessionErrorEvent error:
+                        done.TrySetException(new InvalidOperationException($"Session error: {error.Data?.Message ?? "Unknown error"}"));
+                        break;
+                }
+            });
+            using var cancellation = cancellationToken.Register(() => done.TrySetCanceled(cancellationToken));
+
+            await session.SendAsync(new MessageOptions { Prompt = message }, cancellationToken);
+            await done.Task;
+            lock (replies)
+            {
+                return replies.Count == 0 ? null : string.Join(Environment.NewLine, replies);
+            }
+        }
+
+        public ValueTask DisposeAsync() => session.DisposeAsync();
     }
 }

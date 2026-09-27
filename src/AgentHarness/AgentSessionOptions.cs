@@ -82,6 +82,7 @@ public sealed record AgentStats(
 {
     public override string ToString() =>
         $"{Duration.TotalMinutes:0.0} min · {ModelCalls} model calls · {ToolCalls} tool calls · {Tokens(InputTokens)} in / {Tokens(OutputTokens)} out tokens"
+        + $"{(AiCredits > 0 ? $" · {AiCredits:0.##} AI credits" : "")}"
         + $" · {Refusals} refused · {OperatorApprovals} approved by the operator{(StopReason is null ? "" : $" · {StopReason}")}";
 
     private static string Tokens(long count) => count < 1000 ? $"{count}" : $"{count / 1000}k";

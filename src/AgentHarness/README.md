@@ -202,7 +202,7 @@ Or start from `WorkspacePolicy`, the default for a coding agent confined to one 
 - Reads inside the folder and `ReadOnlyRoots` run.
 - Edits run for `AutoApprovedEditExtensions` (`".cs"`; the dot is optional), ask for other files in the folder, and
   are refused outside it and in `.git`.
-- Shell commands are parsed (`ShellCommandParser`). Each part (split on `&&`, `||`, `;`, `|`) must be a
+- Shell commands are parsed. Each part (split on `&&`, `||`, `;`, `|`) must be a
   `ReadOnlyCommands` program, a `ReadOnlyGitCommands` git command, `cd` inside the folder, or a program with a rule
   in `Commands`. Substitution, variables, backslash escapes, redirection, subshells, script blocks, multi-line
   commands and background jobs are refused.

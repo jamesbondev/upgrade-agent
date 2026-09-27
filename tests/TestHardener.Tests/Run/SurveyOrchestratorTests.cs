@@ -154,7 +154,7 @@ public sealed class SurveyOrchestratorTests : IDisposable
             Output = new OutputOptions { Directory = _output.Path, WorkRoot = _work.Path },
         };
         var config = ConfigLoader.Resolve(options, _output.Path);
-        var progress = new SilentProgress();
+        var progress = new SilentSurveyProgress();
         var surveyor = new RepoSurveyor(
             config,
             new GitCli(new ProcessRunner()),
@@ -164,48 +164,5 @@ public sealed class SurveyOrchestratorTests : IDisposable
             progress,
             _time);
         return new SurveyOrchestrator(config, surveyor, progress, _time);
-    }
-
-    private sealed class FakeStryker(Func<StrykerRequest, string?> report) : IStrykerRunner
-    {
-        public List<IReadOnlyDictionary<string, string?>> Environments { get; } = [];
-
-        public async Task<StrykerRun> RunAsync(
-            StrykerRequest request, string outputDirectory, IReadOnlyDictionary<string, string?> environment, CancellationToken cancellationToken)
-        {
-            Environments.Add(environment);
-            if (report(request) is not { } json)
-            {
-                return new StrykerRun(null, outputDirectory, TimeSpan.Zero, "fake failure");
-            }
-
-            var path = Path.Combine(outputDirectory, StrykerRunner.ReportRelativePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            await File.WriteAllTextAsync(path, json, cancellationToken);
-            return new StrykerRun(MutationReportParser.Parse(json, request.RepoRoot), outputDirectory, TimeSpan.Zero, null);
-        }
-    }
-
-    private sealed class SilentProgress : ISurveyProgress
-    {
-        public void RepoStarted(RepoTarget target, int index, int count)
-        {
-        }
-
-        public void TargetStarted(TargetConfig target, bool fromEarlierRun)
-        {
-        }
-
-        public void TargetFinished(TargetSurvey target)
-        {
-        }
-
-        public void RepoFinished(RepoSurvey repo)
-        {
-        }
-
-        public void RunFinished(SurveyReport report, string reportPath)
-        {
-        }
     }
 }

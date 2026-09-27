@@ -67,6 +67,16 @@ internal static class HardenReportWriter
             builder.AppendLine().AppendLine(CultureInfo.InvariantCulture, $"Note: {Escape(repo.Note)}");
         }
 
+        if (repo.PullRequestUrl is not null)
+        {
+            builder.AppendLine().AppendLine(CultureInfo.InvariantCulture, $"Draft pull request: {repo.PullRequestUrl} (branch `{repo.Branch}`)");
+        }
+
+        if (repo.LeftoverBranches.Count > 0)
+        {
+            builder.AppendLine().AppendLine(CultureInfo.InvariantCulture, $"Pushed branches with no pull request, probably from a run that stopped between push and PR: {string.Join(", ", repo.LeftoverBranches.Select(b => $"`{b}`"))}. Open a PR for them or delete them.");
+        }
+
         if (repo.PatchPath is not null)
         {
             builder.AppendLine().AppendLine(CultureInfo.InvariantCulture, $"Patch: `{repo.PatchPath}` ({string.Join(", ", repo.ChangedFiles.Select(f => $"`{f}`"))})");

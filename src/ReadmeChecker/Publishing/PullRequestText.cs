@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using ReadmeChecker.Agent;
 using ReadmeChecker.Detection;
+using RepoKit.AzureDevOps;
 
 namespace ReadmeChecker.Publishing;
 
@@ -76,25 +77,7 @@ internal static class PullRequestText
         return builder.ToString();
     }
 
-    internal static string Escape(string text)
-    {
-        var builder = new StringBuilder(text.Length);
-        foreach (var c in text.ReplaceLineEndings(" "))
-        {
-            if ("\\`*_[]<>|#!".Contains(c, StringComparison.Ordinal))
-            {
-                builder.Append('\\');
-            }
-
-            builder.Append(c);
-            if (c == '@')
-            {
-                builder.Append('​');
-            }
-        }
-
-        return builder.ToString();
-    }
+    internal static string Escape(string text) => PullRequestMarkdown.Escape(text);
 
     private static string OneLine(string text, int max)
     {

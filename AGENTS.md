@@ -16,7 +16,7 @@ to do it → verify → open a PR.
 | `src/RepoKit.AzureDevOps` | Standalone library: Azure DevOps credentials, repo addresses and draft PRs (REST). Doesn't reference RepoKit. |
 | `src/UpgradeAgent` | App: NuGet upgrades with an agent fixing breaking changes, published as a draft PR in Azure DevOps. |
 | `src/ReadmeChecker` | App: finds READMEs that no longer match their repo, and opens draft PRs that fix them. |
-| `src/TestHardener` | App: runs Stryker.NET, ranks the mutants the tests miss (`survey`), and has an agent write tests that Stryker confirms kill them (`harden --dry-run`). |
+| `src/TestHardener` | App: runs Stryker.NET, ranks the mutants the tests miss (`survey`), has an agent write tests that Stryker confirms kill them, and opens a draft PR (`harden`). |
 | `samples/HelloAgent` | The smallest runnable use of AgentHarness. `--scripted` needs no model. |
 | `tests/` | xUnit. `*.IntegrationTests` replay recorded agent sessions end to end. |
 | `fixtures/` | Source for the sample repo and package the integration tests run against. |
@@ -73,9 +73,11 @@ and every test project passes.
 - **Known duplication:** `src/UpgradeAgent/Infrastructure` and parts of `Publishing` are copies of what RepoKit now
   holds. UpgradeAgent moves onto RepoKit in a later milestone; until then, fix a bug in both places.
   `TestHardener/Infrastructure/LoggingProcessRunner.cs` copies ReadmeChecker's, `TestRunnerDetector.cs` copies
-  UpgradeAgent's, `TestHardener/Hardening/AgentBackends.cs` copies ReadmeChecker's Copilot backend factory, and
+  UpgradeAgent's, `TestHardener/Hardening/AgentBackends.cs`, `Publishing/PullRequestHost.cs` and the Spectre
+  approval prompter copy ReadmeChecker's, and
   `TestHardener/Hardening/DotnetCli.cs` and `HardeningPolicy.cs` follow UpgradeAgent's `DotnetCli` and dotnet command
-  rule. Shared agent plumbing goes in AgentHarness instead (`FileAgentLog`, `Copilot/CopilotQuota`).
+  rule. Shared plumbing goes in a library instead: `FileAgentLog` and `Copilot/CopilotQuota` in AgentHarness,
+  `PullRequestMarkdown.Escape` in RepoKit.AzureDevOps (UpgradeAgent's `Markdown.EscapeInline` is still its own).
 - **Processes that build or test a cloned repo get no secrets.** `ProcessRunner` passes on the full environment
   unless told otherwise, so pass an environment that removes every `AgentEnvironment.IsSecret` variable and the
   credential variables (see `TestHardener/Infrastructure/SafeEnvironment.cs`). Test code, possibly agent-written,

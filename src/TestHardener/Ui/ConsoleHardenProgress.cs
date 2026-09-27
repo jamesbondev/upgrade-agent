@@ -1,10 +1,27 @@
 using System.Globalization;
+using AgentHarness.Policies;
 using Spectre.Console;
 using TestHardener.Config;
 using TestHardener.Hardening;
 using TestHardener.Run;
 
 namespace TestHardener.Ui;
+
+internal sealed class SpectreApprovalPrompter(IAnsiConsole console) : IApprovalPrompter
+{
+    public async Task<bool> ConfirmAsync(string action, string reason, CancellationToken cancellationToken)
+    {
+        console.MarkupLine($"  [yellow]approval needed:[/] {Markup.Escape(action)} [grey]({Markup.Escape(reason)})[/]");
+        try
+        {
+            return await new ConfirmationPrompt("  Go ahead?") { DefaultValue = false }.ShowAsync(console, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+    }
+}
 
 internal sealed class ConsoleHardenProgress(IAnsiConsole console) : IHardenProgress
 {
@@ -28,8 +45,14 @@ internal sealed class ConsoleHardenProgress(IAnsiConsole console) : IHardenProgr
         console.MarkupLine($"    [{colour}]{result.Outcome}[/] [grey]{Markup.Escape(detail)} · {result.Rounds.Count} rounds · {result.Duration.TotalMinutes:0.0} min[/]");
     }
 
-    public void RepoFinished(RepoHardenReport report) =>
-        console.MarkupLine($"  {report.Status} [grey]{Markup.Escape(report.Note ?? report.PatchPath ?? "")}[/]");
+    public void RepoFinished(RepoHardenReport report)
+    {
+        console.MarkupLine($"  {report.Status} [grey]{Markup.Escape(report.PullRequestUrl ?? report.Note ?? report.PatchPath ?? "")}[/]");
+        if (report.LeftoverBranches.Count > 0)
+        {
+            console.MarkupLine($"  [yellow]pushed branches with no pull request:[/] {Markup.Escape(string.Join(", ", report.LeftoverBranches))}");
+        }
+    }
 
     public void RunFinished(HardenReport report, string reportPath)
     {

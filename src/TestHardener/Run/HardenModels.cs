@@ -1,3 +1,4 @@
+using AgentHarness.Policies;
 using TestHardener.Analysis;
 using TestHardener.Config;
 using TestHardener.Hardening;
@@ -6,8 +7,11 @@ namespace TestHardener.Run;
 
 internal enum HardenStatus
 {
+    Opened,
     Ready,
+    Declined,
     Rejected,
+    Skipped,
     NothingToDo,
     Failed,
 }
@@ -29,6 +33,12 @@ internal sealed record RepoHardenReport
     public IReadOnlyList<string> ChangedFiles { get; init; } = [];
 
     public string? PatchPath { get; init; }
+
+    public string? Branch { get; init; }
+
+    public string? PullRequestUrl { get; init; }
+
+    public IReadOnlyList<string> LeftoverBranches { get; init; } = [];
 
     public double AiCredits { get; init; }
 
@@ -52,7 +62,7 @@ internal sealed record HardenReport(
     double AiCredits,
     IReadOnlyList<RepoHardenReport> Repos);
 
-internal sealed record HardenArguments(IReadOnlyCollection<string> Only, string? From, bool DryRun);
+internal sealed record HardenArguments(IReadOnlyCollection<string> Only, string? From, bool DryRun, IApprovalPrompter Prompter);
 
 internal sealed record PlannedGroup(TargetConfig Target, SurvivorGroup Group);
 

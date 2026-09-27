@@ -4,7 +4,10 @@ using RepoKit.AzureDevOps;
 
 namespace TestHardener.Config;
 
-internal sealed record TargetConfig(string Name, string Project, IReadOnlyList<string> TestProjects, string? TestFilter, IReadOnlyList<string> Mutate, IReadOnlyList<string> IgnoreStringMutationsIn);
+internal sealed record TargetConfig(string Name, string Project, IReadOnlyList<string> TestProjects, string? TestFilter, IReadOnlyList<string> Mutate, IReadOnlyList<string> IgnoreStringMutationsIn)
+{
+    public string? CommitScope { get; init; }
+}
 
 internal sealed record RepoTarget(string Name, AzureDevOpsRepo? AzureDevOps, string? LocalPath, string Solution, IReadOnlyList<TargetConfig> Targets)
 {
@@ -87,7 +90,7 @@ internal static class ConfigLoader
             t.TestProjects.Select(RepoPath).ToList(),
             string.IsNullOrWhiteSpace(t.TestFilter) ? null : t.TestFilter,
             t.Mutate,
-            t.IgnoreStringMutationsIn)).ToList();
+            t.IgnoreStringMutationsIn) { CommitScope = string.IsNullOrWhiteSpace(t.CommitScope) ? null : t.CommitScope.Trim() }).ToList();
         var solution = RepoPath(repo.Solution);
         var local = !string.IsNullOrWhiteSpace(repo.Path);
 

@@ -8,6 +8,7 @@ using TestHardener.Cli;
 using TestHardener.Config;
 using TestHardener.Hardening;
 using TestHardener.Infrastructure;
+using TestHardener.Publishing;
 using TestHardener.Run;
 using TestHardener.Stryker;
 using TestHardener.Ui;
@@ -50,6 +51,9 @@ internal static class AppServices
         services.AddSingleton<IGroupHardener, GroupHardener>();
         services.AddSingleton<IAgentBackendFactory, CopilotBackendFactory>();
         services.AddSingleton<IHardenProgress, ConsoleHardenProgress>();
+        services.AddSingleton<HttpClient>();
+        services.AddSingleton<IPullRequestHosts>(sp => new AzureDevOpsPullRequestHosts(
+            sp.GetRequiredService<HttpClient>(), sp.GetRequiredService<ResolvedConfig>().Options.Publish));
         services.AddSingleton<HardenOrchestrator>();
         services.AddSingleton<HardenCommandHandler>();
 

@@ -14,6 +14,8 @@ internal sealed class TestHardenerOptions
 
     public AgentOptions Agent { get; set; } = new();
 
+    public PublishOptions Publish { get; set; } = new();
+
     public OutputOptions Output { get; set; } = new();
 }
 
@@ -72,6 +74,8 @@ internal sealed class TargetOptions
     public List<string> Mutate { get; set; } = [];
 
     public List<string> IgnoreStringMutationsIn { get; set; } = [];
+
+    public string? CommitScope { get; set; }
 }
 
 internal sealed class StrykerOptions
@@ -126,6 +130,19 @@ internal sealed class AgentOptions
     public string? GitHubTokenEnvVar { get; set; }
 
     public List<string> RemoveEnvironmentVariables { get; set; } = [];
+}
+
+internal sealed class PublishOptions
+{
+    public string BranchPrefix { get; set; } = "agent/test-hardening-";
+
+    public string Label { get; set; } = "agent-generated";
+
+    public int CooldownDays { get; set; } = 7;
+
+    public string CommitName { get; set; } = "TestHardener";
+
+    public string CommitEmail { get; set; } = "test-hardener@localhost";
 }
 
 internal sealed class OutputOptions

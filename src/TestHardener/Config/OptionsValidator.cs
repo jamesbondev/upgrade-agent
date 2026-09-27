@@ -56,6 +56,16 @@ internal sealed class OptionsValidator : IValidateOptions<TestHardenerOptions>
         RequirePositive(options.Hardening.MaxSurvivorsPerGroup, "Hardening:MaxSurvivorsPerGroup");
         RequirePositive(options.Hardening.FixHistoryDays, "Hardening:FixHistoryDays");
         RequirePositive(options.Output.CloneTimeoutMinutes, "Output:CloneTimeoutMinutes");
+        if (options.Publish.CooldownDays < 0)
+        {
+            failures.Add("Publish:CooldownDays must be 0 or more.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Publish.BranchPrefix) || options.Publish.BranchPrefix.Contains(' ', StringComparison.Ordinal))
+        {
+            failures.Add("Publish:BranchPrefix must be a branch name prefix with no spaces, like agent/test-hardening-.");
+        }
+
         RequirePositive(options.Hardening.MaxRounds, "Hardening:MaxRounds");
         RequirePositive(options.Hardening.OriginalRuns, "Hardening:OriginalRuns");
         RequirePositive(options.Agent.MaxMinutes, "Agent:MaxMinutes");

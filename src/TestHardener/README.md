@@ -4,9 +4,9 @@ Runs [Stryker.NET](https://stryker-mutator.io/docs/stryker-net/introduction/) on
 mutants their tests don't catch. Stryker makes small changes to the code (a mutant), such as `>` to `>=` or removing
 a statement, and runs the tests. A mutant the tests don't notice (a survivor) marks behavior no test checks.
 
-`survey` reports the survivors worth a test, grouped by method and ranked. It changes nothing. `harden --dry-run` has
-an agent write tests that kill the top-ranked survivors, checks them with plain code and with Stryker itself, and
-saves them as a patch. Opening pull requests comes next. It is built on [AgentHarness](../AgentHarness/README.md),
+`survey` reports the survivors worth a test, grouped by method and ranked. It changes nothing. `harden` has an agent
+write tests that kill the top-ranked survivors, checks them with plain code and with Stryker itself, and opens a
+draft pull request after you approve it (`--dry-run` saves a patch instead). It is built on [AgentHarness](../AgentHarness/README.md),
 [RepoKit](../RepoKit/README.md) and [RepoKit.AzureDevOps](../RepoKit.AzureDevOps/README.md).
 
 ## Run it
@@ -118,6 +118,7 @@ A private NuGet feed that needs such a variable to restore won't work yet.
 ## Harden: agent-written tests
 
 ```sh
+dotnet run --project src/TestHardener -- harden --config test-hardener.json --only payments-api
 dotnet run --project src/TestHardener -- harden --dry-run --config test-hardener.json --only payments-api
 dotnet run --project src/TestHardener -- harden --dry-run --config test-hardener.json --from out/run-20260927-101500
 ```
@@ -177,6 +178,39 @@ It surveys first (or reuses `--from`), then for each repo takes the top groups a
 After the groups, `VerifyTestProjects` are built and run once. The kept files are written to `hardening.patch`.
 The agent's summary of each test is reported as its claim, next to what was verified. The summary also records
 `BlockedBy`, for when a test needed a helper in another file or a production refactor.
+
+### Publishing
+
+For an Azure DevOps repo, `harden`:
+
+1. **Skips the repo before surveying it** if a pull request from `Publish:BranchPrefix` (`agent/test-hardening-`) is
+   open, or was opened in the last `Publish:CooldownDays` (7), whatever happened to it.
+2. **Lists pushed prefix branches that have no pull request** in the report. These are usually left by a run that
+   stopped between push and PR. They aren't deleted.
+3. **Works on a new branch per run** (`agent/test-hardening-<run>`).
+4. **Asks you** (`Go ahead?`) once the tests have passed every check and the final run, unless you pass `--yes`.
+   Without a console and without `--yes`, nothing is pushed.
+5. **Commits only the kept test files.**
+   - The commit is `test(<scopes>): cover surviving mutants`, where the scopes come from each target's `CommitScope`
+     (for example `"CommitScope": "engine"`). Without scopes it's `test: …`.
+   - The committer is `Publish:CommitName`/`CommitEmail`, unless git has an identity.
+6. **Pushes and opens a draft pull request** labelled `Publish:Label` (`agent-generated`). The description:
+   - says what was checked, and warns that the tests are agent-written, so the reviewer should read each assertion;
+   - has a table of method, test, and the mutants each test catches;
+   - has the mutation score of the touched files before and after, computed from the survey and the scoped runs;
+   - has the agent's description of each test, escaped and with `@` mentions defused.
+
+Local repos (`Path`) never push; the tests are saved as `hardening.patch`.
+
+| Status | Meaning |
+|---|---|
+| Opened | A draft pull request is open; the report links it. |
+| Ready | The tests passed; dry run or local repo, so they're only a patch. |
+| Declined | You said no; the patch is saved. |
+| Rejected | No group passed, or the final run of `VerifyTestProjects` failed. |
+| Skipped | A pull request is open or recent. |
+| NothingToDo | No survivors worth a test. |
+| Failed | The survey, the agent or pushing failed. |
 
 A group takes a few minutes: each round is an agent turn, a build, `OriginalRuns` filtered test runs, and a scoped
 Stryker run (about 50 seconds on a 10k-line project).
